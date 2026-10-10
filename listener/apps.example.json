@@ -5,21 +5,54 @@
       "name": "exercise-analyzer",
       "bundle": "com.idvorkin.exerciseanalyzer",
       "repo": "~/gits/exercise-analyzer",
-      "tracker": { "kind": "github", "repo": "idvorkin/exercise-analyzer" }
+      "tracker": {
+        "kind": "github",
+        "repo": "idvorkin/exercise-analyzer"
+      },
+      "build": {
+        "scheme": "ExerciseAnalyzer",
+        "project": "ExerciseAnalyzer.xcodeproj",
+        "derived_data": "Build",
+        "app": "Build/Build/Products/Debug-iphoneos/ExerciseAnalyzer.app",
+        "watch_app": "Build/Build/Products/Debug-iphoneos/ExerciseAnalyzer.app/Watch/ExerciseAnalyzerWatch.app"
+      }
     },
     {
       "name": "context-grabber",
       "bundle": "com.idvorkin.grabbernative",
       "repo": "~/gits/context-grabber",
-      "tracker": { "kind": "github", "repo": "idvorkin/context-grabber" }
+      "tracker": {
+        "kind": "github",
+        "repo": "idvorkin/context-grabber"
+      },
+      "build": {
+        "xcodegen": "native",
+        "scheme": "GrabberNative",
+        "project": "native/GrabberNative.xcodeproj",
+        "derived_data": "native/Build",
+        "app": "native/Build/Build/Products/Debug-iphoneos/GrabberNative.app",
+        "settings": [
+          "GIT_SHA={sha}",
+          "GIT_BRANCH={branch}"
+        ]
+      }
     },
     {
       "name": "magic-monitor",
       "bundle": "com.idvorkin.magicmonitor",
       "repo": "~/gits/magic-monitor-native",
-      "tracker": { "kind": "beads" },
+      "tracker": {
+        "kind": "beads"
+      },
       "log_dir": "Documents/logs",
-      "crash_dir": "Documents/crashes"
+      "crash_dir": "Documents/crashes",
+      "build": {
+        "xcodegen": "iPad",
+        "scheme": "MagicMonitorPad",
+        "project": "iPad/MagicMonitorPad.xcodeproj",
+        "derived_data": "build/ipad",
+        "app": "build/ipad/Build/Products/Debug-iphoneos/Magic Monitor.app"
+      }
     }
   ]
 }
