@@ -1,0 +1,104 @@
+# What's new
+
+Part of the [BugKit stories](README.md). What's new was built in Context Grabber's native app first, as CG story 148. The reporting dialog and What's new are two halves of one loop: problems go to the developer, and what changed comes back to the person who reported them.
+
+---
+
+### User Story 030:
+
+- **Summary:** What's new, by day, written by the build itself
+- **From:** CG story 148 (#165), f3d2758
+- **Status:**
+  - `WhatsNew.build`, `WhatsNew.stories` and `WhatsNew.commits(fromLog:)` are verified on the host by `WhatsNewTests`:
+    - by local day, newest first, one line per story per day;
+    - bookkeeping commits dropped;
+    - summaries taken from the stories;
+    - the log text parsed.
+  - `scripts/whats-new.sh` ran against a real checkout on 2026-10-10.
+
+#### Use Case:
+- **As someone** who installs a new build most days
+- **I want to** see what each recent day's builds changed, in plain words, newest first
+- **so that** I remember what to try, and nobody has to keep a list up to date
+
+#### Acceptance Criteria:
+- **Scenario:** The list by day
+- **Given:** the last thirty days hold story commits on several days, some with status follow-ups and merges
+- **When:** I open *What's new*
+- **Then:**
+  - I see one section per day, newest first;
+  - each change appears once per story per day, with its story and issue under it;
+  - there are no status or merge lines;
+  - the log has `ui` open_whats_new with the days and changes.
+
+- **Scenario:** Nothing to show
+- **Given:** a build made without the project's history, or with no story change in thirty days
+- **Then:** the feed is empty, there is no home row, and the list says there is nothing new, with no error
+
+---
+
+### User Story 031:
+
+- **Summary:** A change opens its story
+- **From:** CG #232 (5227ba9)
+- **Status:** `WhatsNew.stories(fromMarkdown:file:baseURL:)` with `WhatsNewView`.
+  - Verified on the host by `testEachStoryLinksToItsHeading` and `testBugKitsOwnStoriesParse`.
+  - The view is verified by typecheck.
+
+#### Use Case:
+- **As someone** reading a change I do not understand
+- **I want to** tap it and read its story
+- **so that** I know what to try and what it should do
+
+#### Acceptance Criteria:
+- **Scenario:** A tap
+- **Given:** the build passed `--base-url https://github.com/<owner>/<repo>/blob/main/docs/stories/`
+- **When:** I tap a change
+- **Then:** its story opens at its own heading (`#user-story-NNN`), and the log has `ui` open_story with the story and the address
+
+---
+
+### User Story 032:
+
+- **Summary:** A commit that names its story only in its message, or through its issue, still shows
+- **From:** CG #246 (6b1d0aa)
+- **Status:** `WhatsNew.parse(subject:body:issueStories:)` with `issueStories(fromMarkdown:)`. Verified on the host by `testASubjectWithoutAStoryFindsItInTheMessageOrThroughItsIssue`.
+
+#### Use Case:
+- **As a** developer who wrote a plain subject and named the story in the body
+- **I want to** have the change listed anyway
+- **so that** What's new does not depend on one commit-subject style
+
+#### Acceptance Criteria:
+- **Scenario:** The story in the message
+- **Given:** a commit "Cockpit: Back in the footer" whose message says "Story 200."
+- **Then:** it is listed under story 200 in its own words
+
+- **Scenario:** Through its issue
+- **Given:** a commit "a stale retry no longer ends a call (#198)", where a story's Issues line lists #198
+- **Then:** it is listed under that story
+
+---
+
+### User Story 033:
+
+- **Summary:** Dismissed with its ✕, kept in settings
+- **From:** CG story 148 (adfed5a, `WhatsNewSeenUITests`)
+- **Status:**
+  - `WhatsNewSeen` and `WhatsNewRow`. Verified on the host by `testTheSeenStoreHidesTheRowUntilSomethingNewer` and `testHomeRowGoesOnceSeenAndComesBackForSomethingNewer`.
+  - The row is verified by typecheck.
+
+#### Use Case:
+- **As someone** who has read what is new
+- **I want to** hide the home row until there is something newer, but still reach the list
+- **so that** the home screen holds what I open, and nothing nags
+
+#### Acceptance Criteria:
+- **Scenario:** The ✕
+- **Given:** the home screen shows *What's new · Oct 5 — …*
+- **When:** I open it and come back, then tap its ✕, then relaunch
+- **Then:**
+  - opening leaves the row;
+  - the ✕ removes it, and the relaunch does not bring it back until a build with a newer change;
+  - the app's settings still open the list;
+  - the log has `ui` dismiss_whats_new.
