@@ -6,6 +6,8 @@ files each one once.
 - **`BugKit`**, a Swift package (iOS 17+, builds on macOS for host tests). Shake, a button or ⌘I opens one
   dialog: a note, a screenshot thumbnail, and **Log it** / **Log it and another**. Each report is one line in
   `Documents/bugs.jsonl` and a folder `Documents/bugs/<stamp>/`.
+- **What's new**, the other half of the loop. The build turns its own git history and user stories into a dated
+  list of changes, each opening its story, with a home-screen line the person can dismiss.
 - **`listener/bug-listener`**, an always-on loop on the Mac. It polls every reachable iPhone and iPad with
   `devicectl`, copies each new report with its session log and crash logs, files it to the app's tracker
   (GitHub issues, beads, or nothing), and tells the driver through an inbox file and a Herdr notification.
@@ -13,13 +15,90 @@ files each one once.
 It was extracted from three apps that each grew their own copy: Exercise Analyzer (EA), Context Grabber's native
 app (CG) and Magic Monitor (MM). Each fix below had to be made three times. Now it is made once.
 
+Beyond the code, the repo holds:
+- [docs/stories/](docs/stories/README.md), the user stories BugKit implements, each naming its app story and test;
+- [docs/ops/](docs/ops/README.md), how the apps are pulled from, deployed, signed, simulated and tested;
+- `scripts/`: `pull-reports.sh`, `deploy-all.sh` and `whats-new.sh`.
+
 ## Contents
 
+- [What each app gains](#what-each-app-gains): the feature matrix and a migration checklist per app
 - [The principles](#the-principles), the important part
 - [Adding BugKit to an app](#adding-bugkit-to-an-app)
 - [The report format](#the-report-format)
 - [The listener](#the-listener): install, run in a Herdr pane, or run under launchd
 - [Developing BugKit](#developing-bugkit)
+
+## What each app gains
+
+"✓" means the app has the feature today, on its origin/main of 2026-10-10; "–" means it does not. The BugKit column gives the option or type that provides the feature.
+
+| Feature | EA | CG | MM | BugKit |
+|---|---|---|---|---|
+| iOS shake gesture opens the report | ✓ | ✓ | – | `systemShake` (on) |
+| Gentle shake read from motion (CG story 146) | – | ✓ | – | `gentleShake` (on) |
+| A button | ✓ | ✓ | ✓ (iPad Settings) | `BugReportButton` |
+| ⌘I | – | – | ✓ | `commandI` (on) |
+| Return/Escape keys in the dialog | – | – | ✓ | `dialogKeys` (on) |
+| Screenshot taken before the dialog | ✓ | ✓ | – (video instead) | always |
+| Opens over other sheets (topmost VC) | ✓ (#41) | ✓ (#182) | – | always |
+| "Log it and another" | ✓ keeps the moment | ✓ re-captures | ✓ | `another: .keepMoment` or `.recapture` |
+| Speak the note (CG #239) | – | ✓ | – | `dictation` (off: needs Info.plist strings) |
+| "Nothing leaves this iPad" | – | – | ✓ | `privacyNote` |
+| A report `id` (UUID) and ms `reported_at` | – | – | – | always |
+| Locked index append (mmn-cfr) | – | – | ✓ | always |
+| Unique folders within one second | – | – | ✓ | always |
+| Report names its log and the moment | ✓ | ✓ | ✓ (copies the log) | `log`, `session_t_ms`; `copySessionLog` |
+| Build and commit in the report | – | ✓ | ✓ | always (`BugKitCommit`) |
+| Typed context (numbers stay numbers) | – (strings) | – (strings) | ✓ (Codable) | `context: [String: JSONValue]` |
+| Extra files: clip, recent segments, report.json | ✓ frame | – | ✓ | `extraFiles`, `RecentSegments`, `writeReportJSON` |
+| JSON Lines session log per launch | ✓ | ✓ | ✓ | `SessionLog` (optional) |
+| Periodic status line helper | ad hoc | ad hoc | ad hoc | `SessionLog.status(every:)` |
+| Logs pruned at 30 days, reported ones kept | ✓ | ✓ | – | `BugStore.pruneLogs` |
+| MetricKit, signal and exception files, announced once | ✓ | ✓ | – | `CrashReports` |
+| Simulator hooks for reports | ✓ `SWING_BUG` | ✓ `GRABBER_BUG` | selftest script | `launchHookPrefix` |
+| What's new from git and the stories (CG story 148) | – | ✓ | – | `WhatsNew`, `WhatsNewView`, `WhatsNewRow`, `scripts/whats-new.sh` |
+| Pull from the phone **and** the iPad | – (one device) | ✓ (PR #241) | – | `scripts/pull-reports.sh` |
+| File each report once | ✓ GitHub, gist images | ✓ GitHub, no images | ✓ beads | `listener/bug-listener` (GitHub, beads, none) |
+| Always-on listener, inbox and notification | – | – | – | `listener/bug-listener` |
+| Deploy to every device under the signing lock | – | – | ✓ lock (iPad only) | `scripts/deploy-all.sh` |
+
+### Migration checklists
+
+The order is EA first (CG's copy came from it), then CG, then MM. Each app keeps its own context, screen names and stories. One commit per step.
+
+**Exercise Analyzer**
+1. Add the package. Replace `ShakeDetector`, `BugReportSheet` and `BugReporter` in `BugReport.swift` with `BugReporter(hooks:options:)`, using `another: .keepMoment` (#212's behaviour). This fixes the unlocked `bugs.jsonl` append and the same-second folder overwrite that EA still has.
+2. Hooks:
+   - `context`: today's `bugContext()`, with numbers as numbers (`reps`, `playhead`);
+   - `logger`: `log.event`;
+   - `extraFiles`: the frame at the playhead (`frame.jpg`, story 026);
+   - `sessionLog`: `("logs/" + log.url.lastPathComponent, ms)`.
+3. Set `launchHookPrefix: "SWING"`, so `SWING_BUG` keeps working (`a|b` included).
+4. Keep `CrashReports.swift`, or swap in BugKit's `CrashReports.shared.install(logger:)`. They are the same design, but BugKit's signal handler does not allocate and writes one file per crash, as CG's does. Swap `pruneOldLogs` for `BugStore().pruneLogs(logger:)`.
+5. Point `just bugs-check` at `scripts/pull-reports.sh --check exercise-analyzer`. Stop hosting screenshots on gists if the repo is public.
+6. Add What's new: `scripts/whats-new.sh` as a build phase, plus `WhatsNewRow` and `WhatsNewView`.
+7. Wrap `build-device` in the signing lock, or use `scripts/deploy-all.sh exercise-analyzer --watch`.
+
+**Context Grabber (native)**
+1. Replace `BugReport.swift`, `NoteDictation.swift` and `ShakeMotion` with `BugReporter`, using `another: .recapture`, `dictation: true` and `gentleShake: true`. Set `microphoneBusy` to `{ model.call.snapshot.isActive }`.
+2. Move `ShakeGesture`, `LogRetention` and `WhatsNew` out of ContextCore to BugKit's versions. They are the same code. `WhatsNew` now takes the story base URL as a parameter.
+3. Switch `scripts/native/whats-new.sh` to BugKit's script with `--path native --base-url <the repo's stories URL>`.
+4. Set `launchHookPrefix: "GRABBER"`.
+5. Fix or retire `scripts/native/bugs-monitor.sh`. It stopped matching after PR #241 changed the check's line format; `pull-reports.sh --check` prints a stable line.
+6. Wrap `native-build-device` in the signing lock, or use `scripts/deploy-all.sh context-grabber`.
+
+**Magic Monitor**
+1. On the iPad, move reports from Application Support to `Documents/bugs.jsonl` and `Documents/bugs/`, so the listener sees them.
+2. Use `BugReporter` with these options:
+   - `commandI`, `dialogKeys` and `another: .keepMoment`;
+   - `privacyNote: "Nothing leaves this iPad."`;
+   - `copySessionLog: true` and `writeReportJSON: true`;
+   - `extraFiles` copying `RecentSegments.covering(…, seconds: 90)`.
+   Note that BugKit's keys differ from MM's: ⌘Return logs and ⇧⌘Return logs another, because the note field is multi-line.
+3. The Mac app is not iOS. Keep its SwiftUI sheet, and use `BugReportFlow` and `BugReportWriter`, which build on macOS.
+4. Add `CrashReports` and `pruneLogs`. MM has neither.
+5. Set the tracker to `beads` in the listener's config, and keep `just file-bugs` for the Mac's own reports.
 
 ## The principles
 
@@ -144,6 +223,12 @@ their public repos. MM ids (`mmn-…`) and story numbers refer to its own repo. 
     - A bug reported by voice gets an issue too, so the trail is complete.
     - Before fixing, find or write the user story the report belongs to.
     - If looking up the existing issues fails, stop filing rather than file everything again (CG 6fed157).
+    - **The marker dedupe has holes.** An issue filed by hand, or by an older script, without the marker is
+      invisible to it. CG's report of 2026-10-08T04:00:59Z still shows as unfiled although an issue was said to
+      cover it (#233). So the listener also treats a note whose first 60 characters already appear in an issue as
+      filed, and logs `possible_duplicate`. When filing by hand, paste the marker.
+    - **Old index lines can be invalid JSON.** EA's older notes could carry a raw newline, which splits one report
+      over two lines. Readers log and skip such lines (`line_unreadable`). BugKit always escapes.
     - Sources: EA AGENTS.md, MM AGENTS.md, CG AGENTS.md ("one PR per issue").
 
 ### Crashes and hangs
@@ -223,7 +308,11 @@ their public repos. MM ids (`mmn-…`) and story numbers refer to its own repo. 
    `BugKitCommit: $(GIT_COMMIT)` set from `git rev-parse --short HEAD` in a build script. Without it, reports say
    "unknown".
 
-3. Create one reporter at launch, give it the app's hooks, and attach it to the root view:
+3. At launch:
+   - open the session log, if the app has none of its own;
+   - install crash capture;
+   - prune old logs;
+   - create one reporter with the app's hooks and options, and attach it to the root view.
 
 ```swift
 import BugKit
@@ -233,37 +322,68 @@ import SwiftUI
 struct MyApp: App {
   @StateObject private var model: AppModel
   @StateObject private var reporter: BugReporter
+  let log = SessionLog(prefix: "app", fields: ["build": "1.0 (42)"])   // or the app's own logger
+  let whatsNew = WhatsNewSeen.bundledFeed()                            // whats-new.json from scripts/whats-new.sh
 
   init() {
-    let model = AppModel()
+    CrashReports.shared.install(logger: log.logger)        // MetricKit, signal and exception files, announced once
+    BugStore().pruneLogs(logger: log.logger)               // logs older than 30 days, except reported ones
+    let model = AppModel(log: log)
     _model = StateObject(wrappedValue: model)
+    var options = BugReporterOptions()
+    options.another = .keepMoment                          // or .recapture: a fresh picture for each report
+    options.dictation = true                               // needs the speech and microphone usage strings
+    options.privacyNote = "Nothing leaves this device until the developer pulls it."
+    options.launchHookPrefix = "APP"                       // SIMCTL_CHILD_APP_BUG="a|b" in simulator checks
     _reporter = StateObject(wrappedValue: BugReporter(hooks: BugReporterHooks(
       screen: { model.screenName },                              // "home", "playback"
       context: { ["exercise": .string(model.exercise), "playhead": .double(model.playhead)] },
-      sessionLog: { (model.log.relativePath, model.log.msSinceStart) },  // "logs/app-20261010-150000.jsonl", 84442
-      logger: { event, fields in model.log.event(event, fields) },  // bug_report lands in the session log
+      sessionLog: { [log] in log.position },                     // ("logs/app-20261010-150000.jsonl", 84442)
+      logger: log.logger,                                        // bug_report lands in the session log
       extraFiles: { folder in                                    // optional: e.g. the clip at the playhead
         try await model.exportClip(to: folder.appendingPathComponent("clip.mov"))
         return ["clip.mov"]
-      })))
+      },
+      microphoneBusy: { model.inCall }), options: options))
   }
 
   var body: some Scene {
     WindowGroup {
       ContentView()
         .environmentObject(model)
-        .bugReporting(reporter)  // shake anywhere, or ⌘I on a hardware keyboard
+        .bugReporting(reporter)  // shake (hard or gentle), or ⌘I on a hardware keyboard
+        .onAppear { reporter.runLaunchHooks() }
     }
   }
 }
 
 // Anywhere a button is easier than a shake (an iPad on a stand):
 BugReportButton(reporter: reporter)
+// The home screen's What's new line, with its ✕, and the list it opens:
+WhatsNewRow(feed: whatsNew, logger: log.logger) { showWhatsNew = true }
+NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
 ```
 
 - `reporter.shakeEnabled = false` ignores shakes, for example during a run where the phone is in a pocket (EA
   story 037).
 - `reporter.lastStatus` says "Problem logged. Thanks." after a save, for a status line.
+- `log.status(every: 5) { [...] }` writes a periodic status line.
+- `RecentSegments.covering(segments, now:, seconds: 90, start:, end:)` picks the recorded segments for `extraFiles`.
+
+4. **What's new** is a build phase. With XcodeGen:
+
+   ```yaml
+   preBuildScripts:
+     - name: What's new
+       script: '"$BUILD_DIR/../../SourcePackages/checkouts/bug-kit/scripts/whats-new.sh" "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/whats-new.json" --repo "$SRCROOT" --base-url "https://github.com/<owner>/<repo>/blob/main/docs/stories/"'
+       basedOnDependencyAnalysis: false
+   ```
+
+   - It reads the last 30 days of `git log` and the stories in `docs/stories/`, in the "### User Story NNN:" and
+     "- **Summary:**" form.
+   - A commit counts when its subject starts with "Story NNN:", ends with "(story NNN)", names the story in its
+     message, or names an issue that a story's Issues line lists.
+   - Without git history it writes an empty feed and never fails the build.
 
 ## The report format
 
@@ -400,25 +520,27 @@ Stop it with `launchctl bootout gui/$(id -u)/com.example.bug-listener`.
 ## Developing BugKit
 
 ```sh
-swift test   # host tests, ~1 s
+swift test                                                    # host tests, under a second
+uv run --with typer --with pytest pytest listener/            # the listener's host tests
 ```
 
 The host tests cover:
+- the format and its keys; 64 concurrent appends; unique folders;
+- the dialog's flow in both "another" styles;
+- the shake gesture (a light shake, a push, a sway, a jiggle, the cooldown);
+- the dictation merge and the launch hooks;
+- the writer's hooks and folder extras, with their error paths;
+- log retention, the session log and its status line, crash files announced once;
+- What's new: subjects, stories, links, the log text, this repo's own stories, the seen store;
+- the listener's index reader (broken lines, U+2028), issue body, titles and keys.
 
-- the format round trip and its keys;
-- 64 concurrent appends giving 64 valid lines;
-- unique folders, including 32 created at once within one second;
-- the "Log it" and "Log it and another" flow;
-- the writer's hooks: the logger receives `bug_report`, and the extra files land in the report's folder;
-- a failing hook, which is logged while the report still saves.
-
-The UI (shake, sheet, presenter, ⌘I) is iOS only. Without a simulator, the most you can do is typecheck it against
-the iOS SDK:
+The UI (shake, sheet, presenter, dictation, What's new views) is iOS only. Without a simulator, the most you can
+do is typecheck it against the iOS SDK:
 
 ```sh
 xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0 \
   -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" Sources/BugKit/*.swift
 ```
 
-The dialog's real check is an app on a device: shake, type a note, tap Log it and another, type a second note,
-tap Log it. Then the listener should file two reports, each naming its log.
+The real check is an app on a device. Shake, type a note, tap Log it and another, type a second note, and tap Log
+it. The listener should then file two reports, each naming its log.
