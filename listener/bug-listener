@@ -191,7 +191,10 @@ def report_key(rec: dict, line: str) -> str:
 
 def read_index(path: Path, ctx: dict) -> list[tuple[str, dict]]:
     out = []
-    for n, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+    # Split on "\n" only: str.splitlines() also breaks on U+2028, U+0085 and other characters that JSON allows raw
+    # inside a string, which would cut a valid report in two. A line that still does not parse (an older app's
+    # note with a raw newline) is logged and skipped, never fatal.
+    for n, line in enumerate(path.read_text(errors="replace").split("\n"), 1):
         if not line.strip():
             continue
         try:
@@ -199,7 +202,7 @@ def read_index(path: Path, ctx: dict) -> list[tuple[str, dict]]:
             if not isinstance(rec, dict):
                 raise ValueError("not an object")
         except ValueError as e:
-            log("line_unreadable", line=n, message=str(e), **ctx)
+            log("line_unreadable", line=n, message=str(e), start=line[:80], **ctx)
             continue
         out.append((report_key(rec, line), rec))
     return out
@@ -274,6 +277,7 @@ class Filer:
 
     def __init__(self) -> None:
         self.filed_markers: dict[str, Optional[str]] = {}
+        self.bodies: dict[str, str] = {}
 
     def github_markers(self, repo: str) -> Optional[str]:
         """The bodies' markers, read once per poll. A failed read stops filing (CG 6fed157): better late than twice."""
@@ -285,6 +289,7 @@ class Filer:
                 self.filed_markers[repo] = None
             else:
                 self.filed_markers[repo] = "\n".join(re.findall(r"<!-- bug(?:-id)?:[^ ]+ -->", out))
+                self.bodies[repo] = re.sub(r"\s+", " ", out)
         return self.filed_markers[repo]
 
     def check(self, a: dict, rec: dict) -> Optional[tuple[str, Optional[str]]]:
@@ -298,6 +303,12 @@ class Filer:
             return "error", None
         at = rec.get("reported_at")
         if (rec.get("id") and f"<!-- bug-id:{rec['id']} -->" in markers) or (at and f"<!-- bug:{at} -->" in markers):
+            return "already_filed", repo
+        # Some issues were filed without the marker (by hand, or by an older script), so the apps' own dedupe
+        # missed them: a note whose first 60 characters already appear in an issue is taken as filed, and logged.
+        note = re.sub(r"\s+", " ", rec.get("note") or "").strip()
+        if len(note) >= 30 and note[:60] in self.bodies.get(repo, ""):
+            log("possible_duplicate", repo=repo, reported_at=at, note=note[:60])
             return "already_filed", repo
         return None
 
