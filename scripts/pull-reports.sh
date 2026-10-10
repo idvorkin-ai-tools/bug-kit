@@ -94,7 +94,7 @@ while IFS=$'\t' read -r app bundle tracker repo; do
     copy "$udid" "$bundle" Documents/logs "$out/logs" || echo "   $dir: logs not copied ($(grep -m1 -i error "$tmp/copy-err" | cut -c1-100))"
     copy "$udid" "$bundle" Documents/bugs "$out/bugs" || true        # absent until the first report
     copy "$udid" "$bundle" Documents/crashes "$out/crashes" || true  # absent until the first crash
-    echo "== $app / $dir: $(\ls "$out/logs" 2>/dev/null | wc -l | tr -d ' ') logs, $(wc -l <"$out/bugs.jsonl" 2>/dev/null | tr -d ' ' || echo 0) reports, $(\ls "$out/crashes" 2>/dev/null | wc -l | tr -d ' ') crash files in ${out/#$HOME/~}"
+    echo "== $app / $dir: $(\ls "$out/logs" 2>/dev/null | wc -l | tr -d ' ') logs, $(wc -l <"$out/bugs.jsonl" 2>/dev/null | tr -d ' ' || echo 0) reports, $(\ls "$out/crashes" 2>/dev/null | wc -l | tr -d ' ') crash files in ${out/#$HOME/\~}"
     tail -3 "$out/bugs.jsonl" 2>/dev/null | jq -c '{reported_at, note: (.note[0:70]), log, screen}' 2>/dev/null || true
   done <"$tmp/devices"
 done <<<"$apps"
