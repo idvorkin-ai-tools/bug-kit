@@ -1,0 +1,25 @@
+{
+  "poll_seconds": 300,
+  "apps": [
+    {
+      "name": "exercise-analyzer",
+      "bundle": "com.idvorkin.exerciseanalyzer",
+      "repo": "~/gits/exercise-analyzer",
+      "tracker": { "kind": "github", "repo": "idvorkin/exercise-analyzer" }
+    },
+    {
+      "name": "context-grabber",
+      "bundle": "com.idvorkin.grabbernative",
+      "repo": "~/gits/context-grabber",
+      "tracker": { "kind": "github", "repo": "idvorkin/context-grabber" }
+    },
+    {
+      "name": "magic-monitor",
+      "bundle": "com.idvorkin.magicmonitor",
+      "repo": "~/gits/magic-monitor-native",
+      "tracker": { "kind": "beads" },
+      "log_dir": "Documents/logs",
+      "crash_dir": "Documents/crashes"
+    }
+  ]
+}

@@ -1,0 +1,474 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["typer>=0.12"]
+# ///
+"""bug-listener: pulls new bug reports off every reachable iPhone and iPad and files each one once.
+
+Each poll, for each physical iOS device `devicectl` lists and each app in ~/.config/bug-kit/apps.json:
+copy Documents/bugs.jsonl; for each report not in the seen-store, copy its folder, the session log it names
+and the app's crash logs to ~/tmp/agent/bugs/<app>/<device>/, file it through the app's tracker, append a line
+to ~/tmp/agent/bugs/inbox.jsonl and send a Herdr notification. Every step is a JSON line in
+~/tmp/agent/bugs/listener.log.
+
+The first time the listener meets an (app, device) pair it marks every report already there as seen without
+filing it: the apps' own `just file-bugs` filed those. --backfill files them instead.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import time
+import traceback
+from pathlib import Path
+from typing import Any, Optional
+
+import typer
+
+HOME = Path.home()
+CONFIG = HOME / ".config" / "bug-kit" / "apps.json"
+STATE = HOME / "tmp" / "agent" / "bugs"
+LOG = STATE / "listener.log"
+SEEN = STATE / "seen.json"
+INBOX = STATE / "inbox.jsonl"
+FIXED = {
+    "id", "reported_at", "app", "bundle", "build", "commit", "device", "screen", "note", "log", "screenshot",
+    "context", "session_t_ms", "folder", "files",
+}
+
+app = typer.Typer(add_completion=False, help=__doc__)
+DRY = False
+
+
+def now() -> str:
+    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def log(event: str, **fields: Any) -> None:
+    """One JSON line per step in listener.log, and a short line on stdout for the pane."""
+    rec = {"t": now(), "event": event, **({"dry_run": True} if DRY else {}), **fields}
+    STATE.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    short = " ".join(f"{k}={v}" for k, v in fields.items() if k not in ("stderr", "traceback"))
+    print(f"{rec['t'][11:19]} {event} {short}", flush=True)
+
+
+def run(cmd: list[str], timeout: int = 120, cwd: Optional[Path] = None) -> tuple[int, str, str]:
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=cwd)
+        return p.returncode, p.stdout, p.stderr
+    except subprocess.TimeoutExpired:
+        return 124, "", f"timed out after {timeout} s"
+    except FileNotFoundError as e:
+        return 127, "", str(e)
+
+
+def tail(text: str, lines: int = 4) -> str:
+    """The last few non-blank lines of a command's stderr: enough to say why, short enough for one log line."""
+    return " | ".join(l.strip() for l in text.splitlines() if l.strip())[-lines * 160:] if text else ""
+
+
+def slug(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-") or "device"
+
+
+# --- config and state ---------------------------------------------------------------------------------------
+
+
+def load_config(path: Path) -> dict:
+    cfg = json.loads(path.read_text())
+    apps = cfg.get("apps", [])
+    for a in apps:
+        for key in ("name", "bundle"):
+            if not a.get(key):
+                raise ValueError(f"an app in {path} has no {key}: {a}")
+        a.setdefault("tracker", {"kind": "none"})
+        a.setdefault("log_dir", "Documents/logs")
+        a.setdefault("crash_dir", "Documents/crashes")
+        if a.get("repo"):
+            a["repo"] = str(Path(a["repo"]).expanduser())
+    cfg["apps"] = apps
+    cfg.setdefault("poll_seconds", 300)
+    return cfg
+
+
+def load_seen() -> dict:
+    if not SEEN.exists():
+        return {}
+    return json.loads(SEEN.read_text())
+
+
+def save_seen(seen: dict) -> None:
+    if DRY:
+        return
+    STATE.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=STATE, prefix=".seen-")
+    with os.fdopen(fd, "w") as f:
+        json.dump(seen, f, indent=1, sort_keys=True)
+    os.replace(tmp, SEEN)
+
+
+# --- devices ------------------------------------------------------------------------------------------------
+
+
+def list_devices() -> list[dict]:
+    """Physical iPhones and iPads that devicectl knows (paired). Reachability is probed per poll."""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "devices.json"
+        rc, _, err = run(["xcrun", "devicectl", "list", "devices", "--json-output", str(out)], timeout=60)
+        if rc != 0 or not out.exists():
+            log("devices_error", rc=rc, stderr=tail(err))
+            return []
+        data = json.loads(out.read_text())
+    devices, used = [], set()
+    for d in data.get("result", {}).get("devices", []):
+        hw, props = d.get("hardwareProperties", {}), d.get("deviceProperties", {})
+        if hw.get("reality") != "physical" or hw.get("deviceType") not in ("iPhone", "iPad"):
+            continue
+        model = hw.get("marketingName") or hw.get("productType") or hw.get("deviceType")
+        name = slug(model)
+        while name in used:  # two of the same model
+            name += "-b"
+        used.add(name)
+        devices.append({
+            "id": d["identifier"], "model": model, "type": hw.get("deviceType"), "dir": name,
+            "pairing": d.get("connectionProperties", {}).get("pairingState"),
+            "transport": d.get("connectionProperties", {}).get("transportType"),
+            "os": props.get("osVersionNumber"),
+        })
+    log("devices", count=len(devices), devices=[x["dir"] for x in devices])
+    return devices
+
+
+def probe(dev: dict) -> Optional[dict]:
+    """Asks the device its lock state: the cheapest call that proves it is reachable. None when it is not."""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "lock.json"
+        t0 = time.monotonic()
+        rc, _, err = run(["xcrun", "devicectl", "device", "info", "lockState", "--device", dev["id"],
+                          "--timeout", "30", "--json-output", str(out)], timeout=60)
+        ms = int((time.monotonic() - t0) * 1000)
+        if rc != 0 or not out.exists():
+            log("device", device=dev["dir"], reachable=False, ms=ms, transport=dev["transport"], stderr=tail(err))
+            return None
+        res = json.loads(out.read_text()).get("result", {})
+    state = {"locked": res.get("passcodeRequired"), "unlocked_since_boot": res.get("unlockedSinceBoot")}
+    log("device", device=dev["dir"], reachable=True, ms=ms, transport=dev["transport"], os=dev["os"], **state)
+    return state
+
+
+def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any) -> bool:
+    """devicectl copy from the app's container. Every copy is logged with its outcome and the lock state."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    t0 = time.monotonic()
+    rc, _, err = run(["xcrun", "devicectl", "device", "copy", "from", "--device", dev["id"],
+                      "--domain-type", "appDataContainer", "--domain-identifier", a["bundle"],
+                      "--source", source, "--destination", str(dest), "--timeout", "90"], timeout=120)
+    ms = int((time.monotonic() - t0) * 1000)
+    ok = rc == 0 and dest.exists()
+    fields = dict(device=dev["dir"], app=a["name"], source=source, ok=ok, ms=ms, locked=locked)
+    if not ok:
+        fields.update(rc=rc, stderr=tail(err))
+    log("copy", **fields)
+    return ok
+
+
+# --- reports ------------------------------------------------------------------------------------------------
+
+
+def report_key(rec: dict, line: str) -> str:
+    """BugKit reports carry an id; older EA and CG lines are keyed by reported_at, as their file-bugs did."""
+    return rec.get("id") or rec.get("reported_at") or "sha1:" + hashlib.sha1(line.encode()).hexdigest()[:16]
+
+
+def read_index(path: Path, ctx: dict) -> list[tuple[str, dict]]:
+    out = []
+    for n, line in enumerate(path.read_text(errors="replace").splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            rec = json.loads(line)
+            if not isinstance(rec, dict):
+                raise ValueError("not an object")
+        except ValueError as e:
+            log("line_unreadable", line=n, message=str(e), **ctx)
+            continue
+        out.append((report_key(rec, line), rec))
+    return out
+
+
+def under_documents(rel: str) -> str:
+    return rel if rel.startswith("Documents/") else f"Documents/{rel}"
+
+
+def log_source(rec: dict, a: dict) -> Optional[str]:
+    """BugKit's `log` is a path under Documents; the older apps wrote only the file name under Documents/logs."""
+    name = rec.get("log")
+    if not name:
+        return None
+    return under_documents(name) if "/" in name else f"{a['log_dir']}/{name}"
+
+
+def folder_of(rec: dict) -> Optional[str]:
+    if rec.get("folder"):
+        return rec["folder"]
+    shot = rec.get("screenshot")
+    return str(Path(shot).parent) if shot else None
+
+
+def title_of(rec: dict) -> str:
+    for line in (rec.get("note") or "").splitlines():
+        line = re.sub(r"^[-* ]+", "", line).strip()
+        if line:
+            return line[:80]
+    return f"Report from the device, {rec.get('reported_at', '?')}"
+
+
+def cell(v: Any) -> str:
+    if not isinstance(v, str):
+        v = json.dumps(v, ensure_ascii=False)
+    return v.replace("|", "\\|").replace("\n", " ") or "–"
+
+
+def tilde(p: Path) -> str:
+    return "~/" + str(p.relative_to(HOME)) if p.is_relative_to(HOME) else str(p)
+
+
+def issue_body(rec: dict, key: str, dev: dict, a: dict, local: Path) -> str:
+    """The issue text. The screenshot is named by its path on the Mac and never uploaded: the repos are public
+    and a screenshot can show health, places or a journal (CG story 143)."""
+    note = (rec.get("note") or "").replace("\n", "\n> ")
+    rows = [("Screen", rec.get("screen")), ("Build", rec.get("build")), ("Commit", rec.get("commit")),
+            ("Device", rec.get("device") or dev["model"])]
+    log_name = rec.get("log")
+    if log_name:
+        at = f" at {rec['session_t_ms']} ms" if rec.get("session_t_ms") is not None else ""
+        rows.append(("Log", f"`{log_name}`{at}, pulled to `{tilde(local / 'logs' / Path(log_name).name)}`"))
+    if rec.get("screenshot"):
+        rows.append(("Screenshot", f"`{tilde(local / rec['screenshot'])}` on the Mac, not uploaded"))
+    for f in rec.get("files") or []:
+        rows.append(("File", f"`{tilde(local / f)}` on the Mac"))
+    context = dict(rec.get("context") or {})
+    context.update({k: v for k, v in rec.items() if k not in FIXED})  # older lines keep context at the top level
+    rows += [(k, v) for k, v in sorted(context.items())]
+    table = "\n".join(f"| {cell(k)} | {cell(v)} |" for k, v in rows if v is not None)
+    markers = f"<!-- bug:{rec.get('reported_at', '')} -->" + (f"\n<!-- bug-id:{rec['id']} -->" if rec.get("id") else "")
+    return (f"**Report from the {dev['type']}** ({a['name']}, pulled by bug-listener), {rec.get('reported_at', '?')}\n\n"
+            f"> {note}\n\n| | |\n|---|---|\n{table}\n\n{markers}")
+
+
+# --- trackers -----------------------------------------------------------------------------------------------
+
+
+class Filer:
+    """Files a report through its app's tracker. Returns the issue's url or id, or None on failure (left unseen,
+    so the next poll tries again)."""
+
+    def __init__(self) -> None:
+        self.filed_markers: dict[str, Optional[str]] = {}
+
+    def github_markers(self, repo: str) -> Optional[str]:
+        """The bodies' markers, read once per poll. A failed read stops filing (CG 6fed157): better late than twice."""
+        if repo not in self.filed_markers:
+            rc, out, err = run(["gh", "issue", "list", "-R", repo, "--state", "all", "--limit", "1000",
+                                "--json", "body", "--jq", ".[].body"], timeout=90)
+            if rc != 0:
+                log("tracker_error", tracker="github", repo=repo, step="list", rc=rc, stderr=tail(err))
+                self.filed_markers[repo] = None
+            else:
+                self.filed_markers[repo] = "\n".join(re.findall(r"<!-- bug(?:-id)?:[^ ]+ -->", out))
+        return self.filed_markers[repo]
+
+    def check(self, a: dict, rec: dict) -> Optional[tuple[str, Optional[str]]]:
+        """Before any copy: is the report already an issue (filed by the app's own `just file-bugs`, or by an
+        earlier poll whose seen-store write was lost)? Returns an outcome to stop at, or None to go on."""
+        if a["tracker"].get("kind") != "github":
+            return None
+        repo = a["tracker"]["repo"]
+        markers = self.github_markers(repo)
+        if markers is None:
+            return "error", None
+        at = rec.get("reported_at")
+        if (rec.get("id") and f"<!-- bug-id:{rec['id']} -->" in markers) or (at and f"<!-- bug:{at} -->" in markers):
+            return "already_filed", repo
+        return None
+
+    def file(self, a: dict, rec: dict, key: str, dev: dict, local: Path) -> tuple[str, Optional[str]]:
+        kind = a["tracker"].get("kind", "none")
+        title = title_of(rec)
+        if kind == "none":
+            return ("would_file", f"inbox only: {title}") if DRY else ("none", "inbox-only")
+        if kind == "github":
+            repo = a["tracker"]["repo"]
+            at = rec.get("reported_at")
+            if DRY:
+                return "would_file", f"github {repo}: {title}"
+            body = issue_body(rec, key, dev, a, local)
+            cmd = ["gh", "issue", "create", "-R", repo, "--title", title, "--body", body]
+            rc, out, err = run(cmd + ["--label", "bug"], timeout=90)
+            if rc != 0 and "label" in err.lower():
+                log("tracker_retry", tracker="github", repo=repo, reason="no bug label", stderr=tail(err))
+                rc, out, err = run(cmd, timeout=90)
+            if rc != 0:
+                log("tracker_error", tracker="github", repo=repo, step="create", rc=rc, stderr=tail(err))
+                return "error", None
+            url = out.strip().splitlines()[-1]
+            self.filed_markers[repo] = (self.filed_markers.get(repo) or "") + f"\n<!-- bug:{at} -->"
+            return "filed", url
+        if kind == "beads":
+            if DRY:
+                return "would_file", f"beads in {a.get('repo')}: Bug: {title}"
+            if not a.get("repo"):
+                log("tracker_error", tracker="beads", step="config", message="beads needs the app's repo path")
+                return "error", None
+            desc = issue_body(rec, key, dev, a, local)
+            rc, out, err = run(["bd", "create", f"Bug: {title}", "-t", "bug", "-p", "2", "-l", "from-app",
+                                "-d", desc, "--json"], timeout=90, cwd=Path(a["repo"]))
+            if rc != 0:
+                log("tracker_error", tracker="beads", repo=a["repo"], step="create", rc=rc, stderr=tail(err))
+                return "error", None
+            try:
+                bead = json.loads(out).get("id")
+            except ValueError:
+                bead = (re.findall(r"\b[a-z][a-z0-9]*-[a-z0-9]+\b", out) or [None])[0]
+            return "filed", bead or out.strip()[:80]
+        log("tracker_error", tracker=kind, step="config", message="unknown tracker kind")
+        return "error", None
+
+
+def notify(title: str, body: str) -> None:
+    if DRY:
+        return
+    if not shutil.which("herdr"):
+        log("notify", ok=False, reason="herdr not on PATH")
+        return
+    rc, _, err = run(["herdr", "notification", "show", title, "--body", body, "--sound", "request"], timeout=20)
+    log("notify", ok=rc == 0, title=title, **({"rc": rc, "stderr": tail(err)} if rc else {}))
+
+
+# --- one poll -----------------------------------------------------------------------------------------------
+
+
+def poll(cfg: dict, backfill: bool) -> dict:
+    t0 = time.monotonic()
+    log("poll_start", apps=[a["name"] for a in cfg["apps"]])
+    summary = {"devices": 0, "reachable": 0, "new": 0, "filed": 0, "would_file": 0, "skipped": 0, "baselined": 0, "errors": 0}
+    seen = load_seen()
+    filer = Filer()
+    for dev in list_devices():
+        summary["devices"] += 1
+        lock = probe(dev)
+        if lock is None:
+            continue
+        summary["reachable"] += 1
+        for a in cfg["apps"]:
+            local = STATE / a["name"] / dev["dir"]
+            ctx = {"device": dev["dir"], "app": a["name"]}
+            index = local / "bugs.jsonl"
+            if not copy(dev, a, "Documents/bugs.jsonl", index, lock["locked"]):
+                summary["errors"] += 1
+                continue
+            reports = read_index(index, ctx)
+            pair = f"{a['bundle']}|{dev['id']}"
+            first = pair not in seen
+            known = set(seen.get(pair, {}).get("keys", []))
+            fresh = [(k, r) for k, r in reports if k not in known]
+            log("index", reports=len(reports), new=len(fresh), first_contact=first, **ctx)
+            if first and not backfill:
+                seen[pair] = {"keys": sorted(k for k, _ in reports), "since": now()}
+                summary["baselined"] += len(reports)
+                log("baseline", marked_seen=len(reports), **ctx,
+                    message="first contact: existing reports marked seen, not filed (--backfill files them)")
+                save_seen(seen)
+                continue
+            seen.setdefault(pair, {"keys": [], "since": now()})
+            crashes_copied = False
+            for key, rec in fresh:
+                summary["new"] += 1
+                log("report", key=key, reported_at=rec.get("reported_at"), title=title_of(rec), **ctx)
+                stop = filer.check(a, rec)
+                if stop:
+                    log("file", key=key, outcome=stop[0], ref=stop[1], tracker=a["tracker"].get("kind"), **ctx)
+                    if stop[0] == "error":
+                        summary["errors"] += 1
+                    else:
+                        summary["skipped"] += 1
+                        seen[pair]["keys"].append(key)
+                        save_seen(seen)
+                    continue
+                folder = folder_of(rec)
+                if folder:
+                    copy(dev, a, under_documents(folder), local / folder, lock["locked"])
+                src = log_source(rec, a)
+                if src:
+                    copy(dev, a, src, local / "logs" / Path(src).name, lock["locked"])
+                if not crashes_copied:
+                    copy(dev, a, a["crash_dir"], local / "crashes", lock["locked"])
+                    crashes_copied = True
+                outcome, ref = filer.file(a, rec, key, dev, local)
+                log("file", key=key, outcome=outcome, ref=ref, tracker=a["tracker"].get("kind"), **ctx)
+                if outcome == "error":
+                    summary["errors"] += 1
+                    continue  # stays unseen: the next poll tries again
+                if outcome == "would_file":
+                    summary["would_file"] += 1
+                    body = issue_body(rec, key, dev, a, local).replace("\n", "\n      ")
+                    print(f"  WOULD FILE  {a['name']} / {dev['dir']}  {key}\n    {ref}\n      {body}", flush=True)
+                    continue
+                if outcome == "filed":
+                    summary["filed"] += 1
+                if outcome in ("filed", "none") and not DRY:
+                    with INBOX.open("a") as f:
+                        f.write(json.dumps({"t": now(), "app": a["name"], "repo": a.get("repo"), "device": dev["dir"],
+                                            "key": key, "reported_at": rec.get("reported_at"), "note": rec.get("note"),
+                                            "tracker": a["tracker"].get("kind"), "ref": ref,
+                                            "dir": str(local)}, ensure_ascii=False) + "\n")
+                    notify(f"Bug: {a['name']}", f"{title_of(rec)} ({dev['type']}) {ref or ''}".strip())
+                seen[pair]["keys"].append(key)
+                save_seen(seen)
+    summary["ms"] = int((time.monotonic() - t0) * 1000)
+    log("poll_end", **summary)
+    return summary
+
+
+@app.command()
+def main(
+    once: bool = typer.Option(False, "--once", help="Poll once and exit."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Copy and print what would be filed; file nothing, "
+                                 "write no seen-store, inbox or notification."),
+    interval: Optional[int] = typer.Option(None, "--interval", help="Seconds between polls (config: poll_seconds, 300)."),
+    backfill: bool = typer.Option(False, "--backfill", help="On first contact, file existing reports instead of "
+                                  "marking them seen."),
+    config: Path = typer.Option(CONFIG, "--config", help="The apps file."),
+) -> None:
+    global DRY
+    DRY = dry_run
+    try:
+        cfg = load_config(config)
+    except (OSError, ValueError) as e:
+        log("config_error", path=str(config), message=str(e))
+        raise typer.Exit(2)
+    every = interval or int(cfg["poll_seconds"])
+    log("start", config=str(config), apps=len(cfg["apps"]), interval=every, once=once, backfill=backfill)
+    while True:
+        try:
+            poll(cfg, backfill)
+        except Exception as e:  # one bad poll must not end the loop; it is logged with its traceback
+            log("poll_error", message=repr(e), traceback=traceback.format_exc())
+            if once:
+                raise typer.Exit(1)
+        if once:
+            return
+        time.sleep(every)
+
+
+if __name__ == "__main__":
+    app()
