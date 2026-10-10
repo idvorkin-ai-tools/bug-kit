@@ -1,35 +1,44 @@
 #if canImport(UIKit) && os(iOS)
+  import CoreMotion
   import SwiftUI
   import UIKit
 
   /// The app's side of a report: everything BugKit cannot know by itself.
   public struct BugReporterHooks {
-    /// The current screen's name ("home", "playback").
+    /// The current screen's name ("home", "playback"), as the app's log names it.
     public var screen: @MainActor () -> String
     /// What the app attaches, read at the moment the dialog opens (EA: exercise, playhead; MM: mode, replay time).
     public var context: @MainActor () -> [String: JSONValue]
     /// The session log's path under Documents and the milliseconds since it began; nil when the app has none.
+    /// With BugKit's `SessionLog`: `{ log.position }`.
     public var sessionLog: @MainActor () -> (path: String, tMs: Int)?
-    /// The app's logger. It receives `bug_report_open`, `bug_report`, `bug_report_cancel` and `error` events.
+    /// The app's logger. It receives `bug_report_open`, `bug_report`, `bug_report_cancel`, `shake`, the
+    /// `dictation_*` events and `error` events.
     public var logger: BugLogger
     /// Extra files for the report's folder (a clip, video segments); nil for none.
     public var extraFiles: BugExtraFiles?
+    /// True while something else holds the microphone (a call): the dictation button is off then (CG #239).
+    public var microphoneBusy: @MainActor () -> Bool
+    /// Called before a save that copies the session log, so queued events reach the file (`log.flush()`).
+    public var flushLog: @MainActor () -> Void
 
     public init(
       screen: @escaping @MainActor () -> String = { "" },
       context: @escaping @MainActor () -> [String: JSONValue] = { [:] },
       sessionLog: @escaping @MainActor () -> (path: String, tMs: Int)? = { nil },
       logger: @escaping BugLogger,
-      extraFiles: BugExtraFiles? = nil
+      extraFiles: BugExtraFiles? = nil,
+      microphoneBusy: @escaping @MainActor () -> Bool = { false },
+      flushLog: @escaping @MainActor () -> Void = {}
     ) {
       self.screen = screen; self.context = context; self.sessionLog = sessionLog; self.logger = logger
-      self.extraFiles = extraFiles
+      self.extraFiles = extraFiles; self.microphoneBusy = microphoneBusy; self.flushLog = flushLog
     }
   }
 
   /// Opens the report dialog and saves what it says. One per app, created at launch:
   ///
-  ///     let reporter = BugReporter(hooks: BugReporterHooks(logger: { log.event($0, $1) }))
+  ///     let reporter = BugReporter(hooks: BugReporterHooks(logger: log.logger))
   ///     ContentView().bugReporting(reporter)
   @MainActor
   public final class BugReporter: ObservableObject {
@@ -41,23 +50,33 @@
     @Published public private(set) var lastStatus: String?
 
     public let hooks: BugReporterHooks
+    public let options: BugReporterOptions
     public let writer: BugReportWriter
     /// Set false to ignore shakes (EA's instrumented run, story 037: a phone in a pocket shakes).
     public var shakeEnabled = true
     private var screen = ""
     private weak var presented: UIViewController?
     private let dismissWatcher = DismissWatcher()
+    private lazy var motion = ShakeMotion { [weak self] peak in
+      self?.hooks.logger("shake", ["source": "motion", "peak_g": .double((peak * 100).rounded() / 100)])
+      self?.open(from: .shake)
+    }
 
-    public init(hooks: BugReporterHooks, store: BugStore = BugStore(), info: BugAppInfo? = nil) {
+    public init(
+      hooks: BugReporterHooks, options: BugReporterOptions = BugReporterOptions(), store: BugStore = BugStore(),
+      info: BugAppInfo? = nil
+    ) {
       self.hooks = hooks
+      self.options = options
       let device = "\(BugAppInfo.hardwareModel()) \(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
       self.writer = BugReportWriter(
-        store: store, info: info ?? .fromMainBundle(device: device), logger: hooks.logger)
+        store: store, info: info ?? .fromMainBundle(device: device), logger: hooks.logger,
+        copySessionLog: options.copySessionLog, writeReportJSON: options.writeReportJSON)
       dismissWatcher.onDismiss = { [weak self] in self?.dismissedBySwipe() }
     }
 
     /// Captures the screen first, then presents the dialog from the topmost view controller, so it opens over any
-    /// sheet already up instead of replacing it (EA #41: a shake from the Workouts sheet closed that sheet).
+    /// sheet, cover or dialog already up instead of replacing it or being swallowed (EA #41, CG #182).
     public func open(from source: BugReportFlow.Source) {
       if source == .shake, !shakeEnabled {
         hooks.logger("bug_report_open", ["source": "shake", "ignored": true])
@@ -67,6 +86,10 @@
         hooks.logger("bug_report_open", ["source": .string(source.rawValue), "already_open": true])
         return
       }
+      present(source: source)
+    }
+
+    private func present(source: BugReportFlow.Source) {
       let window = Self.keyWindow()
       screenshot = window.map(Self.snapshot)
       context = hooks.context()
@@ -89,30 +112,69 @@
         ])
     }
 
-    /// "Log it" or "Log it and another". The save runs in a Task; the dialog closes (or empties) at once.
+    /// "Log it" or "Log it and another". The save runs in a Task; the dialog closes, empties, or (`.recapture`)
+    /// closes and reopens over a fresh picture of the screen.
     public func log(another: Bool) {
-      guard let note = flow.log(another: another) else { return }
+      guard let note = flow.log(another: another, style: options.another) else { return }
       let png = screenshot?.pngData()
       let screen = screen, context = context, sessionLog = hooks.sessionLog()
       let writer = writer, extra = hooks.extraFiles
-      if !another { close() }
+      if options.copySessionLog { hooks.flushLog() }
       Task { @MainActor in
         let report = await writer.save(
           note: note, screen: screen, context: context, screenshotPNG: png, log: sessionLog, extraFiles: extra)
         self.lastStatus = report.folder.isEmpty ? "Problem noted in the log only" : "Problem logged. Thanks."
+      }
+      guard !flow.isPresented else { return }  // keepMoment: the dialog stays, empty
+      let host = presented
+      presented = nil
+      screenshot = nil
+      // The next report's picture is of the screen underneath, so it waits for this dialog to be gone.
+      host?.dismiss(animated: true) { [weak self] in
+        guard let self, self.flow.reopenIfPending() else { return }
+        self.present(source: .another)
       }
     }
 
     public func cancel() {
       hooks.logger("bug_report_cancel", ["saved": .int(flow.savedThisTime)])
       flow.cancel()
-      close()
-    }
-
-    private func close() {
       presented?.dismiss(animated: true)
       presented = nil
-      if !flow.isPresented { screenshot = nil }
+      screenshot = nil
+    }
+
+    /// Runs the simulator hooks once, at launch: `<PREFIX>_BUG` saves reports, `<PREFIX>_SHAKE_AFTER` opens the
+    /// dialog. Logs `bug_hook` with what it found.
+    public func runLaunchHooks(_ env: [String: String] = ProcessInfo.processInfo.environment) {
+      guard let prefix = options.launchHookPrefix else { return }
+      let hooks = BugLaunchHooks.parse(env, prefix: prefix)
+      guard !hooks.isEmpty else { return }
+      self.hooks.logger(
+        "bug_hook",
+        ["notes": .int(hooks.notes.count), "shake_after": hooks.shakeAfter.map(JSONValue.double) ?? .null])
+      if let after = hooks.shakeAfter {
+        Task { @MainActor in
+          try? await Task.sleep(for: .seconds(after))
+          self.open(from: .hook)
+        }
+      }
+      guard !hooks.notes.isEmpty else { return }
+      Task { @MainActor in
+        try? await Task.sleep(for: .seconds(2))  // the first frame must be on screen for the picture
+        let png = Self.keyWindow().map(Self.snapshot)?.pngData()
+        for note in hooks.notes {
+          _ = await self.writer.save(
+            note: note, screen: self.hooks.screen(), context: self.hooks.context(), screenshotPNG: png,
+            log: self.hooks.sessionLog(), extraFiles: self.hooks.extraFiles)
+        }
+      }
+    }
+
+    /// The gentle shake runs only while the scene is active (the `.bugReporting` modifier calls this).
+    func sceneActive(_ active: Bool) {
+      guard options.gentleShake else { return }
+      if active { motion.start() } else { motion.stop() }
     }
 
     private func dismissedBySwipe() {
@@ -150,52 +212,139 @@
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { onDismiss?() }
   }
 
-  /// The dialog: a note, the screenshot, what is attached, and "Log it" / "Log it and another".
+  /// Feeds Core Motion's user acceleration to `ShakeGesture` at 50 Hz. The gesture's state is touched only on the
+  /// motion queue (one operation at a time).
+  final class ShakeMotion: @unchecked Sendable {
+    private let motion = CMMotionManager()
+    private let queue = OperationQueue()
+    private var gesture = ShakeGesture()
+    private let onShake: @MainActor (Double) -> Void
+
+    init(onShake: @escaping @MainActor (Double) -> Void) {
+      self.onShake = onShake
+      queue.maxConcurrentOperationCount = 1
+    }
+
+    func start() {
+      guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
+      motion.deviceMotionUpdateInterval = 1.0 / 50
+      motion.startDeviceMotionUpdates(to: queue) { [weak self] data, _ in
+        guard let self, let data else { return }
+        let a = data.userAcceleration
+        if let peak = self.gesture.feed(x: a.x, y: a.y, z: a.z, t: data.timestamp) {
+          let onShake = self.onShake
+          Task { @MainActor in onShake(peak) }
+        }
+      }
+    }
+
+    func stop() { motion.stopDeviceMotionUpdates() }
+  }
+
+  /// The dialog: a note (typed or spoken), the screenshot, what is attached, and "Log it" / "Log it and another".
   public struct BugReportSheet: View {
     @ObservedObject var reporter: BugReporter
+    @StateObject private var dictation: NoteDictation
     @FocusState private var noteFocused: Bool
 
-    public init(reporter: BugReporter) { self.reporter = reporter }
+    public init(reporter: BugReporter) {
+      self.reporter = reporter
+      _dictation = StateObject(wrappedValue: NoteDictation(logger: reporter.hooks.logger))
+    }
 
     public var body: some View {
       NavigationStack {
         Form {
           Section("What went wrong?") {
-            TextField("One line is enough", text: $reporter.flow.note, axis: .vertical)
-              .lineLimit(3...8)
-              .focused($noteFocused)
-              .id(reporter.flow.draft)
+            HStack(alignment: .top, spacing: 10) {
+              TextField(reporter.options.placeholder, text: $reporter.flow.note, axis: .vertical)
+                .lineLimit(3...8)
+                .focused($noteFocused)
+                .id(reporter.flow.draft)
+                .accessibilityIdentifier("report-note")
+              if reporter.options.dictation { micButton }
+            }
+            if dictation.listening {
+              Text("Listening… tap stop when done").font(.footnote).foregroundStyle(.secondary)
+            }
+            if let problem = dictation.problem {
+              Text(problem).font(.footnote).foregroundStyle(.red).textSelection(.enabled)
+            }
             if reporter.flow.savedThisTime > 0 {
               Text("\(reporter.flow.savedThisTime) logged from this moment").font(.footnote).foregroundStyle(.secondary)
             }
+            // Under the note too, so it is above the keyboard (a bottom bar sits behind it; CG story 142).
+            Button("Log it and another") { logIt(another: true) }
+              .disabled(!reporter.flow.canLog)
+              .accessibilityIdentifier("report-log-it-and-another")
           }
-          Section("Attached automatically") {
+          Section {
             if let shot = reporter.screenshot {
               Image(uiImage: shot).resizable().scaledToFit().frame(maxHeight: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel("The screen as it was")
             }
             ForEach(reporter.context.sorted(by: { $0.key < $1.key }), id: \.key) { item in
               LabeledContent(item.key, value: item.value.display)
             }
+          } header: {
+            Text("Attached automatically")
+          } footer: {
+            if let note = reporter.options.privacyNote { Text(note) }
           }
         }
         .navigationTitle("Report a problem")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-          ToolbarItem(placement: .cancellationAction) { Button("Cancel") { reporter.cancel() } }
-          ToolbarItemGroup(placement: .confirmationAction) {
-            Button("Log it and another") {
-              reporter.log(another: true)
-              noteFocused = true
+          ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel") {
+              dictation.stop(why: "cancel")
+              reporter.cancel()
             }
-            .disabled(!reporter.flow.canLog)
-            Button("Log it") { reporter.log(another: false) }
+            .keyboardShortcut(reporter.options.dialogKeys ? .cancelAction : nil)
+          }
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Log it") { logIt(another: false) }
               .disabled(!reporter.flow.canLog)
-              .keyboardShortcut(.defaultAction)
+              .keyboardShortcut(reporter.options.dialogKeys ? KeyboardShortcut(.return, modifiers: .command) : nil)
+              .accessibilityIdentifier("report-log-it")
+          }
+        }
+        .background {
+          if reporter.options.dialogKeys {
+            Button("Log it and another") { logIt(another: true) }
+              .keyboardShortcut(.return, modifiers: [.command, .shift])
+              .disabled(!reporter.flow.canLog)
+              .opacity(0)
+              .accessibilityHidden(true)
           }
         }
         .onAppear { noteFocused = true }
+        .onDisappear { dictation.stop(why: "closed") }  // a swipe down
       }
+    }
+
+    private var micButton: some View {
+      let busy = reporter.hooks.microphoneBusy()
+      return Button {
+        dictation.toggle(note: reporter.flow.note) { reporter.flow.note = $0 }
+      } label: {
+        Image(systemName: dictation.listening ? "stop.circle.fill" : "mic.circle.fill")
+          .font(.title)
+          .symbolEffect(.pulse, isActive: dictation.listening)
+          .foregroundStyle(dictation.listening ? Color.red : Color.accentColor)
+      }
+      .buttonStyle(.borderless)
+      .disabled(busy)
+      .accessibilityLabel(
+        dictation.listening ? "Stop dictating" : busy ? "Dictation is off while the microphone is in use" : "Speak the note")
+      .accessibilityIdentifier("report-dictate")
+    }
+
+    private func logIt(another: Bool) {
+      dictation.stop(why: "log_it")
+      reporter.log(another: another)
+      if another { noteFocused = true }
     }
   }
 
@@ -213,7 +362,7 @@
     }
   }
 
-  /// Calls `onShake` when the device is shaken. Sits invisibly in the view tree and holds first responder.
+  /// Calls `onShake` on iOS's own shake gesture. Sits invisibly in the view tree and holds first responder.
   public struct ShakeDetector: UIViewControllerRepresentable {
     let onShake: () -> Void
 
@@ -244,19 +393,38 @@
     }
   }
 
-  extension View {
-    /// Shake anywhere, or ⌘I on a hardware keyboard (the iPad), opens the report dialog.
-    public func bugReporting(_ reporter: BugReporter) -> some View {
-      background {
-        ZStack {
-          ShakeDetector { reporter.open(from: .shake) }
-          Button("Report a problem") { reporter.open(from: .key) }
-            .keyboardShortcut("i", modifiers: .command)
-            .opacity(0)
-            .accessibilityHidden(true)
+  private struct BugReporting: ViewModifier {
+    @ObservedObject var reporter: BugReporter
+    @Environment(\.scenePhase) private var scenePhase
+
+    func body(content: Content) -> some View {
+      content
+        .background {
+          ZStack {
+            if reporter.options.systemShake {
+              ShakeDetector {
+                reporter.hooks.logger("shake", ["source": "system"])
+                reporter.open(from: .shake)
+              }
+            }
+            if reporter.options.commandI {
+              Button("Report a problem") { reporter.open(from: .key) }
+                .keyboardShortcut("i", modifiers: .command)
+                .opacity(0)
+                .accessibilityHidden(true)
+            }
+          }
+          .frame(width: 0, height: 0)
         }
-        .frame(width: 0, height: 0)
-      }
+        .onAppear { reporter.sceneActive(scenePhase == .active) }
+        .onChange(of: scenePhase) { _, phase in reporter.sceneActive(phase == .active) }
+    }
+  }
+
+  extension View {
+    /// A shake (hard or, with `gentleShake`, gentle) or ⌘I opens the report dialog.
+    public func bugReporting(_ reporter: BugReporter) -> some View {
+      modifier(BugReporting(reporter: reporter))
     }
   }
 #endif

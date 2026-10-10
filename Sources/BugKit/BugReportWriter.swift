@@ -52,8 +52,18 @@ public struct BugReportWriter: Sendable {
   public let info: BugAppInfo
   public let logger: BugLogger
 
-  public init(store: BugStore, info: BugAppInfo, logger: @escaping BugLogger) {
+  /// Copy the session log into the report's folder as `session.jsonl` (MM story 040): the report then holds the log
+  /// as it was, whatever pruning or a later launch does. Flush the log first (`SessionLog.flush()`).
+  public var copySessionLog = false
+  /// Also write the report as pretty `report.json` in its folder (MM story 040), for a folder read on its own.
+  public var writeReportJSON = false
+
+  public init(
+    store: BugStore, info: BugAppInfo, logger: @escaping BugLogger, copySessionLog: Bool = false,
+    writeReportJSON: Bool = false
+  ) {
     self.store = store; self.info = info; self.logger = logger
+    self.copySessionLog = copySessionLog; self.writeReportJSON = writeReportJSON
   }
 
   /// `log`: the session log's path under Documents and the milliseconds since it began, from the app.
@@ -86,6 +96,24 @@ public struct BugReportWriter: Sendable {
         report.files = try await extraFiles(folderURL).map { "\(report.folder)/\($0)" }
       } catch {
         logger("error", ["where": "bug_extra_files", "id": .string(report.id.uuidString), "message": .string("\(error)")])
+      }
+    }
+    if let folderURL, copySessionLog, let path = log?.path {
+      do {
+        try FileManager.default.copyItem(
+          at: store.documents.appendingPathComponent(path), to: folderURL.appendingPathComponent("session.jsonl"))
+        report.files.append("\(report.folder)/session.jsonl")
+      } catch {
+        logger("error", ["where": "bug_session_log", "id": .string(report.id.uuidString), "message": .string("\(error)")])
+      }
+    }
+    if let folderURL, writeReportJSON {
+      do {
+        let enc = JSONEncoder()
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        try enc.encode(report).write(to: folderURL.appendingPathComponent("report.json"))
+      } catch {
+        logger("error", ["where": "bug_report_json", "id": .string(report.id.uuidString), "message": .string("\(error)")])
       }
     }
     var indexWritten = true
