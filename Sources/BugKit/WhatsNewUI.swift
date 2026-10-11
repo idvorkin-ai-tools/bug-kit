@@ -122,7 +122,8 @@ public struct WhatsNewSeen: @unchecked Sendable {
     let logger: BugLogger
     let open: () -> Void
     #if os(macOS)
-      // Explicit wrapper storage avoids the @State macro, whose plugin is absent from CLT-only SDK builds.
+      // Explicit wrapper storage avoids the @State macro: CLT-only builds fail with "external macro implementation
+      // type 'SwiftUIMacros.StateMacro' could not be found", since that SDK ships no SwiftUIMacros plugin.
       private var dismissal = SwiftUI.State<Bool>(initialValue: false)
       private var dismissed: Bool {
         get { dismissal.wrappedValue }

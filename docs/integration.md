@@ -242,7 +242,8 @@ draining it, or move its owned evidence deliberately before switching all three 
 
 The What's new views remain available to Mac apps. Their Mac dismissal state uses explicit SwiftUI wrapper
 storage to avoid requiring the `@State` macro plugin that Command Line Tools-only SDKs do not ship.
-`WhatsNewSeen` remains a Foundation API. A CLT-only build and Mac dismissal UI check are part of validation.
+`WhatsNewSeen` remains a Foundation API. CI builds and runs the CLT-only consumer in `Tools/CLTConsumer`, and
+a host test presses the Mac row's ✕ and checks the row disappears and stays hidden.
 
 ## App Group storage
 

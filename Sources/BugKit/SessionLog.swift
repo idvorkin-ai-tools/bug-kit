@@ -1,8 +1,8 @@
 import Foundation
 
-/// One JSON Lines file per launch: `Documents/logs/<prefix>-<yyyyMMdd-HHmmss>.jsonl`, one event per line,
+/// One JSON Lines file per launch: `logs/<prefix>-<yyyyMMdd-HHmmss>.jsonl`, one event per line,
 /// `{"type": "<event>", "t": <ms since launch>, …fields}`. Written as each event comes (no buffer to lose in a
-/// crash), in app-container Documents on iOS/watchOS or app-specific Application Support on macOS.
+/// crash), under the storage root: app-container Documents on iOS/watchOS or app-specific Application Support on macOS.
 /// On iOS the Files app shows it and `devicectl` copies it. Optional: an app with its own log
 /// passes its logger to `BugReporterHooks` instead.
 ///
@@ -63,7 +63,7 @@ public final class SessionLog: @unchecked Sendable {
     event("session_start", start)
   }
 
-  /// The log's path under Documents (`logs/swing-20261010-150000.jsonl`), as a report names it.
+  /// The log's path under the storage root (`logs/swing-20261010-150000.jsonl`), as a report names it.
   public var relativePath: String { "logs/\(url.lastPathComponent)" }
 
   public var msSinceStart: Int { Int(Date().timeIntervalSince(startedAt) * 1000) }

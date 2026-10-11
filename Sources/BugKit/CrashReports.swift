@@ -8,7 +8,7 @@ import Foundation
 /// Crashes and hangs without a crash service (EA story 036, CG story 144):
 ///
 /// - MetricKit hands the app its own crash and hang diagnostics on a later launch. Each payload is written to
-///   `Documents/crashes/<stamp>.json` and announced as `crash_report` (kind crash or hang).
+///   `crashes/<stamp>.json` under the storage root and announced as `crash_report` (kind crash or hang).
 /// - MetricKit can take days on a development build, so a signal handler writes `signal-<epoch>.txt` (the crashing
 ///   thread's raw backtrace) and an uncaught Objective-C exception writes `exception-<epoch>.txt` (name, reason,
 ///   symbolized stack). One file per crash: the abort after an exception writes no second file.
