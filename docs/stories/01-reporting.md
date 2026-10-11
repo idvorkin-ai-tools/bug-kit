@@ -173,7 +173,7 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Speak the note
 - **From:** CG #239 (story 142, "Speaking the note")
-- **Issues:** #7
+- **Issues:** #7, #1 (voice-input clarification); beads bug-9j5, bug-ig8
 - **Status:**
   - `NoteDictation`, behind `options.dictation` (off by default: it needs the speech and microphone usage strings). Verified by typecheck.
   - `DictationText.merge` is verified on the host by `dictatedWordsGoAfterTheTypedNote`.
@@ -271,3 +271,11 @@ The screenshot thumbnail has an accessible “Remove screenshot” button. Remov
 **Issues:** #19
 
 Given `<PREFIX>_BUG` notes and `<PREFIX>_BUG_AFTER=10`, reports capture evidence after ten seconds instead of the default two. Invalid, negative, non-finite and over-one-day values retain the default; zero is accepted. A delay without notes does not save reports. Host coverage: `automaticReportDelayDefaultsToTwoSeconds`, `automaticReportDelayAcceptsOnlyFiniteNonnegativeValues`, `shakeDelayAcceptsOnlyBoundedNonnegativeValues`. EA's cold-launch smoke check can set `SWING_BUG_AFTER` and verify that the clip's load event precedes the report.
+
+### Choose the microphone and transcription service
+
+**Issues:** #1; beads bug-9j5, bug-ig8
+
+With dictation enabled, the report offers Automatic and microphones available through iOS. The saved input preference applies to a fresh dictation. Missing inputs are cleared on refresh; changes during capture stop dictation without erasing text. Apple Speech is the default, while a host factory can choose Deepgram or another streaming provider. Cloud providers skip Apple Speech authorization. Typed words and finalized speech survive interim revisions; save waits for final words, and canceled permission/network callbacks cannot alter another report.
+
+Host coverage: `DictationProviderTests.swift` verifies transport, segment revisions, final flushing and cancellation. `NoteDictationTests.swift` uses fake iOS capture/permissions to verify selected input, no prompt on sheet opening, final text before save, permission cancellation, service failure and disappeared-input fallback. Physical mic routes and live vendor transcription need separate device/service verification.

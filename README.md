@@ -69,7 +69,7 @@ struct MyApp: App {
 
 The two diagnostic options attach recent interaction breadcrumbs and a public view/accessibility snapshot to each report. See [UI diagnostics](docs/integration.md#interaction-and-accessibility-diagnostics) for coverage and semantic action hooks.
 
-See [integration](docs/integration.md) for context, extra files, dictation, simulator hooks and What's new. Dictation is off by default; enabling it requires speech and microphone usage descriptions in Info.plist. Set `BugKitCommit` in Info.plist to include the app’s commit in reports.
+See [integration](docs/integration.md) for context, extra files, dictation, simulator hooks and What's new. Dictation is off by default; Apple Speech requires speech and microphone usage descriptions in Info.plist; a cloud provider needs the microphone description. Set `BugKitCommit` in Info.plist to include the app’s commit in reports.
 
 ## Enable each feature
 
@@ -140,7 +140,9 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Session log association | Create `SessionLog`, then supply `sessionLog: { log.position }`, `logger: log.logger` and `flushLog: { log.flush() }` hooks as in the quick start. |
 | Copy the log into each report | Set `options.copySessionLog = true` with the session-log hooks above; adds `session.jsonl`. Default: `false`. |
 | Standalone report metadata | Set `options.writeReportJSON = true` to add `report.json` beside attachments. Default: `false`; the main `bugs.jsonl` index is always written. |
-| Dictate a note | Add `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` to Info.plist, then set `options.dictation = true`. Default: `false`. |
+| Dictate a note | Set `options.dictation = true` (default `false`). Apple Speech is the default and needs `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` in Info.plist. |
+| Select a microphone | With dictation enabled, open the report's “Microphone” menu and choose Automatic, built-in, USB/wired, or a headset iOS offers. Use “Refresh microphones” to grant initial mic permission or refresh the list. The preference is kept for later reports; picks apply before dictation starts. |
+| Deepgram or another speech server | Set `hooks.dictationProvider` to a factory returning `DeepgramDictationProvider` or your own `BugDictationProvider`. Cloud providers need only the microphone usage description; the app owns credentials. See [voice input providers](docs/integration.md#voice-input-providers). |
 | Remove a report screenshot | Tap the ✕ on the screenshot in “Attached automatically.” Enabled by default. The choice persists for `.keepMoment`; `.recapture` takes a fresh image. Context stays attached. |
 | Fresh evidence for “Log it and another” | Set `options.another = .recapture`. The default `.keepMoment` reuses the captured screenshot and diagnostics. |
 | App context and extra attachments | Supply the `context` and `extraFiles` hooks; see the [integration example](docs/integration.md). |
@@ -218,6 +220,23 @@ Example: Context Grabber's dictation reset (CG #249) was fixed here as PR #3, th
 A bug in the app's own hooks (its context, screen names, extra files, logger bridge) stays in the app.
 
 ## Developing BugKit
+
+### Beads work tracking
+
+This repo uses Beads (`bd`, currently initialized with version 1.3.1) for agent tasks. Worktrees share the main checkout's embedded Dolt database. GitHub is still the intake for filed reports and the PR review surface; link a bead with `--external-ref <issue-url>`.
+
+```sh
+bd prime
+bd dolt pull
+bd ready
+bd create "Describe the work" --type feature --description "Why and acceptance criteria"
+bd update <id> --status in_progress
+# Implement and validate through no-mistakes, then:
+bd close <id> --reason "Merged PR and validation evidence"
+bd dolt push
+```
+
+On a fresh clone, hydrate the database with `bd init --prefix bug --remote git+https://github.com/idvorkin/bug-kit.git --non-interactive --skip-hooks --skip-agents` before using `bd dolt pull`. See [.beads/README.md](.beads/README.md). Task data is synced by Dolt, separately from code PRs; JSONL exports are optional interchange. [AGENTS.md](AGENTS.md) defines the workflow and shared-simulator rules.
 
 ### no-mistakes validation
 
