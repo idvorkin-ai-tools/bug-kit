@@ -142,6 +142,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Standalone report metadata | Set `options.writeReportJSON = true` to add `report.json` beside attachments. Default: `false`; the main `bugs.jsonl` index is always written. |
 | Dictate a note | Set `options.dictation = true` (default `false`). Apple Speech is the default and needs `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` in Info.plist. |
 | Select a microphone | With dictation enabled, open the report's “Microphone” menu, choose “Refresh microphones” to load the inputs (and grant initial mic permission), then select Automatic, built-in, USB/wired, or a headset iOS offers. The preference is kept for later reports; picks apply before dictation starts. Opening a report does not query inputs or retune audio. |
+| Disable automatic screenshots | Set `options.captureScreenshots = false` (default `true`). Applies to the report sheet, recapture and launch-hook reports. For private-text apps, also keep `dictation`, `captureAccessibility` and `recordInteractions` off. [Privacy configuration](docs/integration.md#private-text-apps). |
 | Deepgram or another speech server | Set `hooks.dictationProvider` to a factory returning `DeepgramDictationProvider` or your own `BugDictationProvider`. Cloud providers need only the microphone usage description; the app owns credentials. See [voice input providers](docs/integration.md#voice-input-providers). |
 | Remove a report screenshot | Tap the ✕ on the screenshot in “Attached automatically.” Enabled by default. The choice persists for `.keepMoment`; `.recapture` takes a fresh image. Context stays attached. |
 | Fresh evidence for “Log it and another” | Set `options.another = .recapture`. The default `.keepMoment` reuses the captured screenshot and diagnostics. |
@@ -181,6 +182,8 @@ listener/bug-listener status --json
 Crash files are discovered on every poll, even without a manual report. Signal/exception crashes include the latest preceding session log when its start time is available; that association is explicitly marked as inferred. MetricKit payloads keep their crash/hang evidence without claiming an exact session.
 
 Reports land under `~/tmp/agent/bugs/<app>/<device>/`. Failed copies of a report’s folder or named session log leave it pending for the next poll. Screenshots stay on the Mac; issue bodies contain their local paths.
+
+Apps storing evidence in an App Group can pass the group's `Documents` directory to the store, log and crash capture, and set `app_group` in their entry in the apps config; the listener and `scripts/pull-reports.sh` (including `--check`) then copy from the group's container. See [App Group storage](docs/integration.md#app-group-storage).
 
 See [listener setup](docs/ops/listener.md) for configuration, logging and launchd. For manual pulls and deployment:
 

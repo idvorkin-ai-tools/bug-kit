@@ -26,6 +26,19 @@ Each app needs:
 Optional: `log_dir` (default `Documents/logs`, for older reports whose `log` is a bare file name) and `crash_dir`
 (default `Documents/crashes`). The top-level `poll_seconds` defaults to 300. Commands below run from the repository root. A dry run still copies files and writes `listener.log`; it leaves tracker, seen-store, inbox and notifications unchanged.
 
+Set `app_group` to an App Group identifier such as `group.com.example.voicekeyboard` when that app stores its evidence in the group's `Documents` directory. Every index, report-folder, log and crash copy then uses `devicectl`'s `appGroupDataContainer` domain with the group identifier. Without it, copies use `appDataContainer` with the bundle ID as before. `bundle` still identifies the app for reports and tracker configuration. The selected group must belong to the installed app and be accessible on the paired device; a wrong group or failed copy leaves evidence pending. The listener does not fall back to the app's private Documents. `scripts/pull-reports.sh` reads the same entry: its `--check`, `bugs.jsonl`, report-folder, log, crash and `pull_extra` copies use the group too.
+
+```json
+{
+  "name": "voice-keyboard",
+  "bundle": "com.example.voicekeyboard",
+  "app_group": "group.com.example.voicekeyboard",
+  "tracker": { "kind": "github", "repo": "owner/voice-keyboard" }
+}
+```
+
+Keep the `Documents/bugs.jsonl`, `Documents/bugs/`, `Documents/logs/` and `Documents/crashes/` layout inside the group. `log_dir` and `crash_dir` remain relative to the selected container. Use `--once --dry-run --backfill` to inspect an existing store, then `--once --backfill` to include historical reports. See [app setup](../integration.md#app-group-storage).
+
 ### What one poll does
 
 1. It lists devices with `xcrun devicectl list devices --json-output`: physical iPhones and iPads only, named by

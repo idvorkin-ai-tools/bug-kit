@@ -25,6 +25,9 @@ public struct BugReporterOptions: Equatable, Sendable {
   public var copySessionLog = false
   /// Write `report.json` in the report's folder too (MM story 040).
   public var writeReportJSON = false
+  /// Capture the screen before opening the report dialog and for launch-hook reports. Disable for apps whose
+  /// screens contain private text. This does not filter files supplied by the app's extraFiles hook.
+  public var captureScreenshots = true
   /// Log touch/gesture, UIKit control and scene breadcrumbs, and attach the most recent ones to reports.
   public var recordInteractions = false
   /// Attach the app's public UIKit view/accessibility metadata before the report dialog opens.
@@ -41,4 +44,7 @@ public struct BugReporterOptions: Equatable, Sendable {
   public var auto = BugAutoReportOptions()
 
   public init() {}
+
+  /// Lazy gate shared by the interactive and launch-hook capture paths, so disabled capture never renders.
+  func screenshot<T>(_ capture: () -> T?) -> T? { captureScreenshots ? capture() : nil }
 }

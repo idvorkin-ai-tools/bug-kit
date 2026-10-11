@@ -226,3 +226,40 @@ To use your own server/library, conform an actor or a Sendable type to `BugDicta
 “Log it” and “Log it and another” wait for the provider's final words. A finish failure keeps the sheet and current note open. Cancel/dismiss invalidates permission, audio and provider callbacks so they cannot write into a later report. The UI shows startup/finish progress and disables duplicate operations.
 
 `voice-keyboard/ios/Host/AudioCapture.swift` and `DeepgramEngine.swift` were the design reference for input selection and streaming segment finalization. Its private `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.
+
+## App Group storage
+
+For a host app that shares evidence with an extension, point the store and log at an explicit directory inside the App Group. Enable the same App Group entitlement on the host and whichever extension writes its own evidence. Resolve it through `FileManager`; do not hard-code the container's UUID or silently fall back to the app's private Documents.
+
+```swift
+guard let group = FileManager.default.containerURL(
+  forSecurityApplicationGroupIdentifier: "group.com.example.voicekeyboard"
+) else { fatalError("Missing App Group entitlement") }
+let documents = group.appendingPathComponent("Documents", isDirectory: true)
+try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
+let store = BugStore(documents: documents)
+let log = SessionLog(prefix: "host", documents: documents)
+CrashReports.shared.install(folder: documents.appendingPathComponent("crashes"), logger: log.logger)
+let reporter = BugReporter(
+  hooks: BugReporterHooks(sessionLog: { log.position }, logger: log.logger, flushLog: { log.flush() }),
+  store: store)
+```
+
+Keep report paths relative to this `documents` root. Add `"app_group": "group.com.example.voicekeyboard"` to this app's listener entry; it then pulls the group's `Documents` through `appGroupDataContainer`, including logs and crash evidence. Existing entries without `app_group` still pull the app container. [Listener configuration](ops/listener.md#configure) includes the full entry and backfill commands.
+
+For memory-constrained keyboard extensions, link BugKit into the **host target only**, leave it out of the extension's package dependencies/link phase, and keep the extension's existing minimal evidence writer. The host can read or attach that evidence through its hooks. Do not assume the UIKit reporter is extension-safe: it uses `UIApplication`. Use distinct filenames or process prefixes for host and extension logs; this directory example does not establish cross-process safety for shared log/crash writers. A separate extension-safe product is tracked in [#26](https://github.com/idvorkin/bug-kit/issues/26).
+
+## Private-text apps
+
+An app displaying transcripts or other private text can disable automatic screen images while keeping the issue note and its app-supplied state:
+
+```swift
+var options = BugReporterOptions()
+options.captureScreenshots = false
+options.dictation = false
+options.captureAccessibility = false
+options.recordInteractions = false
+let reporter = BugReporter(hooks: hooks, options: options, store: store)
+```
+
+`captureScreenshots` defaults to `true`. Turning it off skips the renderer for the sheet, “Log it and another” recapture, and launch-hook reports. No screenshot is displayed or written by those paths. Automatic reports already have no screenshot. The other three capture features default to `false`; set them explicitly here so this privacy configuration is easy to audit. These options do not redact the user's note, app-provided context, session logs or `extraFiles`: the app must keep dictated text out of those hooks and logs. Apps calling `BugReportWriter.save` directly own their `screenshotPNG` argument.
