@@ -268,3 +268,9 @@ Part of the [BugKit stories](README.md).
 - **Given:** the call log is larger than `maxBytes`
 - **Then:** the report keeps the log's tail, starting at a whole line, and the log has `bug_report_auto_cut` with the
   bytes kept and dropped.
+
+### Multiline watchdog termination reasons
+
+**Issues:** #18
+
+Given a MetricKit hang whose termination reason contains LF or CRLF, symbolication prints the full reason on one `cause:` line and emits frame lines only for the attributed call stack. Host regression: `test_multiline_watchdog_reason_does_not_become_frames`, with a generated real arm64 dSYM.

@@ -59,3 +59,23 @@ def test_no_dsym_is_an_error(tmp_path):
     out = subprocess.run([str(SCRIPT), str(path), str(tmp_path)], capture_output=True, text=True)
     assert out.returncode == 2
     assert "no .dSYM" in out.stderr
+
+
+def test_multiline_watchdog_reason_does_not_become_frames(tmp_path):
+    build(tmp_path)
+    frame = {"binaryName": "libsystem_kernel.dylib", "binaryUUID": "SYSTEM", "address": 1,
+             "offsetIntoBinaryTextSegment": 123}
+    path = payload(tmp_path, frame)
+    data = json.loads(path.read_text())
+    data["hangDiagnostics"] = data.pop("crashDiagnostics")
+    data["hangDiagnostics"][0]["diagnosticMetaData"]["terminationReason"] = (
+        "watchdog transgression:\nProcessVisibility: Background\r\nProcessState: Running\nscene-update"
+    )
+    path.write_text(json.dumps(data))
+    out = subprocess.run([str(SCRIPT), str(path), str(tmp_path)], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    lines = out.stdout.splitlines()
+    assert len([line for line in lines if line.startswith("cause:")]) == 1
+    assert [line for line in lines if line.startswith("  ")] == ["  libsystem_kernel.dylib  +123 (system)"]
+    assert "ProcessVisibility: Background" in next(line for line in lines if line.startswith("cause:"))
+    assert "ProcessState: Running" in next(line for line in lines if line.startswith("cause:"))

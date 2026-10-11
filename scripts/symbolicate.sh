@@ -30,7 +30,7 @@ echo "dSYMs: $(awk '{print $1}' <<<"$table" | tr '\n' ' ')"
 
 jq -r '
   (.crashDiagnostics // []) + (.hangDiagnostics // []) | .[] |
-  "cause: exception \(.diagnosticMetaData.exceptionType // "-") signal \(.diagnosticMetaData.signal // "-") reason \(.diagnosticMetaData.terminationReason // "-")",
+  "cause: exception \(.diagnosticMetaData.exceptionType // "-") signal \(.diagnosticMetaData.signal // "-") reason \((.diagnosticMetaData.terminationReason // "-" | gsub("[\r\n]+"; " ")))",
   (.callStackTree.callStacks[] | select(.threadAttributed == true) | .. | objects | select(has("address")) |
     "frame \(.binaryName // "?") \(.binaryUUID // "-") \(.offsetIntoBinaryTextSegment // 0)")' "$file" |
 while read -r kind name uuid off rest; do
