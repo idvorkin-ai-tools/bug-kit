@@ -25,6 +25,9 @@ public struct BugReporterOptions: Equatable, Sendable {
   public var copySessionLog = false
   /// Write `report.json` in the report's folder too (MM story 040).
   public var writeReportJSON = false
+  /// Errors in the dialog (dictation's) get a Copy error button that copies the message, where, the build and the
+  /// state (CG's ProblemView, bug-kit#7). Off shows the message as plain red text.
+  public var copyableErrors = true
   /// Environment variable prefix for the simulator hooks (`<PREFIX>_BUG`, `<PREFIX>_SHAKE_AFTER`); nil for none.
   public var launchHookPrefix: String?
 

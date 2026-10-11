@@ -268,7 +268,17 @@
               Text("Listening… tap stop when done").font(.footnote).foregroundStyle(.secondary)
             }
             if let problem = dictation.problem {
-              Text(problem).font(.footnote).foregroundStyle(.red).textSelection(.enabled)
+              if reporter.options.copyableErrors {
+                BugProblemView(
+                  problem: BugProblem(
+                    message: problem, context: "BugReportSheet.dictation", build: reporter.writer.info.buildLine,
+                    extra: dictation.problemState.merging(["mic_busy": .bool(reporter.hooks.microphoneBusy())]) {
+                      a, _ in a
+                    }),
+                  logger: reporter.hooks.logger)
+              } else {
+                Text(problem).font(.footnote).foregroundStyle(.red).textSelection(.enabled)
+              }
             }
             if reporter.flow.savedThisTime > 0 {
               Text("\(reporter.flow.savedThisTime) logged from this moment").font(.footnote).foregroundStyle(.secondary)
