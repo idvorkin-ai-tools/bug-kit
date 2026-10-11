@@ -433,6 +433,12 @@ lost seen-store write. An inbox-write failure retries that handoff without creat
 CloudKit downloads file immediately, because the sender uploads only post-opt-in reports; the device lane
 keeps its existing first-contact baseline.
 
+Before the first Development upload creates `BugKitReport`, CloudKit can answer the initial record-type
+query with `unknownItem` (code 11). The reader treats that initial query as an empty successful sync:
+`cloudkit_sync` has `ok: true` and `downloaded: 0`, and later polls still query for newly uploaded reports.
+Missing assets, pagination failures, authorization/network failures and missing query indexes still fail
+the sync. An empty success is bootstrap health, not evidence that a saved report reached the Mac.
+
 ### Igor's setup and real acceptance check
 
 Before the live check, confirm these setup steps with Igor:

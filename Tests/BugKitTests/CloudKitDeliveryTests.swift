@@ -307,6 +307,85 @@ private extension CloudFixture {
 }
 
 #if canImport(CloudKit)
+private actor SchemaCloudSource: CloudReportSource {
+  let report: BugReport
+  let payload: URL
+  var queryError: CKError? = CKError(.unknownItem)
+  var assetMissing = false
+  var assetRequests = 0
+
+  init(report: BugReport, payload: URL) { self.report = report; self.payload = payload }
+  func accountID() -> String { "fixture-owner" }
+  func setQueryError(_ error: CKError?) { queryError = error }
+  func setAssetMissing() { assetMissing = true }
+  func requests() -> Int { assetRequests }
+
+  func reports() async throws -> [CloudReportRecord] {
+    let error = queryError
+    let records = [CloudReportRecord(name: report.id.uuidString, bundle: report.bundle)]
+    // Exercise the same first-query boundary as the native CloudKit source, without contacting a service.
+    return try await initialCloudReportPage {
+      if let error { throw error }
+      return records
+    } ?? []
+  }
+
+  func asset(for id: UUID) throws -> CloudReportAsset {
+    assetRequests += 1
+    if assetMissing { throw CKError(.unknownItem) }
+    return CloudReportAsset(bundle: report.bundle, file: payload)
+  }
+}
+
+@Test func cloudReceiverWithoutRecordTypeIsEmptyThenFindsTheFirstUpload() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let report = try f.report()
+  let payload = f.root.appendingPathComponent("asset.json")
+  try CloudReportPayload.capture(report, documents: f.documents).encoded().write(to: payload)
+  let source = SchemaCloudSource(report: report, payload: payload)
+  let events = CloudEvents()
+  let receiver = CloudReportInbox(source: source, logger: events.logger)
+  let mac = f.root.appendingPathComponent("mac")
+
+  #expect(try await receiver.download(to: mac) == 0)
+  #expect(await source.requests() == 0)
+  #expect(!FileManager.default.fileExists(atPath: mac.appendingPathComponent(report.id.uuidString).path))
+  #expect(events.all.isEmpty)
+
+  await source.setQueryError(nil)  // The first sender upload has created the schema/record.
+  #expect(try await receiver.download(to: mac) == 1)
+  #expect(CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+  #expect(try await receiver.download(to: mac) == 0)
+  #expect(await source.requests() == 1)
+  #expect(events.all.contains { $0.0 == "cloudkit_downloaded" && $0.1["id"] == .string(report.id.uuidString) })
+}
+
+@Test(arguments: [CKError.Code.notAuthenticated, .networkUnavailable, .invalidArguments, .zoneNotFound])
+func cloudReceiverOtherQueryFailuresRemainFailures(_ code: CKError.Code) async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let report = try f.report()
+  let source = SchemaCloudSource(report: report, payload: f.root.appendingPathComponent("unused.json"))
+  await source.setQueryError(CKError(code))
+  let receiver = CloudReportInbox(source: source, logger: { _, _ in })
+  await #expect(throws: CKError.self) { try await receiver.download(to: f.root.appendingPathComponent("mac")) }
+  #expect(await source.requests() == 0)
+}
+
+@Test func cloudReceiverMissingAssetIsNotAnEmptySchemaSuccess() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let report = try f.report()
+  let source = SchemaCloudSource(report: report, payload: f.root.appendingPathComponent("unused.json"))
+  await source.setQueryError(nil)
+  await source.setAssetMissing()
+  let events = CloudEvents()
+  let receiver = CloudReportInbox(source: source, logger: events.logger)
+  let mac = f.root.appendingPathComponent("mac")
+  await #expect(throws: CKError.self) { try await receiver.download(to: mac) }
+  #expect(await source.requests() == 1)
+  #expect(!CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+  #expect(events.all.contains { $0.0 == "cloudkit_report_pending" && $0.1["id"] == .string(report.id.uuidString) })
+}
+
 @Test func nativeUploadHasNoShortResourceDeadlineAndAccountRetriesBackOff() throws {
   let report = BugReport(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic",
                          screen: "home", note: "fixture", folder: "bugs/sample")

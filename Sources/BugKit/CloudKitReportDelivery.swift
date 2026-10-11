@@ -105,6 +105,15 @@ public actor CloudKitReportReceiver {
   }
 }
 
+/// Before the first upload creates BugKitReport, its initial query returns unknownItem. Normalize that one
+/// listing boundary to an empty page; cursor and asset errors must still fail the sync.
+func initialCloudReportPage<Page: Sendable>(
+  _ query: @Sendable () async throws -> Page
+) async throws -> Page? {
+  do { return try await query() }
+  catch let error as CKError where error.code == .unknownItem { return nil }
+}
+
 private struct NativeCloudReportSource: CloudReportSource {
   let containerIdentifier: String
   var container: CKContainer { CKContainer(identifier: containerIdentifier) }
@@ -117,7 +126,9 @@ private struct NativeCloudReportSource: CloudReportSource {
   func reports() async throws -> [CloudReportRecord] {
     let database = container.privateCloudDatabase
     let query = CKQuery(recordType: "BugKitReport", predicate: NSPredicate(value: true))
-    var page = try await database.records(matching: query, desiredKeys: ["bundle"], resultsLimit: 100)
+    guard var page = try await initialCloudReportPage({
+      try await database.records(matching: query, desiredKeys: ["bundle"], resultsLimit: 100)
+    }) else { return [] }
     var reports: [CloudReportRecord] = []
     while true {
       for (id, result) in page.matchResults {
