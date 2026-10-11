@@ -3,6 +3,7 @@
 import importlib.machinery
 import importlib.util
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,131 @@ loader = importlib.machinery.SourceFileLoader("bug_listener", str(HERE / "bug-li
 spec = importlib.util.spec_from_loader("bug_listener", loader)
 bl = importlib.util.module_from_spec(spec)
 loader.exec_module(bl)
+
+
+def cloud_fixture(tmp_path):
+    inbox = tmp_path / "cloud"
+    identity = str(uuid.uuid4()).upper()
+    folder = inbox / identity
+    documents = folder / "Documents"
+    evidence = documents / "bugs" / "sample" / "screen.png"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_bytes(b"synthetic screen")
+    rec = {"id": identity, "bundle": "local.fixture", "app": "fixture", "note": "fixture note",
+           "reported_at": "2026-10-11T00:00:00Z", "folder": "bugs/sample", "files": [],
+           "screenshot": "bugs/sample/screen.png", "device": "synthetic"}
+    (folder / "report.json").write_text(json.dumps(rec))
+    (folder / "files.json").write_text(json.dumps({rec["screenshot"]: len(b"synthetic screen")}))
+    a = {"name": "fixture", "bundle": "local.fixture", "tracker": {"kind": "none"}}
+    cloud = {"app": "/synthetic/BugKitCloudReader.app", "container": "iCloud.com.example.BugKitReports",
+             "inbox": str(inbox), "environment": "Development"}
+    cfg = {"apps": [a], "poll_seconds": 300, "cloudkit": cloud}
+    return cfg, rec, evidence
+
+
+def synced(*events):
+    output = "\n".join(json.dumps(e) for e in (*events, {"event": "cloudkit_sync", "ok": True}))
+    return lambda *args, **kwargs: (0, output, "")
+
+
+class CloudFakeFiler:
+    def __init__(self):
+        self.calls = []
+
+    def check(self, a, rec):
+        return None
+
+    def file(self, a, rec, key, dev, local):
+        self.calls.append((key, local))
+        return "filed", "synthetic-ref"
+
+
+def cloud_summary():
+    return {"reachable": 0, "new": 0, "filed": 0, "would_file": 0, "errors": 0, "skipped": 0}
+
+
+def test_cloud_reports_file_once_and_dedupe_later_device_delivery(listener_state):
+    cfg, rec, evidence = cloud_fixture(listener_state)
+    filer = CloudFakeFiler()
+    seen = {}
+    summary = cloud_summary()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert len(filer.calls) == 1
+    assert (filer.calls[0][1] / rec["screenshot"]).read_bytes() == b"synthetic screen"
+    # Actual cloud intake must count as delivery across the device lane, even for Beads/inbox trackers.
+    entry = {"keys": []}
+    assert bl.already_filed(filer, cfg["apps"][0], rec, {"dir": "phone"}, entry, "keys", seen, summary)
+    assert entry["keys"] == [rec["id"]]
+    assert len(filer.calls) == 1
+
+
+def test_cloud_reports_dedupe_previous_device_delivery(listener_state):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    filer = CloudFakeFiler()
+    seen = {"_deliveries": {rec["bundle"] + ":" + rec["id"]: {"ref": "device-ref"}}}
+    summary = cloud_summary()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert not filer.calls
+    assert summary["skipped"] == 1
+
+
+def test_cloud_missing_or_truncated_evidence_stays_pending_then_retries(listener_state):
+    cfg, rec, evidence = cloud_fixture(listener_state)
+    evidence.write_bytes(b"cut")
+    filer, seen, summary = CloudFakeFiler(), {}, cloud_summary()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    entry = seen[rec["bundle"] + "|cloudkit"]
+    assert entry["keys"] == [] and rec["id"] in entry["pending"]
+    assert summary["errors"] == 1 and not filer.calls
+    evidence.write_bytes(b"synthetic screen")
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert len(filer.calls) == 1 and not entry["pending"]
+
+
+def test_cloud_payload_path_escape_is_rejected(listener_state):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    folder = Path(cfg["cloudkit"]["inbox"]) / rec["id"]
+    rec["screenshot"] = "../outside.png"
+    (folder / "report.json").write_text(json.dumps(rec))
+    (folder / "files.json").write_text(json.dumps({rec["screenshot"]: 1}))
+    (folder / "outside.png").write_bytes(b"x")
+    filer, summary = CloudFakeFiler(), cloud_summary()
+    bl.poll_cloud_reports(cfg, {}, filer, summary, False)
+    assert not filer.calls and summary["errors"] == 1
+
+
+def test_cloud_poll_delivers_with_no_paired_devices(listener_state, monkeypatch):
+    cfg, _, _ = cloud_fixture(listener_state)
+    monkeypatch.setattr(bl, "run", synced())
+    monkeypatch.setattr(bl, "list_devices", lambda: [])
+    monkeypatch.setattr(bl, "Filer", CloudFakeFiler)
+    summary = bl.poll(cfg, False)
+    assert summary["devices"] == 0 and summary["filed"] == 1 and summary["reachable"] == 1
+    assert summary["errors"] == 0
+
+
+def test_cloud_dry_run_retains_delivery_state(listener_state, monkeypatch):
+    cfg, _, _ = cloud_fixture(listener_state)
+    monkeypatch.setattr(bl, "DRY", True)
+    bl.poll_cloud_reports(cfg, {}, bl.Filer(), cloud_summary(), False)
+    assert not bl.SEEN.exists() and not bl.INBOX.exists()
+
+
+def test_doctor_checks_reader_signing_without_contacting_cloudkit(listener_state, monkeypatch):
+    cloud = listener_state / "cloudkit.json"
+    cloud.write_text(json.dumps({"container": "iCloud.com.example.BugKitReports", "environment": "Production",
+                                 "app": str(listener_state / "reader.app"), "inbox": str(listener_state / "downloads")}))
+    config = listener_state / "apps.json"
+    config.write_text(json.dumps({"apps": [{"name": "fixture", "bundle": "local.fixture"}],
+                                  "cloudkit_config": str(cloud)}))
+    calls = []
+    monkeypatch.setattr(bl.shutil, "which", lambda _: None)
+    monkeypatch.setattr(bl, "run", lambda cmd, **kwargs: (calls.append(cmd), (0, "", ""))[1])
+    checks = {c["check"]: c["state"] for c in bl.doctor_checks(config)["checks"]}
+    assert checks["cloudkit_signing"] == "ok" and checks["devicectl"] == "error"
+    assert calls == [[str(listener_state / "reader.app/Contents/MacOS/BugKitCloudReader"), "--check-signing",
+                      "--container", "iCloud.com.example.BugKitReports", "--environment", "Production"]]
 
 
 @pytest.mark.parametrize("group, domain, identifier", [
@@ -475,3 +601,111 @@ def test_auto_report_does_not_match_a_manual_legacy_timestamp(listener_state, mo
     monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (0, json.dumps([{"body": body}]), ""))
     app = {"name": "app", "tracker": {"kind": "github", "repo": "owner/app"}}
     assert bl.Filer().check(app, AUTO) is None
+
+
+def test_live_cloud_poll_runs_before_broken_device_discovery_and_hands_off_in_one_poll(listener_state, monkeypatch):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    calls = []
+    def native(cmd, **kwargs):
+        calls.append(cmd)
+        if len(calls) == 1:
+            assert not bl.INBOX.exists()
+        return 0, json.dumps({"event": "cloudkit_downloaded", "id": rec["id"], "bundle": rec["bundle"]}) + "\n" + json.dumps({"event": "cloudkit_sync", "ok": True, "downloaded": 1}), ""
+    def broken_devices():
+        assert calls, "device discovery ran before CloudKit"
+        raise RuntimeError("offline tool")
+    monkeypatch.setattr(bl, "run", native)
+    monkeypatch.setattr(bl, "list_devices", broken_devices)
+    monkeypatch.setattr(bl, "Filer", CloudFakeFiler)
+    summary = bl.poll(cfg, False)
+    assert summary["filed"] == 1 and summary["reachable"] == 1
+    assert summary["errors"] == 1  # discovery failure does not suppress the actual handoff
+    assert json.loads(bl.INBOX.read_text())["key"] == rec["id"]
+    assert calls[0][0] == "/synthetic/BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader"
+    events = [json.loads(line) for line in bl.LOG.read_text().splitlines()]
+    for hop in ("cloudkit_downloaded", "file", "inbox"):
+        assert any(e["event"] == hop and e["key"] == rec["id"] for e in events)
+    bl.poll(cfg, False)
+    assert len(bl.INBOX.read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize("rc, output", [(124, ""), (1, '{"event":"cloudkit_sync","ok":false}'), (0, "no completion")])
+def test_cloud_sync_failure_never_reports_healthy_even_with_existing_downloads(listener_state, monkeypatch, rc, output):
+    cfg, _, _ = cloud_fixture(listener_state)
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (rc, output, "private details are not logged"))
+    monkeypatch.setattr(bl, "Filer", CloudFakeFiler)
+    monkeypatch.setattr(bl, "list_devices", lambda: [])
+    summary = bl.poll(cfg, False)
+    assert summary["errors"] >= 1 and summary["reachable"] == 0
+    assert summary["filed"] == 1  # previously downloaded reports still reach the agent
+    assert bl.read_status()["cloudkit"]["ok"] is False
+    assert "private details" not in bl.LOG.read_text()
+
+
+def test_cloud_sync_relays_failed_report_uuid_without_untrusted_text(listener_state, monkeypatch):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    failed = "a1b2c3d4-0000-4000-8000-000000000001"
+    output = "\n".join(json.dumps(e) for e in (
+        {"event": "cloudkit_report_pending", "id": failed, "reason": "download or evidence validation failed"},
+        {"event": "cloudkit_report_pending", "reason": "listing failed or record metadata is invalid"},
+        {"event": "cloudkit_report_pending", "id": "console-test-record\nprivate details", "reason": "private details"},
+        {"event": "cloudkit_report_pending", "id": failed, "reason": ["private details"]},
+        {"event": "cloudkit_sync", "ok": False, "code": 2}))
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (1, output, ""))
+    health = {}
+    bl.sync_cloudkit(cfg, cloud_summary(), health)
+    events = [json.loads(line) for line in bl.LOG.read_text().splitlines()]
+    pending = [e for e in events if e["event"] == "cloudkit_report_pending"]
+    assert [e["key"] for e in pending] == [failed.upper(), None, None, failed.upper()]
+    assert [e["reason"] for e in pending] == ["download or evidence validation failed",
+                                              "listing failed or record metadata is invalid", "unknown", "unknown"]
+    assert "private details" not in bl.LOG.read_text()
+    assert health["cloudkit"]["ok"] is False
+
+
+def test_cloudkit_config_resolves_private_file_and_dry_run_does_not_launch_it(listener_state, monkeypatch):
+    cloud = listener_state / "cloudkit.json"
+    cloud.write_text(json.dumps({"container": "iCloud.com.example.BugKitReports", "environment": "Development",
+                                "app": str(listener_state / "reader.app"), "inbox": str(listener_state / "downloads")}))
+    config = listener_state / "apps.json"
+    config.write_text(json.dumps({"apps": [{"name": "fixture", "bundle": "local.fixture"}],
+                                  "cloudkit_config": str(cloud)}))
+    cfg = bl.load_config(config)
+    assert cfg["cloudkit"]["inbox"] == str(listener_state / "downloads")
+    monkeypatch.setattr(bl, "DRY", True)
+    monkeypatch.setattr(bl, "run", lambda *a, **k: pytest.fail("dry run launched CloudKit"))
+    bl.sync_cloudkit(cfg, cloud_summary(), {})
+
+
+def test_inbox_history_prevents_duplicate_after_seen_store_loss(listener_state):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    filer = CloudFakeFiler()
+    bl.poll_cloud_reports(cfg, {}, filer, cloud_summary(), False)
+    bl.SEEN.unlink()
+    seen = bl.load_seen()
+    bl.poll_cloud_reports(cfg, seen, filer, cloud_summary(), False)
+    assert len(filer.calls) == 1
+    assert len(bl.INBOX.read_text().splitlines()) == 1
+
+
+def test_tracker_acknowledgement_survives_failed_inbox_append_and_retries_without_refiling(listener_state, monkeypatch):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    filer, seen = CloudFakeFiler(), {}
+    inbox = bl.INBOX
+    monkeypatch.setattr(bl, "INBOX", listener_state)  # directory cannot be appended to
+    summary = cloud_summary()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert len(filer.calls) == 1 and summary["errors"] == 1
+    assert seen["_deliveries"][rec["bundle"] + ":" + rec["id"]]["inbox"] is False
+    monkeypatch.setattr(bl, "INBOX", inbox)
+    bl.poll_cloud_reports(cfg, seen, filer, cloud_summary(), False)
+    assert len(filer.calls) == 1
+    assert json.loads(inbox.read_text())["key"] == rec["id"]
+
+
+def test_cloud_issue_body_names_actual_nested_log_path(listener_state):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    rec["log"] = "logs/nested/session.jsonl"
+    documents = Path(cfg["cloudkit"]["inbox"]) / rec["id"] / "Documents"
+    body = bl.issue_body(rec, rec["id"], {"type": "CloudKit"}, cfg["apps"][0], documents)
+    assert str(documents / rec["log"]) in body

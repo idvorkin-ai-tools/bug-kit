@@ -6,4 +6,8 @@ All git worktrees share the main checkout's Beads database. Issue data lives in 
 
 Every change, including docs-only changes, goes through no-mistakes before merge. Keep its pipeline fixes, follow its branch-sync instructions, and merge only after required checks pass and the user has authorized merging. Do not bypass it with a direct push or by merging a PR that skipped the pipeline.
 
+Only one simulator on this Mac at a time: before booting, check xcrun simctl list devices booted and wait until it's empty; shut yours down when done.
+
+Only one build or simulator runs on this Mac at a time. Before new heavy work (xcodebuild, simulator tests, signed or unsigned reader builds), wait for an explicit build turn and run it under `lockf -k -t 3600 ~/tmp/agent/locks/build.lock <command>`. When an outer driver already holds `build.lock` for your invocation (it tells you so), do not take it again in nested commands: that deadlocks. Signing builds still also run under `lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock xcodebuild ... -allowProvisioningUpdates`.
+
 Before starting any simulator or live test, run `xcrun simctl list devices booted`. If another agent has a device booted, wait. Use one disposable simulator, bound test commands, and shut it down when its test step ends. Avoid unbounded `tail -f` watchers. Use `/bin/ls` or `rg` instead of the inherited `ls` alias.

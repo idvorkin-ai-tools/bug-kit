@@ -39,7 +39,19 @@ jobs:
         run: swift test
       - name: Listener and deployment tests
         run: uv run --python 3.12 --with typer --with pytest pytest --import-mode=importlib listener/ Tests/ scripts/tests/ -q
-      - name: iOS compilation
+      - name: iOS and watchOS compilation with the documented adoption snippets
         run: |
-          xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0 \
-            -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" Sources/BugKit/*.swift
+          set -eu
+          out="$RUNNER_TEMP/adoption"
+          for spec in "iphoneos arm64-apple-ios17.0" "watchos arm64_32-apple-watchos10.0"; do
+            set -- $spec
+            sdk="$(xcrun --sdk "$1" --show-sdk-path)"
+            xcrun --sdk "$1" swiftc -emit-module -module-name BugKit -swift-version 6 -target "$2" -sdk "$sdk" \
+              -emit-module-path "$out/$1/BugKit.swiftmodule" Sources/BugKit/*.swift
+            xcrun --sdk "$1" swiftc -typecheck -swift-version 6 -target "$2" -sdk "$sdk" -I "$out/$1" Tests/Adoption/*.swift
+          done
+      - name: Headless CloudKit reader compilation
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          python3 scripts/build-cloudkit-reader.py --unsigned
+          DerivedData/CloudKitReader/Build/Products/Debug/BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader --help

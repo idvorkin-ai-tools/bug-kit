@@ -28,6 +28,7 @@ import subprocess
 import tempfile
 import time
 import traceback
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -122,16 +123,47 @@ def load_config(path: Path) -> dict:
     interval = cfg.setdefault("poll_seconds", 300)
     if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
         raise ValueError("poll_seconds must be a positive integer")
+    if "cloudkit_config" in cfg:
+        value = cfg["cloudkit_config"]
+        if not isinstance(value, str) or not Path(value).expanduser().is_absolute():
+            raise ValueError("cloudkit_config must be an absolute local JSON config path")
+        cfg["cloudkit_config"] = str(Path(value).expanduser())
+        cloud = json.loads(Path(cfg["cloudkit_config"]).read_text())
+        if not isinstance(cloud, dict) or not isinstance(cloud.get("container"), str) or not re.fullmatch(r"iCloud\.[A-Za-z0-9.-]+", cloud["container"]):
+            raise ValueError("CloudKit config needs a container identifier")
+        if cloud.get("environment") not in ("Development", "Production"):
+            raise ValueError("CloudKit environment must be Development or Production")
+        for key in ("app", "inbox"):
+            if not isinstance(cloud.get(key), str) or not Path(cloud[key]).expanduser().is_absolute():
+                raise ValueError(f"CloudKit config needs an absolute {key} path")
+            cloud[key] = str(Path(cloud[key]).expanduser())
+        if not cloud["app"].endswith(".app"):
+            raise ValueError("CloudKit reader must be a provisioned .app bundle")
+        cfg["cloudkit"] = cloud
     return cfg
 
 
 def load_seen() -> dict:
     if not SEEN.exists():
-        return {}
+        return recover_deliveries({})
     data = json.loads(SEEN.read_text())
     if not isinstance(data, dict) or any(not isinstance(entry, dict) for entry in data.values()):
         raise ValueError("seen.json must map app/device pairs to state objects")
-    return data
+    return recover_deliveries(data)
+
+
+def recover_deliveries(seen: dict) -> dict:
+    if INBOX.is_file():
+        by_name = {}  # populated during poll, where the app's bundle is known
+        for line in INBOX.read_text().splitlines():
+            try:
+                item = json.loads(line)
+                if item.get("key") and item.get("app"):
+                    by_name[item["app"] + ":" + item["key"]] = {"ref": item.get("ref")}
+            except (ValueError, AttributeError, TypeError):
+                continue
+        seen["_inbox_deliveries"] = by_name
+    return seen
 
 
 def save_seen(seen: dict) -> None:
@@ -303,7 +335,7 @@ def issue_body(rec: dict, key: str, dev: dict, a: dict, local: Path) -> str:
     log_name = rec.get("log")
     if log_name:
         at = f" at {rec['session_t_ms']} ms" if rec.get("session_t_ms") is not None else ""
-        log_path = local / log_name if rec.get("kind") == "crash" else local / "logs" / Path(log_name).name
+        log_path = local / log_name if rec.get("kind") == "crash" or dev["type"] == "CloudKit" else local / "logs" / Path(log_name).name
         rows.append(("Log", f"`{log_name}`{at}, pulled to `{tilde(log_path)}`"))
     if rec.get("screenshot"):
         rows.append(("Screenshot", f"`{tilde(local / rec['screenshot'])}` on the Mac, not uploaded"))
@@ -528,7 +560,8 @@ def pending(entry: dict, rec: dict, reason: str, a: dict, dev: dict) -> None:
 def deliver(filer: Filer, a: dict, rec: dict, dev: dict, local: Path, entry: dict,
             keys_field: str, seen: dict, summary: dict, key: Optional[str] = None) -> bool:
     key = key or rec["id"]
-    outcome, ref = filer.file(a, rec, key, dev, local)
+    prior = seen.get("_deliveries", {}).get(a["bundle"] + ":" + key)
+    outcome, ref = ("already_filed", prior.get("ref")) if prior is not None else filer.file(a, rec, key, dev, local)
     log("file", key=key, outcome=outcome, ref=ref, tracker=a["tracker"]["kind"], app=a["name"], device=dev["dir"])
     if outcome == "error":
         summary["errors"] += 1
@@ -542,11 +575,20 @@ def deliver(filer: Filer, a: dict, rec: dict, dev: dict, local: Path, entry: dic
     if outcome == "filed":
         summary["filed"] += 1
     if not DRY:
+        if rec.get("id"):
+            seen.setdefault("_deliveries", {})[a["bundle"] + ":" + key] = {"ref": ref, "inbox": False}
+            pending(entry, {**rec, "id": key}, "inbox", a, dev)
+            save_seen(seen)  # retain tracker acknowledgement even when the inbox append fails
         with INBOX.open("a") as f:
             f.write(json.dumps({"t": now(), "app": a["name"], "repo": a.get("repo"), "device": dev["dir"],
                                 "key": key, "kind": rec.get("kind", "report"), "reported_at": rec.get("reported_at"),
                                 "note": rec.get("note"), "tracker": a["tracker"]["kind"], "ref": ref,
                                 "dir": str(local)}, ensure_ascii=False) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        if rec.get("id"):
+            seen.setdefault("_deliveries", {})[a["bundle"] + ":" + key] = {"ref": ref, "inbox": True}
+        log("inbox", key=key, app=a["name"], device=dev["dir"], ref=ref)
         notify(f"Bug: {a['name']}", f"{title_of(rec)} ({dev['type']}) {ref or ''}".strip())
     entry[keys_field].append(key)
     entry.setdefault("pending", {}).pop(key, None)
@@ -557,7 +599,12 @@ def deliver(filer: Filer, a: dict, rec: dict, dev: dict, local: Path, entry: dic
 def already_filed(filer: Filer, a: dict, rec: dict, dev: dict, entry: dict, keys_field: str,
                   seen: dict, summary: dict, key: Optional[str] = None) -> bool:
     key = key or rec["id"]
-    stop = filer.check(a, rec)
+    prior = seen.get("_deliveries", {}).get(a["bundle"] + ":" + key) if rec.get("id") else None
+    inbox_prior = seen.get("_inbox_deliveries", {}).get(a["name"] + ":" + key) if rec.get("id") else None
+    if prior is not None and prior.get("inbox") is False and inbox_prior is None:
+        return False  # tracker filed; retry the durable agent handoff without creating another issue
+    prior = prior or inbox_prior
+    stop = ("already_filed", prior.get("ref")) if prior is not None else filer.check(a, rec)
     if stop is None:
         return False
     if stop[0] == "error":
@@ -703,6 +750,104 @@ def save_status(data: dict) -> None:
         Path(name).unlink(missing_ok=True)
 
 
+def cloud_evidence_path(root: Path, name: str) -> Path:
+    if not isinstance(name, str) or not name or "\\" in name or "\0" in name:
+        raise ValueError("invalid CloudKit evidence path")
+    if name.startswith("/") or any(p in ("", ".", "..") for p in name.split("/")):
+        raise ValueError("invalid CloudKit evidence path")
+    resolved = (root / name).resolve()
+    if not resolved.is_relative_to(root.resolve()):
+        raise ValueError("CloudKit evidence escapes inbox")
+    return resolved
+
+
+CLOUD_PENDING_REASONS = ("download or evidence validation failed", "listing failed or record metadata is invalid")
+
+
+def sync_cloudkit(cfg: dict, summary: dict, health: dict) -> None:
+    cloud = cfg["cloudkit"]
+    executable = Path(cloud["app"]) / "Contents/MacOS/BugKitCloudReader"
+    if DRY:
+        log("cloudkit_sync", skipped=True, reason="dry run; consume existing downloads only")
+        return
+    started = time.monotonic()
+    log("cloudkit_poll")
+    rc, out, _ = run([str(executable), "--container", cloud["container"], "--inbox", cloud["inbox"], "--environment", cloud["environment"]], timeout=180)
+    completed = False
+    for line in out.splitlines():
+        try:
+            event = json.loads(line)
+            if event.get("event") == "cloudkit_downloaded" and isinstance(event.get("id"), str):
+                log("cloudkit_downloaded", key=event["id"], bundle=event.get("bundle"))
+            elif event.get("event") == "cloudkit_report_pending":
+                key = None
+                with contextlib.suppress(ValueError, TypeError, AttributeError):
+                    key = str(uuid.UUID(event.get("id"))).upper()
+                reason = event.get("reason") if event.get("reason") in CLOUD_PENDING_REASONS else "unknown"
+                log("cloudkit_report_pending", key=key, reason=reason)
+            elif event.get("event") == "cloudkit_sync" and event.get("ok") is True:
+                completed = True
+        except (ValueError, AttributeError, TypeError):
+            continue
+    ok = rc == 0 and completed
+    health["cloudkit"] = {"ok": ok, "last_attempt": now(), "rc": rc}
+    if ok:
+        summary["reachable"] += 1
+    else:
+        summary["errors"] += 1
+    log("cloudkit_sync", ok=ok, rc=rc, ms=int((time.monotonic() - started) * 1000))
+
+
+def poll_cloud_reports(cfg: dict, seen: dict, filer: Filer, summary: dict, backfill: bool) -> None:
+    """Consume complete folders published by the signed CloudKit helper, without contacting iCloud here."""
+    inbox = Path(cfg["cloudkit"]["inbox"])
+    if not inbox.is_dir():
+        return  # the helper creates it on its first successful sync; a failed sync is already an error
+    apps = {a["bundle"]: a for a in cfg["apps"]}
+    for folder in sorted(inbox.iterdir()):
+        if not folder.is_dir() or folder.is_symlink() or folder.name.startswith("."):
+            continue
+        try:
+            identity = str(uuid.UUID(folder.name)).upper()
+        except ValueError:
+            continue
+        try:
+            rec = json.loads((folder / "report.json").read_text())
+            if not isinstance(rec, dict) or rec.get("id") != identity:
+                raise ValueError("CloudKit folder and report UUID differ")
+            a = apps.get(rec.get("bundle"))
+            if a is None:
+                continue
+            dev = {"id": "cloudkit", "dir": "cloudkit", "type": "CloudKit", "model": rec.get("device", "unknown")}
+            pair = a["bundle"] + "|cloudkit"
+            entry = seen.setdefault(pair, {"since": now(), "keys": []})
+            key = rec["id"]
+            if key in entry["keys"]:
+                continue
+            summary["new"] += 1
+            if already_filed(filer, a, rec, dev, entry, "keys", seen, summary):
+                continue
+            documents = folder / "Documents"
+            if documents.is_symlink():
+                raise ValueError("CloudKit Documents cannot be a symlink")
+            paths = rec.get("files", []) + [p for p in (rec.get("screenshot"), rec.get("log")) if p]
+            sizes = json.loads((folder / "files.json").read_text())
+            if not isinstance(sizes, dict) or set(sizes) != set(paths):
+                raise ValueError("CloudKit evidence manifest differs from report")
+            if not all(isinstance(sizes[p], int) and not isinstance(sizes[p], bool) and sizes[p] >= 0
+                       and cloud_evidence_path(documents, p).is_file()
+                       and cloud_evidence_path(documents, p).stat().st_size == sizes[p] for p in paths):
+                pending(entry, rec, "cloudkit_evidence", a, dev)
+                summary["errors"] += 1
+                save_seen(seen)
+                continue
+            # The helper's inbox is explicit delivery, so do not baseline/suppress its first reports.
+            deliver(filer, a, rec, dev, documents, entry, "keys", seen, summary)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            summary["errors"] += 1
+            log("cloudkit_report_error", folder=folder.name, message=str(error))
+
+
 def poll(cfg: dict, backfill: bool) -> dict:
     t0 = time.monotonic()
     health = read_status()
@@ -716,7 +861,18 @@ def poll(cfg: dict, backfill: bool) -> dict:
         seen = load_seen()
         filer = Filer()
         health["devices"] = []
-        for dev in list_devices():
+        devices = []
+        if cfg.get("cloudkit"):
+            sync_cloudkit(cfg, summary, health)
+            poll_cloud_reports(cfg, seen, filer, summary, backfill)
+        try:
+            devices = list_devices()
+        except (OSError, ValueError, RuntimeError) as error:
+            if not cfg.get("cloudkit"):
+                raise
+            summary["errors"] += 1
+            log("devices_error", message=str(error))
+        for dev in devices:
             summary["devices"] += 1
             lock = probe(dev)
             health["devices"].append({"id": dev["id"], "device": dev["dir"], "reachable": lock is not None,
@@ -802,6 +958,13 @@ def doctor_checks(config: Path) -> dict:
                                else f"pairing={dev.get('pairing')}; unreachable; check pairing and connection")
                 except (OSError, ValueError, RuntimeError) as e:
                     record("devices", "error", str(e))
+    if cfg.get("cloudkit"):
+        cloud = cfg["cloudkit"]
+        executable = Path(cloud["app"]) / "Contents/MacOS/BugKitCloudReader"
+        rc, _, _ = run([str(executable), "--check-signing", "--container", cloud["container"], "--environment", cloud["environment"]], timeout=20)
+        record("cloudkit_signing", "ok" if rc == 0 else "error",
+               "provisioned container entitlement present; iCloud/network health requires a poll" if rc == 0
+               else "build/install the signed headless app with the shared container entitlement and profile")
     for a in cfg["apps"]:
         kind = a["tracker"]["kind"]
         name = f"tracker:{a['name']}"

@@ -6,7 +6,7 @@ import PackageDescription
 
 let package = Package(
   name: "BugKit",
-  platforms: [.iOS(.v17), .macOS(.v14)],
+  platforms: [.iOS(.v17), .macOS(.v14), .watchOS(.v10)],
   products: [.library(name: "BugKit", targets: ["BugKit"])],
   targets: [
     .target(name: "BugKit"),

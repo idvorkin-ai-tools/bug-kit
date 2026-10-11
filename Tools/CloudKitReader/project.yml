@@ -1,0 +1,41 @@
+name: BugKitCloudReader
+options:
+  deploymentTarget:
+    macOS: '14.0'
+packages:
+  BugKit:
+    path: ../..
+settings:
+  base:
+    SWIFT_VERSION: '6.0'
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: Apple Development
+    CODE_SIGN_ENTITLEMENTS: CloudKitReader.entitlements
+    PRODUCT_BUNDLE_IDENTIFIER: $(BUGKIT_READER_BUNDLE_ID)
+    DEVELOPMENT_TEAM: $(BUGKIT_SIGNING_TEAM)
+    ENABLE_HARDENED_RUNTIME: YES
+    GENERATE_INFOPLIST_FILE: YES
+    INFOPLIST_KEY_LSBackgroundOnly: YES
+    INFOPLIST_KEY_CFBundleDisplayName: BugKit Cloud Reader
+    MARKETING_VERSION: '1.0'
+    CURRENT_PROJECT_VERSION: '1'
+    BUGKIT_READER_BUNDLE_ID: com.example.BugKitCloudReader
+    BUGKIT_CLOUD_CONTAINER: iCloud.com.example.BugKitReports
+    BUGKIT_CLOUD_ENVIRONMENT: Development
+targets:
+  BugKitCloudReader:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+    dependencies:
+      - package: BugKit
+    attributes:
+      SystemCapabilities:
+        com.apple.iCloud:
+          enabled: 1
+schemes:
+  BugKitCloudReader:
+    build:
+      targets:
+        BugKitCloudReader: all
