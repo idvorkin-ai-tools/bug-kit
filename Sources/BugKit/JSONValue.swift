@@ -43,6 +43,21 @@ public enum JSONValue: Codable, Equatable, Hashable, Sendable {
     }
   }
 
+  /// The Foundation form (`NSNull`, Bool, Int, Double, String, arrays, dictionaries), for an app whose own logger
+  /// takes `[String: Any]` for `JSONSerialization` (EA, MM):
+  /// `{ type, fields in log.event(type, fields.mapValues(\.foundation)) }`.
+  public var foundation: Any {
+    switch self {
+    case .null: return NSNull()
+    case .bool(let b): return b
+    case .int(let i): return i
+    case .double(let d): return d
+    case .string(let s): return s
+    case .array(let a): return a.map(\.foundation)
+    case .object(let o): return o.mapValues(\.foundation)
+    }
+  }
+
   /// A short text form for the dialog's "Attached automatically" list.
   public var display: String {
     switch self {
