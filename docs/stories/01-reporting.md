@@ -259,3 +259,9 @@ Part of the [BugKit stories](README.md).
 - **When:** the app crashes before it logs, the launch writes no new log, a step logs `error`, or the scripted flow
   stops before `selftest_finished`
 - **Then:** the run fails and names why. An older launch's log never satisfies the check.
+
+### Remove a screenshot before saving
+
+**Issues:** #14
+
+The screenshot thumbnail has an accessible “Remove screenshot” button. Removing it keeps the note and context but saves no screenshot path or `screen.png`, and the `bug_report` event includes `screenshot_dropped: true`. “Log it and another” retains this choice for `.keepMoment`; `.recapture` and a new presentation capture fresh evidence. Host coverage: `screenshotDropPersistsForSameMomentAndResetsOnRecapture`, `droppedScreenshotIsAbsentFromSavedReportAndFolder`.

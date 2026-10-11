@@ -16,6 +16,7 @@ public struct BugReportFlow: Equatable, Sendable {
   public private(set) var isPresented = false
   public private(set) var source: Source?
   public var note = ""
+  public private(set) var screenshotDropped = false
   /// A new id for each fresh report: the sheet keys its text field on it, so focus returns to an empty field.
   public private(set) var draft = UUID()
   /// Reports saved since the dialog opened.
@@ -37,6 +38,7 @@ public struct BugReportFlow: Equatable, Sendable {
     note = ""
     draft = UUID()
     savedThisTime = 0
+    screenshotDropped = false
     return true
   }
 
@@ -62,6 +64,12 @@ public struct BugReportFlow: Equatable, Sendable {
     guard reopenPending else { return false }
     reopenPending = false
     return open(from: .another)
+  }
+
+  /// Exclude the captured screenshot from every report about this moment.
+  public mutating func dropScreenshot() {
+    guard isPresented else { return }
+    screenshotDropped = true
   }
 
   public mutating func cancel() {

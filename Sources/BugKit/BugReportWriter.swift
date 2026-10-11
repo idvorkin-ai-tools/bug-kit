@@ -94,7 +94,7 @@ public struct BugReportWriter: Sendable {
     note: String, screen: String, context: [String: JSONValue], screenshotPNG: Data?,
     log: (path: String, tMs: Int)?, extraFiles: BugExtraFiles?, date: Date = Date(),
     diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot(), source: String? = nil,
-    reason: String? = nil, event: String = "bug_report", copySessionLog: Bool? = nil
+    reason: String? = nil, event: String = "bug_report", copySessionLog: Bool? = nil, screenshotDropped: Bool = false
   ) async -> BugReport {
     var report = BugReport(
       reportedAt: date, app: info.app, bundle: info.bundle, build: info.build, commit: info.commit,
@@ -108,7 +108,7 @@ public struct BugReportWriter: Sendable {
     } catch {
       logger("error", ["where": "bug_folder", "id": .string(report.id.uuidString), "message": .string("\(error)")])
     }
-    if let folderURL, let png = screenshotPNG {
+    if !screenshotDropped, let folderURL, let png = screenshotPNG {
       do {
         try png.write(to: folderURL.appendingPathComponent("screen.png"))
         report.screenshot = "\(report.folder)/screen.png"
@@ -164,6 +164,7 @@ public struct BugReportWriter: Sendable {
       "folder": .string(report.folder), "screenshot": report.screenshot.map(JSONValue.string) ?? .null,
       "files": .array(report.files.map(JSONValue.string)), "index_written": .bool(indexWritten),
     ]
+    if screenshotDropped { fields["screenshot_dropped"] = true }
     fields["context"] = .object(context)
     if let source { fields["source"] = .string(source) }
     if let reason { fields["reason"] = .string(reason) }

@@ -139,6 +139,7 @@
     public func log(another: Bool) {
       guard let note = flow.log(another: another, style: options.another) else { return }
       let png = screenshot?.pngData()
+      let screenshotDropped = flow.screenshotDropped
       let screen = screen, context = context, sessionLog = capturedLogPosition
       let diagnostics = diagnostics
       let writer = writer, extra = hooks.extraFiles
@@ -146,7 +147,7 @@
       Task { @MainActor in
         let report = await writer.save(
           note: note, screen: screen, context: context, screenshotPNG: png, log: sessionLog, extraFiles: extra,
-          diagnostics: diagnostics)
+          diagnostics: diagnostics, screenshotDropped: screenshotDropped)
         self.lastStatus = report.folder.isEmpty ? "Problem noted in the log only" : "Problem logged. Thanks."
       }
       guard !flow.isPresented else { return }  // keepMoment: the dialog stays, empty
@@ -158,6 +159,13 @@
         guard let self, self.flow.reopenIfPending() else { return }
         self.present(source: .another)
       }
+    }
+
+    /// Remove the image from the current moment; context and other evidence remain attached.
+    public func dropScreenshot() {
+      guard flow.isPresented, screenshot != nil else { return }
+      flow.dropScreenshot()
+      screenshot = nil
     }
 
     public func cancel() {
@@ -342,6 +350,18 @@
               Image(uiImage: shot).resizable().scaledToFit().frame(maxHeight: 160)
                 .clipShape(RoundedRectangle(cornerRadius: 8))
                 .accessibilityLabel("The screen as it was")
+                .overlay(alignment: .topTrailing) {
+                  Button(action: reporter.dropScreenshot) {
+                    Image(systemName: "xmark.circle.fill")
+                      .font(.title2).symbolRenderingMode(.palette)
+                      .foregroundStyle(.white, .black.opacity(0.75))
+                      .frame(width: 44, height: 44)
+                      .contentShape(Rectangle())
+                  }
+                  .buttonStyle(.plain)
+                  .accessibilityLabel("Remove screenshot")
+                  .accessibilityIdentifier("report-remove-screenshot")
+                }
             }
             ForEach(reporter.context.sorted(by: { $0.key < $1.key }), id: \.key) { item in
               LabeledContent(item.key, value: item.value.display)
