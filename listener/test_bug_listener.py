@@ -330,6 +330,24 @@ def test_status_distinguishes_healthy_stale_and_never_run(cli_config):
     assert result.exit_code == 1 and json.loads(result.output)["stale"]
 
 
+@pytest.mark.parametrize("reachable", [True, False])
+def test_offline_paired_device_is_not_a_poll_error(cli_config, monkeypatch, reachable):
+    phone = {"id": "phone-id", "dir": "iphone", "type": "iPhone", "model": "phone"}
+    ipad = {"id": "ipad-id", "dir": "ipad", "type": "iPad", "model": "tablet"}
+    monkeypatch.setattr(bl, "list_devices", lambda: [phone, ipad])
+    monkeypatch.setattr(bl, "probe", lambda dev: {"locked": False} if reachable and dev is phone else None)
+    monkeypatch.setattr(bl, "copy", lambda *args, **kwargs: True)
+    summary = bl.poll({"apps": [{"name": "app", "bundle": "app.bundle", "tracker": {"kind": "none"}}],
+                       "poll_seconds": 300}, backfill=False)
+    assert summary["errors"] == 0 and summary["reachable"] == int(reachable)
+    state = bl.read_status()
+    assert [d["reachable"] for d in state["devices"]] == [reachable, False]
+    assert ("last_successful_poll" in state) == reachable
+    result = invoke(["status", "--config", str(cli_config), "--json"])
+    assert result.exit_code == (0 if reachable else 1), result.output
+    assert json.loads(result.output)["ok"] == reachable
+
+
 def test_poll_failure_preserves_last_success_and_records_error(listener_state, monkeypatch):
     bl.save_status({"last_successful_poll": "before"})
     monkeypatch.setattr(bl, "list_devices", lambda: (_ for _ in ()).throw(RuntimeError("device lookup failed")))

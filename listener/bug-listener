@@ -697,7 +697,6 @@ def poll(cfg: dict, backfill: bool) -> dict:
             health["devices"].append({"id": dev["id"], "device": dev["dir"], "reachable": lock is not None,
                                       "locked": lock.get("locked") if lock else None})
             if lock is None:
-                summary["errors"] += 1
                 continue
             summary["reachable"] += 1
             for a in cfg["apps"]:
