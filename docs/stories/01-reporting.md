@@ -265,3 +265,9 @@ Part of the [BugKit stories](README.md).
 **Issues:** #14
 
 The screenshot thumbnail has an accessible “Remove screenshot” button. Removing it keeps the note and context but saves no screenshot path or `screen.png`, and the `bug_report` event includes `screenshot_dropped: true`. “Log it and another” retains this choice for `.keepMoment`; `.recapture` and a new presentation capture fresh evidence. Host coverage: `screenshotDropPersistsForSameMomentAndResetsOnRecapture`, `droppedScreenshotIsAbsentFromSavedReportAndFolder`.
+
+### Delay automatic launch reports for cold startup
+
+**Issues:** #19
+
+Given `<PREFIX>_BUG` notes and `<PREFIX>_BUG_AFTER=10`, reports capture evidence after ten seconds instead of the default two. Invalid, negative, non-finite and over-one-day values retain the default; zero is accepted. A delay without notes does not save reports. Host coverage: `automaticReportDelayDefaultsToTwoSeconds`, `automaticReportDelayAcceptsOnlyFiniteNonnegativeValues`, `shakeDelayAcceptsOnlyBoundedNonnegativeValues`. EA's cold-launch smoke check can set `SWING_BUG_AFTER` and verify that the clip's load event precedes the report.

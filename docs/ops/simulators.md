@@ -23,7 +23,7 @@
 ## Driving the app without tapping
 
 - **Launch hooks.** Use `SIMCTL_CHILD_<APP>_<ACTION>=… xcrun simctl launch <udid> <bundle>`. simctl strips the prefix, so the app reads `<APP>_<ACTION>`.
-  - BugKit's `launchHookPrefix` gives `<APP>_BUG` and `<APP>_SHAKE_AFTER`.
+  - BugKit's `launchHookPrefix` gives `<APP>_BUG`, `<APP>_BUG_AFTER` and `<APP>_SHAKE_AFTER`.
   - EA has about 30 `SWING_*` hooks.
 - **Wait for an event in the new launch's log, not a fixed time.** Remember the newest log before the launch and require a different file. Treat a timeout as a failure even if old data would match.
 - **Privacy prompts:** `xcrun simctl privacy <udid> grant photos|microphone|location|location-always <bundle>`.

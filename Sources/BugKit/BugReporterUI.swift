@@ -184,7 +184,8 @@
       guard !hooks.isEmpty else { return }
       self.hooks.logger(
         "bug_hook",
-        ["notes": .int(hooks.notes.count), "shake_after": hooks.shakeAfter.map(JSONValue.double) ?? .null])
+        ["notes": .int(hooks.notes.count), "bug_after": .double(hooks.bugAfter),
+         "shake_after": hooks.shakeAfter.map(JSONValue.double) ?? .null])
       if let after = hooks.shakeAfter {
         Task { @MainActor in
           try? await Task.sleep(for: .seconds(after))
@@ -193,7 +194,7 @@
       }
       guard !hooks.notes.isEmpty else { return }
       Task { @MainActor in
-        try? await Task.sleep(for: .seconds(2))  // the first frame must be on screen for the picture
+        try? await Task.sleep(for: .seconds(hooks.bugAfter))  // allow the app to finish loading its target screen
         let png = Self.keyWindow().map(Self.snapshot)?.pngData()
         let diagnostics = self.diagnosticsSnapshot(in: Self.keyWindow())
         if self.options.copySessionLog { self.hooks.flushLog() }

@@ -4,18 +4,21 @@ import Foundation
 /// shake, so a simulator check asserts on the log. With `simctl launch`, set them as `SIMCTL_CHILD_<PREFIX>_BUG=…`;
 /// simctl strips `SIMCTL_CHILD_`.
 ///
-/// - `<PREFIX>_BUG=note` saves a report with that note a couple of seconds after launch (after the first frame,
-///   so the screenshot has something on it); `a|b` saves two, as "Log it and another" would (EA `SWING_BUG`,
+/// - `<PREFIX>_BUG=note` saves a report with that note `<PREFIX>_BUG_AFTER` seconds after launch (after the first
+///   frame, so the screenshot has something on it); `a|b` saves two, as "Log it and another" would (EA `SWING_BUG`,
 ///   CG `GRABBER_BUG`).
+/// - `<PREFIX>_BUG_AFTER=<seconds>` delays automatic reports (default 2); use a longer delay for cold launches.
 /// - `<PREFIX>_SHAKE_AFTER=<seconds>` opens the dialog as a shake would, that long after launch (CG
 ///   `GRABBER_SHAKE_AFTER`).
 public struct BugLaunchHooks: Equatable, Sendable {
   public var notes: [String] = []
   public var shakeAfter: Double?
   public var whatsNewReset: Bool = false
+  public var bugAfter: Double = 2
 
-  public init(notes: [String] = [], shakeAfter: Double? = nil, whatsNewReset: Bool = false) {
+  public init(notes: [String] = [], shakeAfter: Double? = nil, whatsNewReset: Bool = false, bugAfter: Double = 2) {
     self.notes = notes; self.shakeAfter = shakeAfter; self.whatsNewReset = whatsNewReset
+    self.bugAfter = bugAfter
   }
 
   public var isEmpty: Bool { notes.isEmpty && shakeAfter == nil }
@@ -25,9 +28,15 @@ public struct BugLaunchHooks: Equatable, Sendable {
     if let bug = env["\(prefix)_BUG"] {
       hooks.notes = bug.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
-    if let after = env["\(prefix)_SHAKE_AFTER"].flatMap(Double.init), after >= 0 { hooks.shakeAfter = after }
+    hooks.shakeAfter = delay(env["\(prefix)_SHAKE_AFTER"])
     hooks.whatsNewReset = env["\(prefix)_WHATS_NEW_RESET"] == "1"
+    if let after = delay(env["\(prefix)_BUG_AFTER"]) { hooks.bugAfter = after }
     return hooks
+  }
+
+  /// Accepts 0...86400 seconds: `Duration.seconds(Double)` traps on huge finite values, so they must not reach it.
+  private static func delay(_ value: String?) -> Double? {
+    value.flatMap(Double.init).flatMap { (0...86_400).contains($0) ? $0 : nil }
   }
 }
 
