@@ -227,6 +227,23 @@ To use your own server/library, conform an actor or a Sendable type to `BugDicta
 
 `voice-keyboard/ios/Host/AudioCapture.swift` and `DeepgramEngine.swift` were the design reference for input selection and streaming segment finalization. Its private `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.
 
+## macOS storage and Command Line Tools
+
+`BugStore()`, `SessionLog(prefix:)` and `CrashReports.shared` share `BugStorage.defaultDirectory`.
+On macOS this is `~/Library/Application Support/<bundle ID>/`; an unbundled SwiftPM/command-line app uses
+its executable name, such as `lcd-timer`. iOS and watchOS continue using their app-container Documents folder.
+Report and log paths remain relative to the root, so the same report format works on every platform.
+
+Existing explicit directories remain authoritative. An app such as Magic Monitor using
+`~/Library/Application Support/MagicMonitor` can retain that store; pass the same root to `SessionLog` and
+its `crashes` child to `CrashReports.install(folder:logger:)`. Updating does not move or delete existing
+reports from `~/Documents`. If an app previously used the old defaults, retain an explicit old root while
+draining it, or move its owned evidence deliberately before switching all three writers together.
+
+The What's new views remain available to Mac apps. Their Mac dismissal state uses explicit SwiftUI wrapper
+storage to avoid requiring the `@State` macro plugin that Command Line Tools-only SDKs do not ship.
+`WhatsNewSeen` remains a Foundation API. A CLT-only build and Mac dismissal UI check are part of validation.
+
 ## App Group storage
 
 For a host app that shares evidence with an extension, point the store and log at an explicit directory inside the App Group. Enable the same App Group entitlement on the host and whichever extension writes its own evidence. Resolve it through `FileManager`; do not hard-code the container's UUID or silently fall back to the app's private Documents.

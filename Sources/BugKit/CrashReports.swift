@@ -21,7 +21,7 @@ import Foundation
 public final class CrashReports: NSObject, @unchecked Sendable {
   public static let shared = CrashReports()
   public private(set) var folder: URL =
-    FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("crashes")
+    BugStorage.defaultDirectory.appendingPathComponent("crashes")
   private var logger: BugLogger = { _, _ in }
 
   /// Installs the handlers and the MetricKit subscriber, then announces the files earlier runs left.

@@ -37,6 +37,10 @@ jobs:
           python3 -m compileall -q listener Tests scripts/tests
       - name: Swift host tests
         run: swift test
+      - name: Command Line Tools consumer build
+        run: |
+          DEVELOPER_DIR=/Library/Developer/CommandLineTools swift build --package-path Tools/CLTConsumer --jobs 2
+          Tools/CLTConsumer/.build/debug/CLTConsumer
       - name: Listener and deployment tests
         run: uv run --python 3.12 --with typer --with pytest pytest --import-mode=importlib listener/ Tests/ scripts/tests/ -q
       - name: iOS and watchOS compilation with the documented adoption snippets

@@ -2,7 +2,8 @@ import Foundation
 
 /// One JSON Lines file per launch: `Documents/logs/<prefix>-<yyyyMMdd-HHmmss>.jsonl`, one event per line,
 /// `{"type": "<event>", "t": <ms since launch>, …fields}`. Written as each event comes (no buffer to lose in a
-/// crash), in Documents so the Files app shows it and `devicectl` copies it. Optional: an app with its own log
+/// crash), in app-container Documents on iOS/watchOS or app-specific Application Support on macOS.
+/// On iOS the Files app shows it and `devicectl` copies it. Optional: an app with its own log
 /// passes its logger to `BugReporterHooks` instead.
 ///
 ///     let log = SessionLog(prefix: "swing", fields: ["build": "1.0 (42)"])
@@ -32,7 +33,7 @@ public final class SessionLog: @unchecked Sendable {
 
   /// Opens a new log and writes `session_start` with `fields` (put the device, system and build there).
   public init(
-    prefix: String, documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0],
+    prefix: String, documents: URL = BugStorage.defaultDirectory,
     fields: [String: JSONValue] = [:], clocks: Clocks = [], now: Date = Date()
   ) {
     self.documents = documents
