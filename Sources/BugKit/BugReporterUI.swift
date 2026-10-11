@@ -59,7 +59,8 @@
     public let writer: BugReportWriter
     /// Retained across report sheets; cancellation invalidates old permission and service callbacks.
     public private(set) lazy var dictation = NoteDictation(
-      logger: hooks.logger, providerFactory: hooks.dictationProvider)
+      logger: hooks.logger, providerFactory: hooks.dictationProvider,
+      hostMicrophoneBusy: hooks.microphoneBusy)
     /// Saves reports the app makes by itself; see `autoReport`.
     public private(set) lazy var auto = BugAutoReporter(writer: writer, options: options.auto)
 

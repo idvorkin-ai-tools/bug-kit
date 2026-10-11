@@ -119,6 +119,47 @@ import Testing
 }
 
 @MainActor
+@Test func dictationBusyHostSkipsPermissionsAndProviderStart() async throws {
+  let fixture = try DictationFixture(hostMicrophoneBusy: { true })
+  defer { fixture.cleanup() }
+  fixture.dictation.toggle(note: "typed") { fixture.note.value = $0 }
+  await fixture.dictation.refreshMicrophones()
+  #expect(fixture.permissions.microphone == 0)
+  #expect(await fixture.provider.starts == 0)
+  #expect(fixture.capture.starts == 0)
+  #expect(fixture.capture.lists == 0)
+  #expect(!fixture.dictation.busy)
+}
+
+@MainActor
+@Test func dictationHostRecordingStartedDuringStartupNeverCaptures() async throws {
+  for waitForProvider in [false, true] {
+    let gate = MicrophonePermissionGate()
+    let host = HostRecording()
+    let fixture = try DictationFixture(microphone: {
+                                        if waitForProvider { return true }
+                                        return await gate.wait()
+                                      },
+                                      hostMicrophoneBusy: { host.busy })
+    defer { gate.release(); fixture.cleanup() }
+    if waitForProvider { await fixture.provider.holdStart { _ = await gate.wait() } }
+    fixture.dictation.toggle(note: "typed") { fixture.note.value = $0 }
+    try await fixture.until { gate.waiting }
+    host.busy = true
+    gate.release()
+    try await fixture.until { !fixture.dictation.busy }
+    #expect(fixture.capture.starts == 0)
+    #expect(await fixture.provider.starts == (waitForProvider ? 1 : 0))
+    #expect(fixture.dictation.problem == "The microphone is in use by this app")
+    for _ in 0..<100 {
+      if await fixture.provider.cancellations > 0 { break }
+      try await Task.sleep(for: .milliseconds(5))
+    }
+    #expect(await fixture.provider.cancellations > 0)
+  }
+}
+
+@MainActor
 private final class DictationFixture {
   let capture = TestDictationCapture()
   let provider = TestNoteProvider()
@@ -127,14 +168,15 @@ private final class DictationFixture {
   let defaults: UserDefaults
   let suite: String
   let dictation: NoteDictation
-  init(microphone: (@MainActor () async -> Bool)? = nil, hasMicrophone: Bool = true) throws {
+  init(microphone: (@MainActor () async -> Bool)? = nil, hasMicrophone: Bool = true,
+       hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) throws {
     suite = "BugKit-dictation-\(UUID())"
     defaults = try #require(UserDefaults(suiteName: suite))
     let counts = permissions
     dictation = NoteDictation(logger: { _, _ in }, providerFactory: { [provider] in provider }, capture: capture,
       permissions: DictationPermissions(speech: { counts.speech += 1; return true },
         microphone: { counts.microphone += 1; return await microphone?() ?? true },
-        hasMicrophonePermission: { hasMicrophone }), defaults: defaults)
+        hasMicrophonePermission: { hasMicrophone }), defaults: defaults, hostMicrophoneBusy: hostMicrophoneBusy)
   }
   func until(_ predicate: @MainActor () -> Bool) async throws {
     for _ in 0..<2_000 {
@@ -182,8 +224,12 @@ private actor TestNoteProvider: BugDictationProvider {
   nonisolated let requiresSpeechAuthorization = false
   private var results: AsyncThrowingStream<String, Error>.Continuation?
   private(set) var starts = 0
+  private(set) var cancellations = 0
+  private var startGate: (@Sendable () async -> Void)?
+  func holdStart(_ gate: @escaping @Sendable () async -> Void) { startGate = gate }
   func start() async throws -> AsyncThrowingStream<String, Error> {
     starts += 1
+    await startGate?()
     let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream()
     results = continuation; return stream
   }
@@ -191,6 +237,6 @@ private actor TestNoteProvider: BugDictationProvider {
   func emit(_ text: String) { results?.yield(text) }
   func fail() { results?.finish(throwing: TestNoteError.failed); results = nil }
   func finish() async throws { results?.yield("spoken final"); results?.finish(); results = nil }
-  func cancel() async { results?.finish(); results = nil }
+  func cancel() async { cancellations += 1; results?.finish(); results = nil }
 }
 #endif

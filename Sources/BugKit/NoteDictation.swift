@@ -84,6 +84,7 @@ public struct DictationJoin: Equatable, Sendable {
     private let capture: any DictationCapture
     private let permissions: DictationPermissions
     private let defaults: UserDefaults
+    private let hostMicrophoneBusy: @MainActor () -> Bool
     private var provider: (any BugDictationProvider)?
     private var startTask: Task<Void, Never>?
     private var audioTask: Task<Void, Never>?
@@ -95,15 +96,19 @@ public struct DictationJoin: Equatable, Sendable {
 
     public convenience init(logger: @escaping BugLogger,
       providerFactory: (@MainActor @Sendable () -> any BugDictationProvider)? = nil,
-      defaults: UserDefaults = .standard) {
+      defaults: UserDefaults = .standard,
+      hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) {
       self.init(logger: logger, providerFactory: providerFactory ?? { AppleDictationProvider(logger: logger) },
-                capture: AVDictationCapture(logger: logger), permissions: .system, defaults: defaults)
+                capture: AVDictationCapture(logger: logger), permissions: .system, defaults: defaults,
+                hostMicrophoneBusy: hostMicrophoneBusy)
     }
 
     init(logger: @escaping BugLogger, providerFactory: @escaping @MainActor @Sendable () -> any BugDictationProvider,
-         capture: any DictationCapture, permissions: DictationPermissions, defaults: UserDefaults) {
+         capture: any DictationCapture, permissions: DictationPermissions, defaults: UserDefaults,
+         hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) {
       self.logger = logger; self.factory = providerFactory; self.capture = capture
       self.permissions = permissions; self.defaults = defaults
+      self.hostMicrophoneBusy = hostMicrophoneBusy
       selectedMicrophoneID = defaults.string(forKey: Self.microphoneKey)
       capture.onFailure = { [weak self] message in
         guard let self, self.listening else { return }
@@ -117,7 +122,8 @@ public struct DictationJoin: Equatable, Sendable {
     /// `hostMicrophoneBusy` is checked live: again after the permission prompt, right before listing.
     public func refreshMicrophones(requestPermission: Bool = true,
                                    hostMicrophoneBusy: @MainActor () -> Bool = { false }) async {
-      guard !busy, !hostMicrophoneBusy(), requestPermission || permissions.hasMicrophonePermission() else { return }
+      guard !busy, !self.hostMicrophoneBusy(), !hostMicrophoneBusy(),
+            requestPermission || permissions.hasMicrophonePermission() else { return }
       let generation = owner
       refreshingMicrophones = true
       defer { if owner == generation { refreshingMicrophones = false } }
@@ -125,7 +131,7 @@ public struct DictationJoin: Equatable, Sendable {
       guard owner == generation, !Task.isCancelled else { return }
       refreshingMicrophones = false
       guard granted else { fail("The microphone is off for this app (Settings)", ["mic": "denied"]); return }
-      guard !hostMicrophoneBusy() else { return }
+      guard !self.hostMicrophoneBusy(), !hostMicrophoneBusy() else { return }
       do {
         microphones = try capture.availableMicrophones()
         if let selectedMicrophoneID, !microphones.contains(where: { $0.id == selectedMicrophoneID }) {
@@ -144,7 +150,7 @@ public struct DictationJoin: Equatable, Sendable {
 
     public func toggle(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
       if listening { Task { _ = await finish(why: "tap") } }
-      else if !busy { start(note: note, onText: onText) }
+      else if !busy, !hostMicrophoneBusy() { start(note: note, onText: onText) }
     }
 
     private func start(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
@@ -165,12 +171,14 @@ public struct DictationJoin: Equatable, Sendable {
           guard await self.permissions.microphone() else { throw DictationPermissionError.microphone }
           try Task.checkCancellation()
           guard self.owner == generation else { return }
+          guard !self.hostMicrophoneBusy() else { throw DictationPermissionError.microphoneBusy }
           let results = try await backend.start()
           try Task.checkCancellation()
           guard self.owner == generation else { await backend.cancel(); return }
           let onDevice = await backend.onDeviceRecognition
           try Task.checkCancellation()
           guard self.owner == generation else { await backend.cancel(); return }
+          guard !self.hostMicrophoneBusy() else { throw DictationPermissionError.microphoneBusy }
           let audio = try self.capture.start(preferredInputID: self.selectedMicrophoneID)
           self.starting = false; self.listening = true
           self.logger("dictation_start", ["provider": .string(backend.name),
@@ -292,11 +300,12 @@ public struct DictationJoin: Equatable, Sendable {
   }
 
   private enum DictationPermissionError: Error, LocalizedError {
-    case speech, microphone
+    case speech, microphone, microphoneBusy
     var errorDescription: String? {
       switch self {
       case .speech: "Speech recognition is off for this app (Settings)"
       case .microphone: "The microphone is off for this app (Settings)"
+      case .microphoneBusy: "The microphone is in use by this app"
       }
     }
   }
