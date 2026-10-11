@@ -5,12 +5,7 @@ This folder describes how Exercise Analyzer (EA), Context Grabber's native app (
 | Page | What it covers |
 |---|---|
 | [logging.md](logging.md) | Event catalogue, input sources, logic versions, memory and companion-device events |
-<<<<<<< HEAD
 | [listener.md](listener.md) | Configure bug-listener, independent crash discovery, doctor/status JSON, retries, dry runs and launchd |
-||||||| 03dd0cb
-=======
-| [logging.md](logging.md) | The event catalogue, `ui` with `from:`, the logic version in `session_start`, status screens, a companion's events |
->>>>>>> origin/feat/r3-logs
 | [pulling-and-filing.md](pulling-and-filing.md) | Getting logs, reports and crashes off the phone and iPad; filing each report once; devicectl quirks |
 | [runners.md](runners.md) | The listener, Monitor versus `/loop`, background builds, the no-mistakes pipeline, one agent at a time |
 | [deploying.md](deploying.md) | Build once, install on the phone, the iPad and the watch; the signing lock; the BUILD SUCCEEDED rule; error 10002 |
@@ -26,7 +21,6 @@ Pulling and deployment use `~/.config/bug-kit/apps.json`, the listener's file. W
 - `scripts/pull-reports.sh [--check] [app]`: pulls logs, reports and crash files from every device.
 - `scripts/deploy-all.sh <app> [--only …] [--register dev] [--watch] [--dry-run]`: builds once under the signing lock and installs on every device.
 - `scripts/whats-new.sh <out.json> --repo … --base-url …`: the What's new build phase.
-- `scripts/log-tool.sh summary|around|at|errors|types <log>`: reads a session log without opening it. It is EA's `log-summary` plus MM's `session-around`.
 
 ## Sources
 

@@ -5,6 +5,9 @@
       "name": "exercise-analyzer",
       "bundle": "com.idvorkin.exerciseanalyzer",
       "repo": "~/gits/exercise-analyzer",
+      "pull_extra": [
+        "Documents/Inbox/com.apple.watchconnectivity"
+      ],
       "tracker": {
         "kind": "github",
         "repo": "idvorkin/exercise-analyzer"

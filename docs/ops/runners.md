@@ -8,7 +8,7 @@ The listener replaces the per-app monitors below for filing. Those are still use
 
 ## Monitor rather than `/loop`, while someone is testing
 
-EA and CG each have `scripts/bugs-monitor.sh`, which runs the bugs check every minute and prints one line per new report, each report once. Arm it as a persistent Monitor:
+EA and CG each had `scripts/bugs-monitor.sh`, which runs the bugs check every minute and prints one line per new report, each report once. Arm it as a persistent Monitor:
 
 ```
 Monitor(command: "scripts/bugs-monitor.sh", description: "new shake reports on the phone", persistent: true)
@@ -16,13 +16,24 @@ Monitor(command: "scripts/bugs-monitor.sh", description: "new shake reports on t
 
 A Monitor wakes the model only when a report appears. `/loop 5m just bugs-check` wakes it every five minutes to find nothing, so it is the fallback when Monitor is not available.
 
-With BugKit, the monitor's command can be a loop over `scripts/pull-reports.sh --check`, which prints only `new …` lines:
+With BugKit, the command is `scripts/bugs-monitor.sh [app]`. It runs `pull-reports.sh --check` every minute and prints:
+- `new <app> <device> <reported_at> <note>`, once per report;
+- `check_failed <reason>`, once, when the check cannot run (devicectl, or the issue lookup), so a broken check is not mistaken for silence;
+- `check_ok`, when it recovers.
+
+An app's justfile finds BugKit without a path of its own, as EA's `bugs-check.sh` does: first `BUG_KIT`, then the SwiftPM checkout a build leaves, then `~/gits/bug-kit`.
 
 ```sh
-while true; do scripts/pull-reports.sh --check 2>/dev/null | grep '^new '; sleep 60; done
+bug_kit() {
+  for k in "${BUG_KIT:-}" Build/SourcePackages/checkouts/bug-kit "$HOME/gits/bug-kit"; do
+    [ -n "$k" ] && [ -x "$k/scripts/pull-reports.sh" ] && { echo "$k"; return; }
+  done
+  echo "no BugKit checkout: build once, or clone it to ~/gits/bug-kit" >&2; return 2
+}
+"$(bug_kit)/scripts/bugs-monitor.sh" exercise-analyzer
 ```
 
-That loop prints the same lines every pass. Dedupe them as EA's monitor does with its `seen` list, or let the listener file them.
+The SwiftPM path depends on `-derivedDataPath`: EA's is `Build/`, CG's is `native/Build/`.
 
 ## Long builds and tests in the background
 

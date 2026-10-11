@@ -11,6 +11,8 @@ Part of the [BugKit stories](README.md).
 - **Status:**
   - `scripts/pull-reports.sh` was verified on 2026-10-10 against an iPhone and an iPad: `--check` listed 6 unfiled reports, and folders were per app and device.
   - Its line handling was verified by hand on a broken fixture.
+  - `pull_extra` (EA #197's WatchConnectivity inbox) is verified on the host by `scripts/tests/test_pull_reports.py`,
+    with a stub `devicectl`. A real watch inbox is a device check, still to do.
 
 #### Use Case:
 - **As an** agent starting a bug pass
@@ -25,6 +27,13 @@ Part of the [BugKit stories](README.md).
   - each app and device gets `~/tmp/agent/bugs/<app>/<device>/` with `logs/`, `bugs.jsonl`, `bugs/` and `crashes/`;
   - a device that cannot be reached is named and skipped;
   - a locked device that has been unlocked once since boot still copies.
+
+- **Scenario:** Files the app has not taken yet
+- **Given:** EA's config lists `Documents/Inbox/com.apple.watchconnectivity` in `pull_extra`
+- **When:** I run `scripts/pull-reports.sh`
+- **Then:**
+  - the device's folder also has `com.apple.watchconnectivity/` with whatever the watch sent and the app has not taken;
+  - a listed folder that is missing is named, and the rest still copies.
 
 - **Scenario:** A quick look
 - **When:** I run `scripts/pull-reports.sh --check`
@@ -80,7 +89,9 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** An always-on listener (technical)
 - **From:** the bug-kit proposal ("an always-on listener that checks for new bug reports on the iPad or the iPhone"); EA and CG `bugs-monitor.sh`
-- **Status:** `listener/bug-listener`. `--once --dry-run` was verified against both devices on 2026-10-10. Running it forever in a Herdr pane or under launchd has not been run for long yet.
+- **Status:**
+  - `listener/bug-listener`. `--once --dry-run` was verified against both devices on 2026-10-10. Running it forever in a Herdr pane or under launchd has not been run for long yet.
+  - `scripts/bugs-monitor.sh`, for an agent driving a test session (EA's, generalized). It is verified on the host by `scripts/tests/test_bugs_monitor.py`. As a live Monitor against a device it is still to run.
 
 #### Use Case:
 - **As the** person reporting from whichever device is at hand
@@ -103,6 +114,13 @@ Part of the [BugKit stories](README.md).
 - **Scenario:** First contact
 - **Given:** the listener has never seen this app on this device
 - **Then:** every report already there is marked seen without filing, unless `--backfill` was passed
+
+- **Scenario:** An agent is testing with the person
+- **Given:** the agent armed `scripts/bugs-monitor.sh <app>` as a persistent Monitor
+- **When:** the person logs a report on either device
+- **Then:**
+  - the agent is woken with one `new …` line, and never again for that report;
+  - if the check cannot run, the agent gets one `check_failed` line rather than silence, and `check_ok` once it recovers.
 
 ---
 
@@ -150,7 +168,9 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Before fixing, read the log at the report's moment (technical)
 - **From:** EA DEBUGGING.md (steps 4 and 5); CG DEBUGGING.md; MM AGENTS.md
-- **Status:** a practice, described in [the principles](../principles.md) and [../ops/pulling-and-filing.md](../ops/pulling-and-filing.md). There is no code to test.
+- **Status:**
+  - A practice, described in [the principles](../principles.md) and [../ops/pulling-and-filing.md](../ops/pulling-and-filing.md). There is no code to test.
+  - Saving the evidence before a relaunch (MM's `grab.sh`, mmn-1ui) is a rule in [../ops/deploying.md](../ops/deploying.md). MM's recipes follow it; EA's and CG's do not yet.
 
 #### Use Case:
 - **As an** agent picking up a filed report
@@ -165,6 +185,13 @@ Part of the [BugKit stories](README.md).
   - I comment with what the log shows at the moment;
   - I fix it in one commit that names the issue, on the cheapest rung that can see it;
   - I close it with the rung named once the build is on the device.
+
+- **Scenario:** "That just happened"
+- **Given:** the person says something went wrong a moment ago, and I am about to rebuild
+- **When:** I relaunch or reinstall the app
+- **Then:**
+  - the newest session log and the app's rolling buffer were copied to a timestamped folder first;
+  - the copy names the wall-clock span it covers, so the log can be sliced at the person's time.
 
 ---
 

@@ -11,7 +11,7 @@ Every app uses the same layout in its data container:
 | `Documents/bugs/<stamp>/` | the report's screenshot and extra files |
 | `Documents/crashes/` | MetricKit payloads `<stamp>.json`, plus the app's own `signal-<epoch>.txt` and `exception-<epoch>.txt` |
 
-Also copy any system inbox the app depends on. EA found 12 undelivered WatchConnectivity transfers in `Documents/Inbox/com.apple.watchconnectivity/` (EA #197).
+Also copy any system inbox the app depends on. EA found 12 undelivered WatchConnectivity transfers in `Documents/Inbox/com.apple.watchconnectivity/` (EA #197). List such folders in the app's `pull_extra` and `pull-reports.sh` copies them next to `logs/`.
 
 ## The copy
 
