@@ -255,7 +255,7 @@ Create a bead before starting work and close it after completion. Worktrees shar
 
 Every change, including README-only updates, must pass no-mistakes before merge. The pipeline supplies the review as well as validation.
 
-This repo uses [.no-mistakes.yaml](.no-mistakes.yaml) for targeted local validation and [.github/workflows/ci.yml](.github/workflows/ci.yml) for the full Swift/Python regression suite and iOS compilation on macOS. The local Test agent selects checks relevant to the change; simulator diagnostics are available for UI changes.
+This repo uses [.no-mistakes.yaml](.no-mistakes.yaml) for targeted local validation and [.github/workflows/ci.yml](.github/workflows/ci.yml) for the full Swift/Python regression suite and iOS compilation on macOS. The local Test agent runs only host tests relevant to the change; simulator and device checks run once in the driving session and are recorded in the PR body.
 
 On a new checkout, with `no-mistakes` installed and a supported agent configured:
 
