@@ -17,7 +17,7 @@ xcrun devicectl device process launch --device <id> <bundle-id>
 - **Never pass `-sdk`.** It breaks the watch target (EA).
 - **Run device builds with the sandbox off.** Provisioning needs it.
 - **Quote product paths.** Some contain spaces (`Magic Monitor.app`).
-- **Bake the commit into the app** with build settings (`GIT_SHA=$(git rev-parse --short HEAD)`), so reports and About say which build is running.
+- **Bake the commit into the app** with build settings (`BUGKIT_COMMIT=$(git describe --always --dirty --exclude='*')`), so reports and About say which build is running. `--dirty` keeps a build from uncommitted changes from passing for a clean commit (MM). In `deploy-all.sh`'s config that is `"BUGKIT_COMMIT={describe}"`.
 
 ## A failed build must not install the old one
 

@@ -16,6 +16,9 @@
         "scheme": "ExerciseAnalyzer",
         "project": "ExerciseAnalyzer.xcodeproj",
         "derived_data": "Build",
+        "settings": [
+          "BUGKIT_COMMIT={describe}"
+        ],
         "app": "Build/Build/Products/Debug-iphoneos/ExerciseAnalyzer.app",
         "watch_app": "Build/Build/Products/Debug-iphoneos/ExerciseAnalyzer.app/Watch/ExerciseAnalyzerWatch.app"
       }

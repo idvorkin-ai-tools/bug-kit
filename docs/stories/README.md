@@ -6,6 +6,8 @@ Each story uses the apps' format:
 - **Summary**: one line.
 - **From**: the source story or issue.
 - **Status**: what in BugKit implements the story, and which test verifies it, by rung.
+- **Issues** (when there are any): the issues filed against the story, e.g. `#6, #7`. A bug gets its entry before
+  the fix. What's new maps an issue to its story through this line.
 - **Use Case**: who wants it, what they want, and why.
 - **Acceptance Criteria**: Given / When / Then scenarios.
 

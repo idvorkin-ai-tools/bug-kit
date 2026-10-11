@@ -32,6 +32,9 @@ public struct BugReporterOptions: Equatable, Sendable {
   public var captureAccessibility = false
   /// Maximum recent interaction events per report (clamped to 1...1,000).
   public var interactionLimit = 200
+  /// Errors in the dialog (dictation's) get a Copy error button that copies the message, where, the build and the
+  /// state (CG's ProblemView, bug-kit#7). Off shows the message as plain red text.
+  public var copyableErrors = true
   /// Environment variable prefix for the simulator hooks (`<PREFIX>_BUG`, `<PREFIX>_SHAKE_AFTER`); nil for none.
   public var launchHookPrefix: String?
 
