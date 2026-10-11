@@ -81,7 +81,9 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** An always-on listener (technical)
 - **From:** the bug-kit proposal ("an always-on listener that checks for new bug reports on the iPad or the iPhone"); EA and CG `bugs-monitor.sh`
-- **Status:** `listener/bug-listener`. `--once --dry-run` was verified against both devices on 2026-10-10. Running it forever in a Herdr pane or under launchd has not been run for long yet.
+- **Status:**
+  - `listener/bug-listener`. `--once --dry-run` was verified against both devices on 2026-10-10. Running it forever in a Herdr pane or under launchd has not been run for long yet.
+  - `scripts/bugs-monitor.sh`, for an agent driving a test session (EA's, generalized). It is verified on the host by `scripts/tests/test_bugs_monitor.py`. As a live Monitor against a device it is still to run.
 
 #### Use Case:
 - **As the** person reporting from whichever device is at hand
@@ -99,6 +101,13 @@ Part of the [BugKit stories](README.md).
 - **Scenario:** First contact
 - **Given:** the listener has never seen this app on this device
 - **Then:** every report already there is marked seen without filing, unless `--backfill` was passed
+
+- **Scenario:** An agent is testing with the person
+- **Given:** the agent armed `scripts/bugs-monitor.sh <app>` as a persistent Monitor
+- **When:** the person logs a report on either device
+- **Then:**
+  - the agent is woken with one `new …` line, and never again for that report;
+  - if the check cannot run, the agent gets one `check_failed` line rather than silence, and `check_ok` once it recovers.
 
 ---
 
