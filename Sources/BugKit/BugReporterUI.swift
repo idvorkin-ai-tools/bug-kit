@@ -356,6 +356,7 @@
                       .font(.title2).symbolRenderingMode(.palette)
                       .foregroundStyle(.white, .black.opacity(0.75))
                       .frame(width: 44, height: 44)
+                      .contentShape(Rectangle())
                   }
                   .buttonStyle(.plain)
                   .accessibilityLabel("Remove screenshot")
