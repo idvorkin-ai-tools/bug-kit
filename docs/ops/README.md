@@ -19,6 +19,7 @@ All three scripts are configured through `~/.config/bug-kit/apps.json`, the list
 - `scripts/pull-reports.sh [--check] [app]`: pulls logs, reports and crash files from every device.
 - `scripts/deploy-all.sh <app> [--only …] [--register dev] [--watch] [--dry-run]`: builds once under the signing lock and installs on every device.
 - `scripts/whats-new.sh <out.json> --repo … --base-url …`: the What's new build phase.
+- `scripts/log-tool.sh summary|around|at|errors|types <log>`: reads a session log without opening it. It is EA's `log-summary` plus MM's `session-around`.
 
 ## Sources
 
