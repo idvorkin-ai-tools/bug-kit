@@ -1,9 +1,11 @@
 import Foundation
 
-/// Where reports live in the app container, the same layout in every app so one listener reads them all:
+/// Reports share one relative layout under the storage root on every platform:
 ///
-///     Documents/bugs.jsonl          one line per report, newest last
-///     Documents/bugs/<stamp>/       the report's screenshot and any extra files
+///     bugs.jsonl          one line per report, newest last
+///     bugs/<stamp>/       the report's screenshot and any extra files
+///
+/// The default root is app-container Documents on iOS/watchOS, and app-specific Application Support on macOS.
 ///
 /// `<stamp>` is `yyyyMMdd-HHmmss` in UTC, with `-2`, `-3`… when that second already has a folder ("Log it and
 /// another" saves two in one second; MM story 061).
@@ -14,9 +16,9 @@ public final class BugStore: @unchecked Sendable {
 
   public init(documents: URL) { self.documents = documents }
 
-  /// The app's Documents folder.
+  /// Application Support/<app identity> on macOS; the app's Documents folder on iOS/watchOS.
   public convenience init() {
-    self.init(documents: FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0])
+    self.init(documents: BugStorage.defaultDirectory)
   }
 
   /// One lock for every store in the process: two stores on one index must not interleave either (mmn-cfr: two
@@ -61,7 +63,7 @@ public final class BugStore: @unchecked Sendable {
     return (reports, skipped)
   }
 
-  /// Creates the report's folder and returns its path relative to Documents (`bugs/20261010-153000`) and its URL.
+  /// Creates the report's folder and returns its root-relative path (`bugs/20261010-153000`) and its URL.
   /// The create itself is the test for "taken" (no `withIntermediateDirectories` on the last step), so two
   /// reports in one second, from two threads or two processes, never share a folder.
   public func makeFolder(for date: Date) throws -> (relative: String, url: URL) {

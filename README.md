@@ -5,7 +5,7 @@ Bug reports, session logs and crash evidence for iOS apps, plus opt-in private C
 BugKit requires **iOS 17+**. Its report model, storage and flow also support **macOS 14+**, and the model, store, writer and CloudKit sender compile for **watchOS 10+**; the reporting UI is iOS only. Building the package’s tests requires **Swift 6+** because they use Swift Testing.
 
 - Shake, tap a button or press ⌘I to report a problem. The dialog captures a screenshot before opening and supports “Log it and another.”
-- Each report carries a UUID, build, typed context, session log path and timestamp. Files stay in the app’s Documents directory; optional CloudKit delivery uploads an immutable evidence copy.
+- Each report carries a UUID, build, typed context, session log path and timestamp. Default files stay in app-container Documents on iOS/watchOS and app-specific Application Support on macOS; explicit directories remain supported. Optional CloudKit delivery uploads an immutable evidence copy.
 - The listener polls every reachable paired iPhone and iPad, files reports once and names local screenshot paths without uploading images.
 - An optional What's new feed connects git commits to user stories and shows recent changes on iOS and macOS.
 
@@ -199,7 +199,7 @@ scripts/deploy-all.sh my-app --dry-run        # inspect the configured deploymen
 | Guide | Contents |
 |---|---|
 | [Integration](docs/integration.md) | Hooks, options, session logs, dictation and What's new |
-| [Report format](docs/report-format.md) | JSON Lines keys and Documents layout |
+| [Report format](docs/report-format.md) | JSON Lines keys and storage layout |
 | [Principles](docs/principles.md) | Evidence, reporting, deduplication, crashes and debugging practices |
 | [App migrations](docs/migration.md) | Historical feature matrix and EA, CG and MM migration checklists |
 | [User stories](docs/stories/README.md) | Acceptance criteria and verification rungs |

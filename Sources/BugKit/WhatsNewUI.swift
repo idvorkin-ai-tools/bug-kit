@@ -121,7 +121,17 @@ public struct WhatsNewSeen: @unchecked Sendable {
     let seen: WhatsNewSeen
     let logger: BugLogger
     let open: () -> Void
-    @State private var dismissed = false
+    #if os(macOS)
+      // Explicit wrapper storage avoids the @State macro: CLT-only builds fail with "external macro implementation
+      // type 'SwiftUIMacros.StateMacro' could not be found", since that SDK ships no SwiftUIMacros plugin.
+      private var dismissal = SwiftUI.State<Bool>(initialValue: false)
+      private var dismissed: Bool {
+        get { dismissal.wrappedValue }
+        nonmutating set { dismissal.wrappedValue = newValue }
+      }
+    #else
+      @State private var dismissed = false
+    #endif
 
     public init(feed: WhatsNewFeed?, seen: WhatsNewSeen = WhatsNewSeen(), logger: @escaping BugLogger, open: @escaping () -> Void) {
       self.feed = feed; self.seen = seen; self.logger = logger; self.open = open

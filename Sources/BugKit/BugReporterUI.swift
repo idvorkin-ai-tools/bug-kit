@@ -9,7 +9,7 @@
     public var screen: @MainActor () -> String
     /// What the app attaches, read at the moment the dialog opens (EA: exercise, playhead; MM: mode, replay time).
     public var context: @MainActor () -> [String: JSONValue]
-    /// The session log's path under Documents and the milliseconds since it began; nil when the app has none.
+    /// The session log's path under the storage root and the milliseconds since it began; nil when the app has none.
     /// With BugKit's `SessionLog`: `{ log.position }`.
     public var sessionLog: @MainActor () -> (path: String, tMs: Int)?
     /// The app's logger. It receives `bug_report_open`, `bug_report`, `bug_report_cancel`, `shake`, the

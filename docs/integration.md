@@ -227,6 +227,25 @@ To use your own server/library, conform an actor or a Sendable type to `BugDicta
 
 `voice-keyboard/ios/Host/AudioCapture.swift` and `DeepgramEngine.swift` were the design reference for input selection and streaming segment finalization. Its private `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.
 
+## macOS storage and Command Line Tools
+
+`BugStore()`, `SessionLog(prefix:)` and `CrashReports.shared` share `BugStorage.defaultDirectory`.
+On macOS this is `~/Library/Application Support/<bundle ID>/`; an unbundled SwiftPM/command-line app uses
+its executable name, such as `lcd-timer`. iOS and watchOS continue using their app-container Documents folder.
+Report and log paths remain relative to the root, so the same report format works on every platform.
+
+Existing explicit directories remain authoritative. An app such as Magic Monitor using
+`~/Library/Application Support/MagicMonitor` can retain that store; pass the same root to `SessionLog` and
+its `crashes` child to `CrashReports.install(folder:logger:)`. Updating does not move or delete existing
+reports from `~/Documents`. If an app previously used the old defaults, retain an explicit old root while
+draining it, or move its owned evidence deliberately before switching all three writers together.
+
+The What's new views remain available to Mac apps. Their Mac dismissal state uses explicit SwiftUI wrapper
+storage to avoid requiring the `@State` macro plugin that Command Line Tools-only SDKs do not ship.
+`WhatsNewSeen` remains a Foundation API. CI builds and runs the CLT-only consumer in `Tools/CLTConsumer`.
+A desktop-only GUI test presses the Mac row's ✕ and checks the row disappears and stays hidden; headless CI
+skips it, so run it on a logged-in Mac with `BUGKIT_GUI_TESTS=1 swift test --filter WhatsNewMacDismissTests`.
+
 ## App Group storage
 
 For a host app that shares evidence with an extension, point the store and log at an explicit directory inside the App Group. Enable the same App Group entitlement on the host and whichever extension writes its own evidence. Resolve it through `FileManager`; do not hard-code the container's UUID or silently fall back to the app's private Documents.
@@ -334,7 +353,7 @@ recorded before the user can save. The boundary is recorded once per store and c
 turns delivery off and back on, reports saved while it was off are uploaded too.
 
 Saving completes locally before a network request. The immutable outbox lives below
-`Documents/bug-delivery/cloudkit-<container-hash>/`. Uploads explicitly allow cellular, use user-initiated QoS,
+the store root at `bug-delivery/cloudkit-<container-hash>/`. Uploads explicitly allow cellular, use user-initiated QoS,
 and are long-lived CloudKit operations so the system can continue an already submitted operation after the app
 exits. Only an idle request times out after 60 seconds; a large upload over a slow cellular link is not cut off
 by a total deadline. Its operation ID is persisted and callbacks reattach after restart. Stable report UUID
