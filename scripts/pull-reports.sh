@@ -12,6 +12,7 @@
 # against the `<!-- bug:<reported_at> -->` markers in the app's GitHub issues; if that lookup fails it says so and
 # exits 2 rather than calling everything new (CG 6fed157). An unreachable device is named, not a failure.
 #
+# An app's "app_group" (as in the listener) makes every copy read that App Group's container instead of the app's.
 # An app's "pull_extra" list names more container paths to copy, each into <device>/<its last component>: EA's
 # watch files wait in Documents/Inbox/com.apple.watchconnectivity until the app takes them.
 #
@@ -43,17 +44,20 @@ jq -r '[.result.devices[] | select(.hardwareProperties.reality == "physical"
 [ -s "$tmp/devices" ] || { echo "no paired iPhone or iPad"; exit 0; }
 
 apps=$(jq -r --arg only "$only" '.apps[] | select($only == "" or .name == $only)
-  | [.name, .bundle, (.tracker.kind // "none"), (.tracker.repo // "-"), ((.pull_extra // []) | join(","))] | @tsv' "$CONFIG")
+  | [.name, .bundle, (.tracker.kind // "none"), (.tracker.repo // "-"), (.app_group // "-"),
+     ((.pull_extra // []) | join(","))] | @tsv' "$CONFIG")
 [ -n "$apps" ] || { echo "no app named '$only' in $CONFIG" >&2; exit 2; }
 
 copy() {  # copy <udid> <bundle> <source under the container> <destination>
-  xcrun devicectl device copy from --device "$1" --domain-type appDataContainer --domain-identifier "$2" \
+  local domain=appDataContainer id=$2
+  [ "$group" = - ] || { domain=appGroupDataContainer; id=$group; }
+  xcrun devicectl device copy from --device "$1" --domain-type "$domain" --domain-identifier "$id" \
     --source "$3" --destination "$4" --timeout 90 >/dev/null 2>"$tmp/copy-err"
 }
 
 new_total=0
 lookup_failed=0
-while IFS=$'\t' read -r app bundle tracker repo extra; do
+while IFS=$'\t' read -r app bundle tracker repo group extra; do
   markers=""
   if [ "$check" = 1 ] && [ "$tracker" = github ]; then
     if ! bodies=$(gh issue list -R "$repo" --state all --limit 1000 --json body --jq '.[].body' 2>"$tmp/gh-err"); then

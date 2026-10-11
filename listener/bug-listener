@@ -103,6 +103,10 @@ def load_config(path: Path) -> dict:
             raise ValueError("app names must be unique directory names; bundles must be unique")
         names.add(a["name"])
         bundles.add(a["bundle"])
+        if "app_group" in a:
+            group = a["app_group"]
+            if not isinstance(group, str) or not re.fullmatch(r"group\.[A-Za-z0-9_.-]+", group):
+                raise ValueError(f"{a['name']}: app_group must be an App Group identifier (group.…)")
         tracker = a.setdefault("tracker", {"kind": "none"})
         if not isinstance(tracker, dict) or tracker.get("kind") not in ("github", "beads", "none"):
             raise ValueError(f"{a['name']}: tracker.kind must be github, beads or none")
@@ -200,17 +204,19 @@ def probe(dev: dict) -> Optional[dict]:
 
 
 def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> bool:
-    """devicectl copy from the app's container. Every copy is logged with its outcome and the lock state."""
+    """devicectl copy from the configured app or App Group container. Paths are relative to that container."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     rc, _, err = run(["xcrun", "devicectl", "device", "copy", "from", "--device", dev["id"],
-                      "--domain-type", "appDataContainer", "--domain-identifier", a["bundle"],
+                      "--domain-type", "appGroupDataContainer" if a.get("app_group") else "appDataContainer",
+                      "--domain-identifier", a.get("app_group") or a["bundle"],
                       "--source", source, "--destination", str(dest), "--timeout", "90"], timeout=120)
     ms = int((time.monotonic() - t0) * 1000)
     missing = allow_missing and rc not in (0, 124, 127) and bool(re.search(
         r"no such file|file[^\n]*(?:does not exist|not found)|directory[^\n]*(?:does not exist|not found)", err, re.I))
     ok = (rc == 0 and dest.exists()) or missing
-    fields = dict(device=dev["dir"], app=a["name"], source=source, ok=ok, ms=ms, locked=locked)
+    fields = dict(device=dev["dir"], app=a["name"], source=source, ok=ok, ms=ms, locked=locked,
+                  domain="appGroupDataContainer" if a.get("app_group") else "appDataContainer")
     if missing:
         fields["missing"] = True
     if not ok:

@@ -122,7 +122,7 @@
       let window = Self.keyWindow()
       diagnostics = diagnosticsSnapshot(in: window)
       capturedLogPosition = hooks.sessionLog()
-      screenshot = window.map(Self.snapshot)
+      screenshot = options.screenshot { window.map(Self.snapshot) }
       context = hooks.context()
       screen = hooks.screen()
       guard let top = window?.rootViewController.map(Self.topmost) else {
@@ -204,7 +204,7 @@
       guard !hooks.notes.isEmpty else { return }
       Task { @MainActor in
         try? await Task.sleep(for: .seconds(hooks.bugAfter))  // allow the app to finish loading its target screen
-        let png = Self.keyWindow().map(Self.snapshot)?.pngData()
+        let png = self.options.screenshot { Self.keyWindow().map(Self.snapshot)?.pngData() }
         let diagnostics = self.diagnosticsSnapshot(in: Self.keyWindow())
         if self.options.copySessionLog { self.hooks.flushLog() }
         for note in hooks.notes {
