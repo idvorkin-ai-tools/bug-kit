@@ -53,11 +53,11 @@ Beyond the code, the repo holds:
 | Typed context (numbers stay numbers) | – (strings) | – (strings) | ✓ (Codable) | `context: [String: JSONValue]` |
 | Extra files: clip, recent segments, report.json | ✓ frame | – | ✓ | `extraFiles`, `RecentSegments`, `writeReportJSON` |
 | JSON Lines session log per launch | ✓ | ✓ | ✓ | `SessionLog` (optional) |
-| Periodic status line helper | ad hoc | ad hoc | ad hoc | `SessionLog.status(every:)` |
 | Wall time and host-clock time on every log line (MM) | – | – | ✓ | `SessionLog(clocks: [.wall, .mono])` (off) |
 | Resident memory on the status line (MM) | – | – | ✓ | `status(every:memory: true)` |
 | Summarize a log, or slice it around a time or a report (EA, MM) | ✓ `log-summary` | – | ✓ | `scripts/log-tool.sh` |
 | Event catalogue, `ui` with `from:`, logic version in `session_start` | ✓ | ✓ | – | [docs/ops/logging.md](docs/ops/logging.md) |
+| Periodic status line helper | ad hoc | ad hoc | ad hoc | `SessionLog.status(every:)` |
 | Logs pruned at 30 days, reported ones kept | ✓ | ✓ | – | `BugStore.pruneLogs` |
 | MetricKit, signal and exception files, announced once | ✓ | ✓ | – | `CrashReports` |
 | Simulator hooks for reports | ✓ `SWING_BUG` | ✓ `GRABBER_BUG` | selftest script | `launchHookPrefix` |
