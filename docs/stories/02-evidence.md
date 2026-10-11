@@ -176,3 +176,19 @@ Part of the [BugKit stories](README.md).
 - **Scenario:** A hang
 - **Given:** MetricKit delivers a hang diagnostic
 - **Then:** `crashes/<stamp>.json` holds it, and the log has `crash_report` kind hang with the seconds
+
+---
+
+### User Story 017:
+
+- **Summary:** A report carries recent interactions and the app's accessibility metadata
+- **From:** BugKit agent debugging workflow, 2026-10-10
+- **Status:** Host tests verify bounded JSON Lines, frozen evidence and independent attachment failures. Five diagnostic tests passed on the iOS 27 simulator, including redaction, traversal limits, cyclic accessibility containers, control-action capture and detachment. Physical touch/gesture behavior still needs verification in a consuming app.
+
+#### Acceptance Criteria:
+- Opt-in interaction capture logs touch sequences, UIKit actions, scene activity and explicit semantic actions.
+- Before the report UI opens, recent breadcrumbs and public view/accessibility metadata are frozen with the screenshot.
+- The files are named in the index and preserved alongside the app's own attachments.
+- Capturing does not cancel/delay touches or replace app control handlers.
+- Structured capture excludes text-entry values/subtrees, bounds the tree/buffer and describes incomplete SwiftUI AX coverage.
+- Agent-specific semantic actions can be logged directly by identifier.

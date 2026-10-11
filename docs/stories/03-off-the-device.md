@@ -41,7 +41,7 @@ Part of the [BugKit stories](README.md).
 - **From:** EA `file-bugs` (#24); CG story 143 (509da33, 6fed157, 002e088); MM story 041 (beads)
 - **Status:**
   - `listener/bug-listener` `Filer` checks the GitHub markers and the note text before copying and before filing.
-  - Verified on the host by the pytest `test_issue_body_names_the_screenshot_and_carries_both_markers` and `test_titles_skip_blank_lines_and_bullets`.
+  - Verified on the host by the pytest tests for issue bodies, titles, distinct UUIDs at one timestamp, legacy markers, and cached UUIDs after creation.
   - Dry runs on 2026-10-10 skipped 160 reports that were already filed. A real `gh issue create` has not run yet.
 
 #### Use Case:
@@ -59,12 +59,20 @@ Part of the [BugKit stories](README.md).
   - the next poll files nothing.
 
 - **Scenario:** A report filed by hand, without the marker
-- **Given:** an issue body already holds the note's first 60 characters
+- **Given:** a marker-free issue body already holds the note's first 60 characters
 - **Then:** the listener logs `possible_duplicate` and does not file it again
 
 - **Scenario:** The issue lookup fails
 - **Given:** `gh issue list` fails
 - **Then:** nothing is filed, the log has `tracker_error`, and the report stays unseen for the next poll
+
+- **Scenario:** Two UUID reports share a timestamp or note
+- **Given:** an issue already carries one report's UUID marker
+- **Then:** a different UUID is still filed, even if its timestamp or note matches
+
+- **Scenario:** A repeated index line
+- **Given:** the same report appears twice in bugs.jsonl
+- **Then:** it creates one issue or inbox entry per poll
 
 ---
 
@@ -86,6 +94,11 @@ Part of the [BugKit stories](README.md).
 - **Then:**
   - within one poll the report's folder, its session log and the crash folder are on the Mac;
   - an issue exists, a line is in `inbox.jsonl`, and a Herdr notification is shown.
+
+- **Scenario:** Named evidence fails to copy
+- **Then:** the report stays unseen, `evidence_pending` is logged, and the next poll retries before filing
+- **And:** an absent crash directory does not block filing when an app has never crashed
+- **Verification:** host pytest `test_poll_retries_required_evidence_and_files_duplicate_lines_once`
 
 - **Scenario:** First contact
 - **Given:** the listener has never seen this app on this device
@@ -137,7 +150,7 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Before fixing, read the log at the report's moment (technical)
 - **From:** EA DEBUGGING.md (steps 4 and 5); CG DEBUGGING.md; MM AGENTS.md
-- **Status:** a practice, described in the README's principles and [../ops/pulling-and-filing.md](../ops/pulling-and-filing.md). There is no code to test.
+- **Status:** a practice, described in [the principles](../principles.md) and [../ops/pulling-and-filing.md](../ops/pulling-and-filing.md). There is no code to test.
 
 #### Use Case:
 - **As an** agent picking up a filed report
@@ -152,3 +165,32 @@ Part of the [BugKit stories](README.md).
   - I comment with what the log shows at the moment;
   - I fix it in one commit that names the issue, on the cheapest rung that can see it;
   - I close it with the rung named once the build is on the device.
+
+---
+
+### User Story 026:
+
+- **Summary:** Discover crash and hang evidence without waiting for a manual report
+- **From:** BugKit agent workflow, 2026-10-10
+- **Status:** Listener host tests cover missing/unreadable manual indexes, independent baselines, backfill, log-copy retries, renamed-file deduplication and MetricKit hangs. Real-device crash discovery remains unverified.
+
+#### Acceptance Criteria:
+- A signal, exception or MetricKit diagnostic is discovered independently of `bugs.jsonl`.
+- Each diagnostic file is delivered once through the configured tracker/inbox; `.reported.txt` renames keep its identity.
+- Initial snapshots are baselined unless `--backfill` is passed; absent folders establish an empty baseline, failed copies do not.
+- Preceding session selection is explicitly marked as inferred; an unknown session is never presented as certain.
+- Failed evidence or tracker operations remain pending for later polls.
+
+---
+
+### User Story 027:
+
+- **Summary:** Agents can check listener setup and health as structured data
+- **From:** BugKit agent workflow, 2026-10-10
+- **Status:** Host CLI tests cover old polling flags, doctor JSON, authentication checks, invalid configuration, stale/healthy/never-run status, offline paired devices with and without a reachable device, pending evidence and corrupt state.
+
+#### Acceptance Criteria:
+- `doctor --json` checks setup and read access without filing or notifying.
+- `status --json` reports last completion/success, staleness, reachability and pending reasons without external calls.
+- Exit codes allow agents to distinguish healthy, unhealthy and unreadable state.
+- A dry run does not update seen-state, inbox or health timestamps.

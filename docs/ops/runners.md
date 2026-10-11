@@ -2,7 +2,7 @@
 
 ## The listener (always on)
 
-`listener/bug-listener` polls every device and app every 5 minutes. It files each new report once, writes `inbox.jsonl`, and sends a Herdr notification. Run it in a Herdr pane, or under launchd (see the README).
+`listener/bug-listener` polls every device and app every 5 minutes. It files each new report once, writes `inbox.jsonl`, and sends a Herdr notification. Run it in a Herdr pane, or under launchd (see [listener setup](listener.md)).
 
 The listener replaces the per-app monitors below for filing. Those are still useful while an agent is testing with the person.
 

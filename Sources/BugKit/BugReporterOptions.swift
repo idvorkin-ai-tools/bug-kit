@@ -25,6 +25,13 @@ public struct BugReporterOptions: Equatable, Sendable {
   public var copySessionLog = false
   /// Write `report.json` in the report's folder too (MM story 040).
   public var writeReportJSON = false
+  /// Log touch/gesture, UIKit control and scene breadcrumbs, and attach the most recent ones to reports.
+  public var recordInteractions = false
+  /// Attach the app's public UIKit view/accessibility metadata before the report dialog opens.
+  /// Text-entry subtrees and accessibility values are excluded. SwiftUI's virtual AX tree may be incomplete.
+  public var captureAccessibility = false
+  /// Maximum recent interaction events per report (clamped to 1...1,000).
+  public var interactionLimit = 200
   /// Environment variable prefix for the simulator hooks (`<PREFIX>_BUG`, `<PREFIX>_SHAKE_AFTER`); nil for none.
   public var launchHookPrefix: String?
 

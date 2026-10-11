@@ -19,8 +19,8 @@ The rungs are described in [../ops/test-ladder.md](../ops/test-ladder.md):
 | File | Stories |
 |---|---|
 | [01-reporting.md](01-reporting.md) | 001–009: the shake, the dialog, "Log it and another", dictation, the keyboard |
-| [02-evidence.md](02-evidence.md) | 010–016: the report on disk, the session log, retention, extra files, crashes |
-| [03-off-the-device.md](03-off-the-device.md) | 020–025: pulling, filing once, the listener, never uploading pictures |
+| [02-evidence.md](02-evidence.md) | 010–017: the report on disk, the session log, retention, extra files, crashes |
+| [03-off-the-device.md](03-off-the-device.md) | 020–027: pulling, filing once, the listener, never uploading pictures |
 | [04-whats-new.md](04-whats-new.md) | 030–033: What's new, built from git and the stories |
 
 The persona is the same in all three apps: one person who uses the app every day on a phone, an iPad or a Mac, and the agents that fix what that person reports.

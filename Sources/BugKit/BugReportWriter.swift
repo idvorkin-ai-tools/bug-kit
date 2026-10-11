@@ -69,7 +69,8 @@ public struct BugReportWriter: Sendable {
   /// `log`: the session log's path under Documents and the milliseconds since it began, from the app.
   public func save(
     note: String, screen: String, context: [String: JSONValue], screenshotPNG: Data?,
-    log: (path: String, tMs: Int)?, extraFiles: BugExtraFiles?, date: Date = Date()
+    log: (path: String, tMs: Int)?, extraFiles: BugExtraFiles?, date: Date = Date(),
+    diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot()
   ) async -> BugReport {
     var report = BugReport(
       reportedAt: date, app: info.app, bundle: info.bundle, build: info.build, commit: info.commit,
@@ -96,6 +97,16 @@ public struct BugReportWriter: Sendable {
         report.files = try await extraFiles(folderURL).map { "\(report.folder)/\($0)" }
       } catch {
         logger("error", ["where": "bug_extra_files", "id": .string(report.id.uuidString), "message": .string("\(error)")])
+      }
+    }
+    if let folderURL {
+      for (name, data) in diagnostics.files {
+        do {
+          try data.write(to: folderURL.appendingPathComponent(name), options: .atomic)
+          report.files.append("\(report.folder)/\(name)")
+        } catch {
+          logger("error", ["where": "bug_diagnostics", "file": .string(name), "message": .string("\(error)")])
+        }
       }
     }
     if let folderURL, copySessionLog, let path = log?.path {
