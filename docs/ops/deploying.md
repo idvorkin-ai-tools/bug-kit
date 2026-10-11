@@ -17,7 +17,7 @@ xcrun devicectl device process launch --device <id> <bundle-id>
 - **Never pass `-sdk`.** It breaks the watch target (EA).
 - **Run device builds with the sandbox off.** Provisioning needs it.
 - **Quote product paths.** Some contain spaces (`Magic Monitor.app`).
-- **Bake the commit into the app** with build settings (`GIT_SHA=$(git rev-parse --short HEAD)`), so reports and About say which build is running.
+- **Bake the commit into the app** with build settings (`BUGKIT_COMMIT=$(git describe --always --dirty --exclude='*')`), so reports and About say which build is running. `--dirty` keeps a build from uncommitted changes from passing for a clean commit (MM). In `deploy-all.sh`'s config that is `"BUGKIT_COMMIT={describe}"`.
 
 ## A failed build must not install the old one
 
@@ -30,6 +30,30 @@ echo "$out" | grep -q "BUILD SUCCEEDED"     # this line's status is the recipe's
 
 - **`xcodebuild … | grep BUILD` alone exits 0 on "BUILD FAILED".** The next step then installed the previous bundle (EA #43). The same holds for `swift test | tail`: use `pipefail` (EA #51).
 - **A failed install must not go on to launch the copy already on the device** (MM).
+- **The same holds for a Mac tool built with `swift build` and then run.** A failed build leaves the last good
+  binary in `.build/`, and the recipe runs it on the new input as if nothing had happened (EA #51). Capture and
+  require "Build complete":
+
+  ```bash
+  out=$(swift build -c release --product tool 2>&1)
+  echo "$out" | grep -E "error:|Build complete" || true
+  echo "$out" | grep -q "Build complete" || exit 1
+  .build/release/tool …
+  ```
+
+## Save the evidence before any relaunch
+
+- **A relaunch destroys evidence.** A new launch starts a new log, and an app with a rolling buffer (video segments,
+  an in-memory ring) prunes or drops what the person was just looking at. At MM, a relaunch once wiped 4 minutes of
+  video, and a bare `pkill` wiped 7 more (mmn-1ui).
+- **So every recipe that quits, kills or reinstalls the app first copies the newest session log and the buffer** to
+  a timestamped folder, e.g. `~/tmp/agent/<app>/captures/<yyyyMMdd-HHmmss>/`. Print the wall-clock span the copy
+  covers. MM's `_quit-app` runs `scripts/grab.sh 300` (the last 5 minutes) before every relaunch.
+- **The same command runs on demand** (`just grab [secs]`) when the person says "that just happened". With
+  `SessionLog(clocks: [.wall])`, `scripts/log-tool.sh around <log> HH:MM:SS` then slices the log at that time.
+- **On a device**, `deploy-all.sh` installs over the running app. Run `pull-reports.sh <app>` first when a session
+  is in progress.
+- The copy itself is per app (which buffer, which folder). The rule is the shared part.
 
 ## One signing build at a time
 

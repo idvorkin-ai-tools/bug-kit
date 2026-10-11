@@ -44,6 +44,16 @@ private func sample(note: String = "counted 1 rep, there were 13", date: Date = 
   #expect(!(String(data: try sample(note: "two\nlines").jsonLine(), encoding: .utf8)!.contains("\n")))
 }
 
+// EA and MM log through their own `[String: Any]` loggers: the Foundation form serializes to the same JSON.
+@Test func foundationFormSerializesLikeTheValue() throws {
+  let v: JSONValue = ["n": 13, "x": 1.5, "ok": true, "s": "a", "none": nil, "list": [1, "b"], "o": ["k": 2]]
+  let viaFoundation = try JSONSerialization.data(withJSONObject: v.foundation, options: [.sortedKeys])
+  let enc = JSONEncoder()
+  enc.outputFormatting = [.sortedKeys]
+  #expect(try JSONDecoder().decode(JSONValue.self, from: viaFoundation) == v)
+  #expect(String(data: viaFoundation, encoding: .utf8) == String(data: try enc.encode(v), encoding: .utf8))
+}
+
 @Test func reportedAtKeepsMillisecondsAndReadsTheOlderWholeSecondForm() throws {
   let d = Date(timeIntervalSince1970: 1_791_642_600.25)
   #expect(BugReport.formatDate(d) == "2026-10-10T14:30:00.250Z")

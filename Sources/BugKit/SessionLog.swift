@@ -8,7 +8,22 @@ import Foundation
 ///     let log = SessionLog(prefix: "swing", fields: ["build": "1.0 (42)"])
 ///     log.event("set_saved", ["reps": 13])
 public final class SessionLog: @unchecked Sendable {
+  /// Clocks each line carries beyond `t` (MM's special sauce, story 012). `t` alone answers "how long after launch";
+  /// a person says "it just happened at 15:10", and a camera or audio frame is stamped on the host clock.
+  public struct Clocks: OptionSet, Sendable {
+    public let rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+    /// `wall`: local wall-clock time, ISO 8601 with ms and the zone offset, so `scripts/log-tool.sh around 15:10:45`
+    /// finds the moment someone names.
+    public static let wall = Clocks(rawValue: 1)
+    /// `mono`: seconds on the host clock (`ProcessInfo.systemUptime`, the clock of `CACurrentMediaTime` and
+    /// `CMClockGetHostTimeClock`), the same clock as camera and audio sample times, so a frame or a segment's time
+    /// converts to wall time with `wall(ofMono:)`.
+    public static let mono = Clocks(rawValue: 2)
+  }
+
   public let url: URL
+  public let clocks: Clocks
   public let startedAt: Date
   private let documents: URL
   private let queue = DispatchQueue(label: "bugkit.session-log")
@@ -18,9 +33,10 @@ public final class SessionLog: @unchecked Sendable {
   /// Opens a new log and writes `session_start` with `fields` (put the device, system and build there).
   public init(
     prefix: String, documents: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0],
-    fields: [String: JSONValue] = [:], now: Date = Date()
+    fields: [String: JSONValue] = [:], clocks: Clocks = [], now: Date = Date()
   ) {
     self.documents = documents
+    self.clocks = clocks
     startedAt = now
     let dir = documents.appendingPathComponent("logs", isDirectory: true)
     try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -59,9 +75,10 @@ public final class SessionLog: @unchecked Sendable {
 
   public func event(_ type: String, _ fields: [String: JSONValue] = [:]) {
     let t = msSinceStart
+    let stamps = Self.stamps(clocks, wall: Date(), mono: ProcessInfo.processInfo.systemUptime)
     queue.async { [self] in
       guard let handle else { return }
-      handle.write(Self.line(type: type, t: t, fields: fields))
+      handle.write(Self.line(type: type, t: t, fields: fields, stamps: stamps))
       handle.write(Data([0x0A]))
     }
   }
@@ -70,21 +87,65 @@ public final class SessionLog: @unchecked Sendable {
   public func flush() { queue.sync {} }
 
   /// A periodic status line (`type`, every `seconds`): for anything that can go quiet or get stuck, so the minutes
-  /// before every report are in the log. Runs until the log is released.
-  public func status(_ type: String = "status", every seconds: Double, _ fields: @escaping @Sendable () -> [String: JSONValue]) {
+  /// before every report are in the log. Runs until the log is released. `memory: true` adds `rss_mb`, the process's
+  /// resident memory, so a leak or a climb toward the memory limit (a kill with no crash file) shows in the log
+  /// (MM's selftest status line).
+  public func status(
+    _ type: String = "status", every seconds: Double, memory: Bool = false,
+    _ fields: @escaping @Sendable () -> [String: JSONValue]
+  ) {
     let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
     timer.schedule(deadline: .now() + seconds, repeating: seconds)
-    timer.setEventHandler { [weak self] in self?.event(type, fields()) }
+    timer.setEventHandler { [weak self] in
+      var line = fields()
+      if memory, let mb = Self.residentMegabytes() { line["rss_mb"] = .int(mb) }
+      self?.event(type, line)
+    }
     timer.resume()
     queue.sync { timers.append(timer) }
   }
 
   deinit { timers.forEach { $0.cancel() } }
 
-  /// One line, no newline. `type` and `t` come after the fields, so a field cannot replace them; a non-finite number
-  /// becomes null rather than losing the whole line.
-  public static func line(type: String, t: Int, fields: [String: JSONValue]) -> Data {
+  /// The process's resident memory in MB (Mach `task_info`), nil if the kernel refuses.
+  public static func residentMegabytes() -> Int? {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+      $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+        task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+      }
+    }
+    guard result == KERN_SUCCESS else { return nil }
+    return Int(info.resident_size / 1_048_576)
+  }
+
+  /// The wall-clock time of a host-clock (`mono`) time: a camera frame's or a recorded segment's time as the moment
+  /// a person would name. `now` and `nowMono` are for tests.
+  public static func wall(ofMono mono: Double, now: Date = Date(), nowMono: Double = ProcessInfo.processInfo.systemUptime) -> Date {
+    now.addingTimeInterval(mono - nowMono)
+  }
+
+  /// `wall` as written in a line: local time with ms and the zone offset.
+  public static func formatWall(_ date: Date, timeZone: TimeZone = .current) -> String {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    f.timeZone = timeZone
+    return f.string(from: date)
+  }
+
+  static func stamps(_ clocks: Clocks, wall: Date, mono: Double, timeZone: TimeZone = .current) -> [String: JSONValue] {
+    var out: [String: JSONValue] = [:]
+    if clocks.contains(.wall) { out["wall"] = .string(formatWall(wall, timeZone: timeZone)) }
+    if clocks.contains(.mono) { out["mono"] = .double((mono * 1000).rounded() / 1000) }
+    return out
+  }
+
+  /// One line, no newline. `type`, `t` and the clock stamps come after the fields, so a field cannot replace them;
+  /// a non-finite number becomes null rather than losing the whole line.
+  public static func line(type: String, t: Int, fields: [String: JSONValue], stamps: [String: JSONValue] = [:]) -> Data {
     var record = fields.mapValues(sanitize)
+    record.merge(stamps) { _, stamp in stamp }
     record["type"] = .string(type)
     record["t"] = .int(t)
     let enc = JSONEncoder()

@@ -29,7 +29,9 @@ public struct WhatsNewSeen: @unchecked Sendable {
   }
 }
 
-#if canImport(UIKit) && os(iOS)
+// Plain SwiftUI, so the same views serve iOS and a Mac app (MM, 2026-10-10: What's new on the Mac too). On the Mac,
+// give the list a size (`.frame(minWidth:minHeight:)`) when it is shown in a sheet or window.
+#if canImport(SwiftUI)
   import SwiftUI
 
   /// The list: the last month's changes by day, newest first, each opening its story (CG #232). Logs `ui`

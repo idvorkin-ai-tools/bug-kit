@@ -34,13 +34,35 @@ public struct BugAppInfo: Equatable, Sendable {
       device: device)
   }
 
-  /// "iPhone18,1 iOS 27.0": the hardware model and the system, never the device's own name.
+  /// The hardware model, never the device's own name: "iPhone18,1" on a phone, "Mac16,12" on a Mac (where `uname`
+  /// says only "arm64", bug-kit#6), and the simulated model ("iPhone17,1") on a simulator.
   public static func hardwareModel() -> String {
     var info = utsname()
     uname(&info)
-    return withUnsafeBytes(of: &info.machine) { raw in
+    let machine = withUnsafeBytes(of: &info.machine) { raw in
       String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
     }
+    return model(
+      machine: machine, hwModel: sysctlString("hw.model"),
+      simulatorModel: ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"])
+  }
+
+  /// Picks the model: the simulator's own identifier first, then `uname`'s machine unless it only names the CPU
+  /// architecture, then `hw.model` (a Mac's "Mac16,12").
+  static func model(machine: String, hwModel: String?, simulatorModel: String?) -> String {
+    if let sim = simulatorModel, !sim.isEmpty { return sim }
+    let cpuOnly: Set<String> = ["arm64", "arm64e", "x86_64", "i386"]
+    if cpuOnly.contains(machine), let hw = hwModel, !hw.isEmpty { return hw }
+    return machine
+  }
+
+  static func sysctlString(_ name: String) -> String? {
+    var size = 0
+    guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+    var bytes = [CChar](repeating: 0, count: size)
+    guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
+    let value = String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    return value.isEmpty ? nil : value
   }
 }
 
@@ -67,15 +89,17 @@ public struct BugReportWriter: Sendable {
   }
 
   /// `log`: the session log's path under Documents and the milliseconds since it began, from the app.
+  /// `copySessionLog`: overrides the writer's own setting for this report; nil keeps it.
   public func save(
     note: String, screen: String, context: [String: JSONValue], screenshotPNG: Data?,
     log: (path: String, tMs: Int)?, extraFiles: BugExtraFiles?, date: Date = Date(),
-    diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot()
+    diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot(), source: String? = nil,
+    reason: String? = nil, event: String = "bug_report", copySessionLog: Bool? = nil
   ) async -> BugReport {
     var report = BugReport(
       reportedAt: date, app: info.app, bundle: info.bundle, build: info.build, commit: info.commit,
       device: info.device, screen: screen, note: note, log: log?.path, sessionTMs: log?.tMs, folder: "",
-      context: context)
+      context: context, source: source, reason: reason)
     var folderURL: URL?
     do {
       let made = try store.makeFolder(for: date)
@@ -109,7 +133,7 @@ public struct BugReportWriter: Sendable {
         }
       }
     }
-    if let folderURL, copySessionLog, let path = log?.path {
+    if let folderURL, copySessionLog ?? self.copySessionLog, let path = log?.path {
       do {
         try FileManager.default.copyItem(
           at: store.documents.appendingPathComponent(path), to: folderURL.appendingPathComponent("session.jsonl"))
@@ -141,7 +165,9 @@ public struct BugReportWriter: Sendable {
       "files": .array(report.files.map(JSONValue.string)), "index_written": .bool(indexWritten),
     ]
     fields["context"] = .object(context)
-    logger("bug_report", fields)
+    if let source { fields["source"] = .string(source) }
+    if let reason { fields["reason"] = .string(reason) }
+    logger(event, fields)
     return report
   }
 }

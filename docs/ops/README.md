@@ -4,6 +4,7 @@ This folder describes how Exercise Analyzer (EA), Context Grabber's native app (
 
 | Page | What it covers |
 |---|---|
+| [logging.md](logging.md) | Event catalogue, input sources, logic versions, memory and companion-device events |
 | [listener.md](listener.md) | Configure bug-listener, independent crash discovery, doctor/status JSON, retries, dry runs and launchd |
 | [pulling-and-filing.md](pulling-and-filing.md) | Getting logs, reports and crashes off the phone and iPad; filing each report once; devicectl quirks |
 | [runners.md](runners.md) | The listener, Monitor versus `/loop`, background builds, the no-mistakes pipeline, one agent at a time |

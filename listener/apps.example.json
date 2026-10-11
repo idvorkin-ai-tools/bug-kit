@@ -5,6 +5,9 @@
       "name": "exercise-analyzer",
       "bundle": "com.idvorkin.exerciseanalyzer",
       "repo": "~/gits/exercise-analyzer",
+      "pull_extra": [
+        "Documents/Inbox/com.apple.watchconnectivity"
+      ],
       "tracker": {
         "kind": "github",
         "repo": "idvorkin/exercise-analyzer"
@@ -13,6 +16,9 @@
         "scheme": "ExerciseAnalyzer",
         "project": "ExerciseAnalyzer.xcodeproj",
         "derived_data": "Build",
+        "settings": [
+          "BUGKIT_COMMIT={describe}"
+        ],
         "app": "Build/Build/Products/Debug-iphoneos/ExerciseAnalyzer.app",
         "watch_app": "Build/Build/Products/Debug-iphoneos/ExerciseAnalyzer.app/Watch/ExerciseAnalyzerWatch.app"
       }

@@ -52,6 +52,18 @@
     public let hooks: BugReporterHooks
     public let options: BugReporterOptions
     public let writer: BugReportWriter
+    /// Saves reports the app makes by itself; see `autoReport`.
+    public private(set) lazy var auto = BugAutoReporter(writer: writer, options: options.auto)
+
+    /// Saves a report without a dialog or a screenshot, when the app's own check says something went wrong. The
+    /// screen and session log come from the hooks; `files` (a big log) are copied in within `options.auto.maxBytes`.
+    /// At most one report per reason per `options.auto.window`; a skip is logged as `bug_report_auto_skipped`.
+    public func autoReport(reason: String, context: [String: JSONValue] = [:], files: [URL] = []) {
+      hooks.flushLog()
+      let auto = auto, screen = hooks.screen(), log = hooks.sessionLog()
+      Task { await auto.report(reason: reason, screen: screen, context: context, files: files, log: log) }
+    }
+
     /// Set false to ignore shakes (EA's instrumented run, story 037: a phone in a pocket shakes).
     public var shakeEnabled = true
     private var screen = ""
@@ -305,7 +317,17 @@
               Text("Listening… tap stop when done").font(.footnote).foregroundStyle(.secondary)
             }
             if let problem = dictation.problem {
-              Text(problem).font(.footnote).foregroundStyle(.red).textSelection(.enabled)
+              if reporter.options.copyableErrors {
+                BugProblemView(
+                  problem: BugProblem(
+                    message: problem, context: "BugReportSheet.dictation", build: reporter.writer.info.buildLine,
+                    extra: dictation.problemState.merging(["mic_busy": .bool(reporter.hooks.microphoneBusy())]) {
+                      a, _ in a
+                    }),
+                  logger: reporter.hooks.logger)
+              } else {
+                Text(problem).font(.footnote).foregroundStyle(.red).textSelection(.enabled)
+              }
             }
             if reporter.flow.savedThisTime > 0 {
               Text("\(reporter.flow.savedThisTime) logged from this moment").font(.footnote).foregroundStyle(.secondary)

@@ -7,7 +7,7 @@ BugKit requires **iOS 17+**. Its report model, storage and flow also support **m
 - Shake, tap a button or press ⌘I to report a problem. The dialog captures a screenshot before opening and supports “Log it and another.”
 - Each report carries a UUID, build, typed context, session log path and timestamp. Files stay in the app’s Documents directory until pulled.
 - The listener polls every reachable paired iPhone and iPad, files reports once and names local screenshot paths without uploading images.
-- An optional What's new feed connects git commits to user stories and shows recent changes in the app.
+- An optional What's new feed connects git commits to user stories and shows recent changes on iOS and macOS.
 
 Extracted from Exercise Analyzer, Context Grabber and Magic Monitor so shared fixes reach every app.
 
@@ -130,6 +130,11 @@ These commands need no feature flag. Run the listener at least once to populate 
 
 | Feature | How to enable or configure it |
 |---|---|
+| Automatic app-triggered reports | Call `reporter.autoReport(reason: "call_failed", files: [callLog])`. Configure `options.auto.window` (600 seconds per reason) and `options.auto.maxBytes` (5 MB) before creating the reporter. No dialog or screenshot; see [automatic reports](docs/integration.md#automatic-reports). |
+| Copyable error context | `options.copyableErrors` defaults to `true` for dictation errors. App error screens can use `BugProblem` and `BugProblemView`. |
+| Wall and host-clock timestamps | Create `SessionLog(prefix: "app", clocks: [.wall, .mono])`. Both are off by default. |
+| Memory on status lines | Use `log.status(every: 5, memory: true) { ... }` to include `rss_mb`. Default: off. |
+| Bridge an existing logger | Convert fields with `fields.mapValues(\.foundation)` when the app's logger accepts `[String: Any]`. |
 | Shake and keyboard reporting | Enabled by `.bugReporting(reporter)`. `systemShake`, `gentleShake`, `commandI` and `dialogKeys` default to `true`. |
 | Report button | Add `BugReportButton(reporter: reporter)` to your view or toolbar. |
 | Session log association | Create `SessionLog`, then supply `sessionLog: { log.position }`, `logger: log.logger` and `flushLog: { log.flush() }` hooks as in the quick start. |
@@ -141,7 +146,11 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Commit in reports | Set `BugKitCommit` in the app's Info.plist to its build's git commit. |
 | Simulator launch hooks | Set `options.launchHookPrefix = "APP"` and call `reporter.runLaunchHooks()` on appearance. Launch with `SIMCTL_CHILD_APP_BUG="test note" xcrun simctl launch booted <bundle-id>` to save a report, or use `SIMCTL_CHILD_APP_SHAKE_AFTER=2` to open the dialog. |
 | What's new | Add the `scripts/whats-new.sh` build phase, load `WhatsNewSeen.bundledFeed()`, then display `WhatsNewRow` / `WhatsNewView`; see the [complete setup](docs/integration.md). |
-| Log retention | Call `BugStore().pruneLogs(logger: log.logger)` at launch to prune logs older than 30 days while retaining reported logs. |
+| Log retention | Call `BugStore().pruneLogs(logger: log.logger)` at launch. Add `keepNewest: 20` for a count cap; logs named by reports remain protected. |
+
+For package updates, workarounds to remove, per-app options and downstream verification, see [adopting the merged features](docs/migration.md#adopting-the-merged-features). It covers Exercise Analyzer, Context Grabber and Magic Monitor separately.
+
+For agent tools, use `scripts/log-tool.sh` to slice logs, `scripts/symbolicate.sh` with a matching dSYM, and `scripts/bugs-monitor.sh [app]` to watch report checks. Configure `pull_extra` in an app's config entry for extra paths copied by `pull-reports.sh`. Source `scripts/smoke-lib.sh` from app-specific simulator checks; see [simulator setup](docs/ops/simulators.md).
 
 ## Pull and file reports
 
@@ -228,7 +237,7 @@ On a Mac with Swift 6+, uv and `jq` (used by the shell scripts):
 
 ```sh
 swift test
-uv run --with typer --with pytest pytest listener/ Tests/scripts/
+uv run --python 3.12 --with typer --with pytest pytest --import-mode=importlib listener/ Tests/ scripts/tests/
 for script in scripts/*.sh; do bash -n "$script"; done
 ```
 

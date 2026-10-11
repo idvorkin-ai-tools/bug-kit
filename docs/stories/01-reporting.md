@@ -173,10 +173,14 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Speak the note
 - **From:** CG #239 (story 142, "Speaking the note")
+- **Issues:** #7
 - **Status:**
   - `NoteDictation`, behind `options.dictation` (off by default: it needs the speech and microphone usage strings). Verified by typecheck.
   - `DictationText.merge` is verified on the host by `dictatedWordsGoAfterTheTypedNote`.
   - The permission prompts and music carrying on are device checks, still to do.
+  - The error is a `BugProblemView` with Copy error, behind `options.copyableErrors` (on), from CG's ProblemView
+    (bug-kit#7). The copied text is verified on the host by `BugProblemTests`; the view by typecheck. Pasting from a
+    real refusal is a device check, still to do.
 
 #### Use Case:
 - **As someone** with one hand on a kettlebell or a steering wheel
@@ -197,6 +201,14 @@ Part of the [BugKit stories](README.md).
 - **Then:**
   - the button is off, or the dialog says why in words;
   - the log has `dictation_error` with the reason.
+
+- **Scenario:** Copying the error
+- **Given:** the dialog says why dictation failed
+- **When:** I tap Copy error and paste into an issue
+- **Then:**
+  - the paste has the message, `context: BugReportSheet.dictation`, `build:` with the version and commit, and the
+    state (`auth`, `mic`, `recognizer` or `error`, and `mic_busy`), one per line;
+  - the log has `ui` with `action: copy_error` and `from: tap`.
 
 ---
 
@@ -226,6 +238,8 @@ Part of the [BugKit stories](README.md).
 - **Status:**
   - `BugLaunchHooks` is verified on the host by `launchHooksParseNotesAndShakeAfter`.
   - `BugReporter.runLaunchHooks` is verified by typecheck.
+  - `scripts/smoke-lib.sh`, the shared plumbing for an app's smoke script (EA, CG and MM's rules), is verified on the
+    host by `scripts/tests/test_smoke_lib.py` with a stub simctl. A real app's smoke script on it is still to come.
 
 #### Use Case:
 - **As an** agent verifying a change on the simulator
@@ -239,3 +253,9 @@ Part of the [BugKit stories](README.md).
 - **Then:**
   - two reports are saved about two seconds after launch, each with the screenshot;
   - the log has `bug_hook` and two `bug_report` lines.
+
+- **Scenario:** A smoke check that cannot pass by accident
+- **Given:** a smoke script on `scripts/smoke-lib.sh`
+- **When:** the app crashes before it logs, the launch writes no new log, a step logs `error`, or the scripted flow
+  stops before `selftest_finished`
+- **Then:** the run fails and names why. An older launch's log never satisfies the check.

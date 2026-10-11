@@ -12,6 +12,9 @@
 # against the `<!-- bug:<reported_at> -->` markers in the app's GitHub issues; if that lookup fails it says so and
 # exits 2 rather than calling everything new (CG 6fed157). An unreachable device is named, not a failure.
 #
+# An app's "pull_extra" list names more container paths to copy, each into <device>/<its last component>: EA's
+# watch files wait in Documents/Inbox/com.apple.watchconnectivity until the app takes them.
+#
 # Devices: `xcrun devicectl list devices`, physical iPhones and iPads, named by model (iphone-17-pro). No ids are
 # kept anywhere. Config: BUG_KIT_CONFIG (default ~/.config/bug-kit/apps.json), the listener's file.
 set -uo pipefail
@@ -40,7 +43,7 @@ jq -r '[.result.devices[] | select(.hardwareProperties.reality == "physical"
 [ -s "$tmp/devices" ] || { echo "no paired iPhone or iPad"; exit 0; }
 
 apps=$(jq -r --arg only "$only" '.apps[] | select($only == "" or .name == $only)
-  | [.name, .bundle, (.tracker.kind // "none"), (.tracker.repo // "-")] | @tsv' "$CONFIG")
+  | [.name, .bundle, (.tracker.kind // "none"), (.tracker.repo // "-"), ((.pull_extra // []) | join(","))] | @tsv' "$CONFIG")
 [ -n "$apps" ] || { echo "no app named '$only' in $CONFIG" >&2; exit 2; }
 
 copy() {  # copy <udid> <bundle> <source under the container> <destination>
@@ -50,7 +53,7 @@ copy() {  # copy <udid> <bundle> <source under the container> <destination>
 
 new_total=0
 lookup_failed=0
-while IFS=$'\t' read -r app bundle tracker repo; do
+while IFS=$'\t' read -r app bundle tracker repo extra; do
   markers=""
   if [ "$check" = 1 ] && [ "$tracker" = github ]; then
     if ! bodies=$(gh issue list -R "$repo" --state all --limit 1000 --json body --jq '.[].body' 2>"$tmp/gh-err"); then
@@ -94,6 +97,11 @@ while IFS=$'\t' read -r app bundle tracker repo; do
     copy "$udid" "$bundle" Documents/logs "$out/logs" || echo "   $dir: logs not copied ($(grep -m1 -i error "$tmp/copy-err" | cut -c1-100))"
     copy "$udid" "$bundle" Documents/bugs "$out/bugs" || true        # absent until the first report
     copy "$udid" "$bundle" Documents/crashes "$out/crashes" || true  # absent until the first crash
+    # The app's own extra folders, e.g. the WatchConnectivity inbox where files from the watch wait (EA #197).
+    for path in ${extra//,/ }; do
+      copy "$udid" "$bundle" "$path" "$out/$(basename "$path")" \
+        || echo "   $dir: $path not copied ($(grep -m1 -i error "$tmp/copy-err" | cut -c1-100))"
+    done
     echo "== $app / $dir: $(\ls "$out/logs" 2>/dev/null | wc -l | tr -d ' ') logs, $(wc -l <"$out/bugs.jsonl" 2>/dev/null | tr -d ' ' || echo 0) reports, $(\ls "$out/crashes" 2>/dev/null | wc -l | tr -d ' ') crash files in ${out/#$HOME/\~}"
     tail -3 "$out/bugs.jsonl" 2>/dev/null | jq -c '{reported_at, note: (.note[0:70]), log, screen}' 2>/dev/null || true
   done <"$tmp/devices"

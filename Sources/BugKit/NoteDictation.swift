@@ -72,6 +72,8 @@ public struct DictationJoin: Equatable, Sendable {
     @Published public private(set) var listening = false
     /// Why it cannot listen, in words for the dialog; nil when it can.
     @Published public private(set) var problem: String?
+    /// The state when `problem` was set (permission status, which step failed), for a copyable `BugProblem`.
+    @Published public private(set) var problemState: [String: JSONValue] = [:]
 
     private let logger: BugLogger
     private let engine = AVAudioEngine()
@@ -89,6 +91,7 @@ public struct DictationJoin: Equatable, Sendable {
 
     private func start(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
       problem = nil
+      problemState = [:]
       SFSpeechRecognizer.requestAuthorization { status in
         Task { @MainActor in
           guard status == .authorized else {
@@ -201,6 +204,7 @@ public struct DictationJoin: Equatable, Sendable {
 
     private func fail(_ message: String, _ extra: [String: JSONValue]) {
       problem = message
+      problemState = extra
       logger("dictation_error", extra.merging(["message": .string(message)]) { a, _ in a })
     }
   }

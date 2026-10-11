@@ -35,7 +35,7 @@ The apps hit each of these:
 - **The only reliable check is one device build that needs the portal.** Grep its output for `No Accounts`.
 - **Don't trust `defaults read com.apple.dt.Xcode DVTDeveloperAccountManagerAppleIDLists`.** In Xcode 27 it listed the account while builds failed with No Accounts, and it was empty while a build signed and registered a new device.
 - **Don't search the keychain.** There is no item to find either way.
-- **When reading Xcode's unified log,** use `/usr/bin/log`, because in zsh `log` is a builtin. Read it within the hour. Filter out token, session, password and authorization lines before writing anything down: one search once captured a live session token.
+- **When reading Xcode's unified log,** use `/usr/bin/log`, because in zsh `log` is a builtin. Read it within the hour. Filter out token, session, password and authorization lines before writing anything down: one search once captured a live session token. The header names to drop are `X-Apple-GS-Token` and `DSESSIONID` (CG), as in `/usr/bin/log show … | grep -v -i -E 'X-Apple-GS-Token|DSESSIONID|token|password|authorization'`.
 
 ## Fixing it
 
@@ -63,3 +63,7 @@ Simulator builds need no team:
 - EA uses `CODE_SIGNING_ALLOWED=NO`.
 - CG uses `CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual`, "signed to run locally, not unsigned": HealthKit refuses an app without its entitlement, even on the simulator.
 - A Mac app built ad hoc (`codesign --force --sign -`) loses its Accessibility grant at every rebuild.
+
+## Mac apps signed ad hoc
+
+- **Every rebuild changes an ad-hoc signature, and macOS may ask for camera, microphone or screen-recording access again.** TCC ties the grant to the signature. When relaunching a rebuilt Mac app, tell the person a permission prompt may be waiting. Otherwise the app looks frozen on a blank camera (MM AGENTS.md).

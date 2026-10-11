@@ -32,6 +32,25 @@
 - **Deep links:** open them from an XCUITest (`XCUIApplication().open(url)`). `simctl openurl` stops at an "Open in…?" prompt no script can answer.
 - **Services the simulator lacks:** use one environment variable to point the app at a plain stand-in. EA's `SWING_SYNC_DIR` stands in for the iCloud container, and two simulators sharing it test sync end to end.
 
+## A smoke script on `scripts/smoke-lib.sh`
+
+Each app keeps its own checks. The plumbing is shared: source `scripts/smoke-lib.sh` from the BugKit checkout.
+
+| Helper | What it does | From |
+|---|---|---|
+| `launch APP_BUG=x …` | terminates, remembers the newest log, launches with `SIMCTL_CHILD_` hooks | EA, CG |
+| `wait_for <type> <secs>` | waits for an event in a log newer than the launch; a timeout fails the run | EA `sim-smoke.sh` |
+| `require_event <type> [jq] [label]` | this launch's log has the event; `require_event selftest_finished` is the finish marker | MM's selftest |
+| `fail_on_errors [label]` | any `error` event in this launch's log fails the run, naming `where` and `message` | CG `sim-smoke.sh` |
+| `stash <paths>` / `unstash` | moves Documents paths aside and back, also on exit or Ctrl-C; a stash a killed run left is put back first | EA |
+| `run <check> …` | runs the check unless `ONLY=<substring>` excludes it | EA |
+| `smoke_done` | prints the result and exits 1 on any failure | |
+
+- **A scripted flow logs that it finished** (`selftest_finished`, or the app's own name for it) as its last line. A
+  crash or an early quit then fails the run instead of passing with whatever was logged before it (MM).
+- **Any `error` event fails the run**, even when the feature under test passed. BugKit logs every failed step as
+  `error`, and this gate turns those into failures (CG).
+
 ## Preferences: plist edits need cfprefsd restarted
 
 - **For a key the app has never written,** use `xcrun simctl spawn <udid> defaults write <bundle> <key> <value>`. The app reads it.
@@ -68,3 +87,31 @@ A check deletes what it set. One hook's mode leaked into later launches until it
 - **Speed:** the simulator runs Core ML on the CPU, about a tenth of the phone's speed. Wait on events, not on time.
 - **Fresh worktrees:** a fresh worktree lacks gitignored model files, so the app launches with no model and every check times out.
 - **Watch simulators:** WatchConnectivity's `transferUserInfo` does not cross between paired simulators. To stage a lost phone, shut the phone simulator down; terminating the app is not enough, because watch messages relaunch it.
+
+## Real data on the simulator
+
+Host fixtures check the logic. A screen that shows real data needs the data on the simulator (CG):
+
+1. Copy the real export into the container: `cp fixture.db "$(xcrun simctl get_app_container <udid> <bundle> data)/Documents/import-fixture.db"`.
+2. Launch with an import hook, for example `SIMCTL_CHILD_<PREFIX>_IMPORT_DB=import-fixture.db,recent`.
+3. **`recent` shifts every timestamp by whole weeks,** so the newest point lands in the last seven days. Screens that show "this week" or "today" then always have data, whenever the test runs. Whole weeks keep weekdays and times of day as they were.
+4. Assert exact counts against the source of truth (CG compares with its older TypeScript import), and that a second import adds nothing.
+5. A UI test that needs the fixture `XCTSkip`s with the copy command when it is missing, and undoes its own changes, so it can run twice.
+
+The import hook is per app. The week shift is the part that is easy to miss.
+
+## Screenshots for layout
+
+Log events cannot show a tile's width or an iPad's landscape layout. Two cheap ways to see it on every run:
+
+- **One screenshot per fixed state.**
+  - The app takes a `<PREFIX>_STATE=<name>` launch hook and opens straight into that state.
+  - A script launches each state once and takes `simctl io <udid> screenshot <state>.png`.
+  - EA's `watch-screens.sh` shoots eighteen watch states and compares each against the control list at the top of its watch story.
+  - Delete the old files first.
+- **Named screenshots from UI tests, only when asked.**
+  - XCUITests write PNGs (`home-today.png`, `whats-new-links.png`) at the moments that matter, into the folder named by `$<PREFIX>_SHOTS`. Unset, they write nothing.
+  - Pass the variable as `TEST_RUNNER_<PREFIX>_SHOTS=<dir> xcodebuild … test`: xcodebuild strips `TEST_RUNNER_` for the test runner, as simctl strips `SIMCTL_CHILD_` (CG's `GRABBER_SHOTS`).
+  - A green run then leaves pictures for a person, or for an agent that reads images, to check.
+
+Screenshots show the person's data. They stay on the Mac and never go into a public repo or an issue (principle 13).

@@ -121,7 +121,8 @@ their public repos. MM ids (`mmn-…`) and story numbers refer to its own repo. 
     - Every fix is one commit, or one PR, that names its issue (`Fixes #N`). Never bundle fixes.
     - Close the issue once the build is on the device, with a comment that says what was verified where.
     - A bug reported by voice gets an issue too, so the trail is complete.
-    - Before fixing, find or write the user story the report belongs to.
+    - Before fixing, find or write the user story the report belongs to. A request becomes a new story; a bug
+      gets an entry on its story's `**Issues:**` line before the fix, so What's new can link the fix to its story.
     - If looking up the existing issues fails, stop filing rather than file everything again (CG 6fed157).
     - **The marker dedupe has holes.** An issue filed by hand, or by an older script, without the marker is
       invisible to it. CG's report of 2026-10-08T04:00:59Z still shows as unfiled although an issue was said to

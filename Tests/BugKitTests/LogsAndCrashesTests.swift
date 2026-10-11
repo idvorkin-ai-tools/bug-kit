@@ -48,6 +48,28 @@ private final class Events: @unchecked Sendable {
   #expect(events.all[0].1["count"] == 1 && events.all[0].1["kept_for_reports"] == 2)
 }
 
+// MM: logs of a few MB per launch, dozens of launches a day; a count cap as well as the age, reported ones kept.
+@Test func keepNewestCapsTheCountAndStillKeepsReportedLogs() throws {
+  let docs = try tempDir()
+  defer { try? FileManager.default.removeItem(at: docs) }
+  let logs = docs.appendingPathComponent("logs")
+  try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
+  let now = Date()
+  for i in 0..<5 {  // log-0 newest … log-4 oldest, all within the 30 days
+    let url = logs.appendingPathComponent("log-\(i).jsonl")
+    try Data("x\n".utf8).write(to: url)
+    try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-Double(i) * 60)], ofItemAtPath: url.path)
+  }
+  let store = BugStore(documents: docs)
+  try store.append(BugReport(app: "T", bundle: "b", build: "1", commit: "c", device: "d", screen: "s", note: "n",
+    log: "logs/log-3.jsonl", folder: "bugs/x"))
+  let events = Events()
+  #expect(store.pruneLogs(keepNewest: 2, now: now, logger: events.logger) == ["log-2.jsonl", "log-4.jsonl"])
+  #expect(events.all[0].1["count"] == 2 && events.all[0].1["kept_for_reports"] == 1)
+  #expect(LogRetention.prune(files: [("a", 1), ("b", 2)], referenced: [], keepNewest: 0) == ["a", "b"])
+  #expect(LogRetention.prune(files: [("a", 1), ("b", 2)], referenced: []).isEmpty)  // no cap, none old: none go
+}
+
 @Test func pruningLogsALineEvenWhenNothingGoes() throws {
   let docs = try tempDir()
   defer { try? FileManager.default.removeItem(at: docs) }
