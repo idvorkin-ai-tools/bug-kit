@@ -219,6 +219,32 @@ A bug in the app's own hooks (its context, screen names, extra files, logger bri
 
 ## Developing BugKit
 
+### Beads work tracking
+
+Use Beads (`bd`) for agent task tracking. GitHub remains the intake for reports and the review surface for PRs; link related issues with `--external-ref <issue-url>`.
+
+On a fresh clone, initialize the local database from this repo's existing task remote:
+
+```sh
+bd init --prefix bug --remote git+https://github.com/idvorkin/bug-kit.git \
+  --non-interactive --skip-hooks --skip-agents
+```
+
+For an initialized checkout:
+
+```sh
+bd prime
+bd dolt pull
+bd ready
+bd create "Describe the work" --type task --description "Why and acceptance criteria"
+bd update <id> --status in_progress
+# After implementing and validating the work:
+bd close <id> --reason "What shipped and how it was verified"
+bd dolt push
+```
+
+Create a bead before starting work and close it after completion. Worktrees share the main checkout's embedded Dolt database. Task data syncs with `bd dolt pull` and `bd dolt push`, separately from code commits and PRs; an ordinary Git push does not sync tasks.
+
 ### no-mistakes validation
 
 This repo uses [.no-mistakes.yaml](.no-mistakes.yaml) for targeted local validation and [.github/workflows/ci.yml](.github/workflows/ci.yml) for the full Swift/Python regression suite and iOS compilation on macOS. The local Test agent selects checks relevant to the change; simulator diagnostics are available for UI changes.
