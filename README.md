@@ -223,20 +223,29 @@ A bug in the app's own hooks (its context, screen names, extra files, logger bri
 
 ### Beads work tracking
 
-This repo uses Beads (`bd`, currently initialized with version 1.3.1) for agent tasks. Worktrees share the main checkout's embedded Dolt database. GitHub is still the intake for filed reports and the PR review surface; link a bead with `--external-ref <issue-url>`.
+Use Beads (`bd`) for agent task tracking. GitHub remains the intake for reports and the review surface for PRs; link related issues with `--external-ref <issue-url>`.
+
+On a fresh clone, initialize the local database from this repo's existing task remote:
+
+```sh
+bd init --prefix bug --remote git+https://github.com/idvorkin/bug-kit.git \
+  --non-interactive --skip-hooks --skip-agents
+```
+
+For an initialized checkout:
 
 ```sh
 bd prime
 bd dolt pull
 bd ready
-bd create "Describe the work" --type feature --description "Why and acceptance criteria"
+bd create "Describe the work" --type task --description "Why and acceptance criteria"
 bd update <id> --status in_progress
-# Implement and validate through no-mistakes, then:
-bd close <id> --reason "Merged PR and validation evidence"
+# After implementing and validating the work:
+bd close <id> --reason "What shipped and how it was verified"
 bd dolt push
 ```
 
-On a fresh clone, hydrate the database with `bd init --prefix bug --remote git+https://github.com/idvorkin/bug-kit.git --non-interactive --skip-hooks --skip-agents` before using `bd dolt pull`. See [.beads/README.md](.beads/README.md). Task data is synced by Dolt, separately from code PRs; JSONL exports are optional interchange. [AGENTS.md](AGENTS.md) defines the workflow and shared-simulator rules.
+Create a bead before starting work and close it after completion. Worktrees share the main checkout's embedded Dolt database. Task data syncs with `bd dolt pull` and `bd dolt push`, separately from code commits and PRs; an ordinary Git push does not sync tasks. See [.beads/README.md](.beads/README.md); [AGENTS.md](AGENTS.md) defines the workflow and shared-simulator rules.
 
 ### no-mistakes validation
 
