@@ -50,6 +50,9 @@ Beyond the code, the repo holds:
 | Unique folders within one second | – | – | ✓ | always |
 | Report names its log and the moment | ✓ | ✓ | ✓ (copies the log) | `log`, `session_t_ms`; `copySessionLog` |
 | Build and commit in the report | – | ✓ | ✓ | always (`BugKitCommit`) |
+| Commit says `-dirty` for uncommitted changes (MM) | – | – | ✓ | `BUGKIT_COMMIT` recipe; `deploy-all.sh` `{describe}` |
+| Mac reports name the model, not "arm64" (MM, #6) | – | – | ✓ | always |
+| Copy error: the message, where, the build and the state (CG) | – | ✓ | – | `BugProblem`, `BugProblemView`; `copyableErrors` (on) |
 | Typed context (numbers stay numbers) | – (strings) | – (strings) | ✓ (Codable) | `context: [String: JSONValue]` |
 | Extra files: clip, recent segments, report.json | ✓ frame | – | ✓ | `extraFiles`, `RecentSegments`, `writeReportJSON` |
 | JSON Lines session log per launch | ✓ | ✓ | ✓ | `SessionLog` (optional) |
