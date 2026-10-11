@@ -80,13 +80,30 @@ import Testing
 @Test func dictationHostRecordingSkipsMicrophoneDiscovery() async throws {
   let fixture = try DictationFixture()
   defer { fixture.cleanup() }
-  await fixture.dictation.refreshMicrophones(requestPermission: false, hostMicrophoneBusy: true)
-  await fixture.dictation.refreshMicrophones(hostMicrophoneBusy: true)
+  await fixture.dictation.refreshMicrophones(requestPermission: false, hostMicrophoneBusy: { true })
+  await fixture.dictation.refreshMicrophones(hostMicrophoneBusy: { true })
   #expect(fixture.capture.lists == 0)
   #expect(fixture.permissions.microphone == 0)
   #expect(fixture.dictation.microphones.isEmpty)
   await fixture.dictation.refreshMicrophones(requestPermission: false)
   #expect(fixture.capture.lists == 1)
+}
+
+@MainActor
+@Test func dictationHostRecordingStartedDuringPermissionPromptSkipsDiscovery() async throws {
+  let gate = MicrophonePermissionGate()
+  let fixture = try DictationFixture(microphone: { await gate.wait() })
+  defer { fixture.cleanup() }
+  let host = HostRecording()
+  let refresh = Task { await fixture.dictation.refreshMicrophones(hostMicrophoneBusy: { host.busy }) }
+  try await fixture.until { gate.waiting }
+  host.busy = true
+  gate.release()
+  await refresh.value
+  #expect(fixture.permissions.microphone == 1)
+  #expect(fixture.capture.lists == 0)
+  #expect(fixture.dictation.microphones.isEmpty)
+  #expect(!fixture.dictation.refreshingMicrophones)
 }
 
 @Test func appleNoSpeechEndsQuietlyOnlyAfterFinish() {
@@ -131,6 +148,7 @@ private final class DictationFixture {
 }
 
 @MainActor private final class NoteValue { var value = "" }
+@MainActor private final class HostRecording { var busy = false }
 @MainActor private final class PermissionCounts { var speech = 0; var microphone = 0 }
 @MainActor private final class MicrophonePermissionGate {
   var waiting = false
