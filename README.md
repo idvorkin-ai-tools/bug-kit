@@ -435,7 +435,8 @@ Each app needs:
   `repo`), or `{"kind": "none"}` (inbox and notification only).
 
 Optional: `log_dir` (default `Documents/logs`, for older reports whose `log` is a bare file name) and `crash_dir`
-(default `Documents/crashes`). The top-level `poll_seconds` defaults to 300.
+(default `Documents/crashes`). `pull_extra` lists more container paths for `scripts/pull-reports.sh` to copy, such
+as EA's `Documents/Inbox/com.apple.watchconnectivity`. The top-level `poll_seconds` defaults to 300.
 
 ### What one poll does
 

@@ -11,6 +11,8 @@ Part of the [BugKit stories](README.md).
 - **Status:**
   - `scripts/pull-reports.sh` was verified on 2026-10-10 against an iPhone and an iPad: `--check` listed 6 unfiled reports, and folders were per app and device.
   - Its line handling was verified by hand on a broken fixture.
+  - `pull_extra` (EA #197's WatchConnectivity inbox) is verified on the host by `scripts/tests/test_pull_reports.py`,
+    with a stub `devicectl`. A real watch inbox is a device check, still to do.
 
 #### Use Case:
 - **As an** agent starting a bug pass
@@ -25,6 +27,13 @@ Part of the [BugKit stories](README.md).
   - each app and device gets `~/tmp/agent/bugs/<app>/<device>/` with `logs/`, `bugs.jsonl`, `bugs/` and `crashes/`;
   - a device that cannot be reached is named and skipped;
   - a locked device that has been unlocked once since boot still copies.
+
+- **Scenario:** Files the app has not taken yet
+- **Given:** EA's config lists `Documents/Inbox/com.apple.watchconnectivity` in `pull_extra`
+- **When:** I run `scripts/pull-reports.sh`
+- **Then:**
+  - the device's folder also has `com.apple.watchconnectivity/` with whatever the watch sent and the app has not taken;
+  - a listed folder that is missing is named, and the rest still copies.
 
 - **Scenario:** A quick look
 - **When:** I run `scripts/pull-reports.sh --check`
