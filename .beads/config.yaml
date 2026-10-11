@@ -1,0 +1,4 @@
+# Worktrees share the main checkout's embedded Dolt database.
+issue-prefix: bug
+sync:
+  remote: "git+https://github.com/idvorkin/bug-kit.git"

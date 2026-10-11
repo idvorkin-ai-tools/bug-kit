@@ -57,155 +57,252 @@ public struct DictationJoin: Equatable, Sendable {
 
 #if canImport(UIKit) && os(iOS)
   import AVFoundation
+  import Combine
   import Speech
 
-  /// Speak the note (CG #239, story 142): the dialog's microphone. Words land in the note as they are said, after
-  /// whatever was typed, recognised on the device when it can be. The audio session is mixed while listening, so
-  /// music keeps playing, and put back exactly as it was afterwards.
-  ///
-  /// Needs `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` in Info.plist. Logs
-  /// `dictation_start` (on_device), `dictation_stop` (why: tap / log_it / cancel / closed / final / error) and
-  /// `dictation_error` (auth, mic, recognizer, error, message), and `dictation_pause` (kept_chars, new_chars,
-  /// prev_end_s, new_start_s) each time a pause starts a new stretch of speech.
+  /// Dictates through Apple Speech by default, or an app-supplied streaming provider.
+  /// Microphone picks apply to the next dictation. Stop/Log it drains final words; cancel discards late callbacks.
   @MainActor
   public final class NoteDictation: ObservableObject {
     @Published public private(set) var listening = false
-    /// Why it cannot listen, in words for the dialog; nil when it can.
+    @Published public private(set) var starting = false
+    @Published public private(set) var refreshingMicrophones = false
+    @Published public private(set) var processing = false
     @Published public private(set) var problem: String?
-    /// The state when `problem` was set (permission status, which step failed), for a copyable `BugProblem`.
     @Published public private(set) var problemState: [String: JSONValue] = [:]
+    @Published public private(set) var microphones: [BugMicrophone] = []
+    @Published public private(set) var selectedMicrophoneID: String?
 
+    public var busy: Bool { starting || listening || processing || refreshingMicrophones }
+    public var selectedMicrophoneName: String {
+      microphones.first { $0.id == selectedMicrophoneID }?.name
+        ?? (selectedMicrophoneID == nil ? "Automatic" : "Saved microphone")
+    }
+    private static let microphoneKey = "bugkit.dictation_microphone"
     private let logger: BugLogger
-    private let engine = AVAudioEngine()
-    private var request: SFSpeechAudioBufferRecognitionRequest?
-    private var task: SFSpeechRecognitionTask?
-    private var saved: (category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)?
-    private var join = DictationJoin(typed: "")
+    private let factory: @MainActor @Sendable () -> any BugDictationProvider
+    private let capture: any DictationCapture
+    private let permissions: DictationPermissions
+    private let defaults: UserDefaults
+    private let hostMicrophoneBusy: @MainActor () -> Bool
+    private var provider: (any BugDictationProvider)?
+    private var startTask: Task<Void, Never>?
+    private var audioTask: Task<Void, Never>?
+    private var resultTask: Task<Void, Never>?
+    private var finishTask: Task<Bool, Never>?
+    private var owner = UUID()
+    private var typed = ""
     private var onText: (@MainActor @Sendable (String) -> Void)?
 
-    public init(logger: @escaping BugLogger) { self.logger = logger }
+    public convenience init(logger: @escaping BugLogger,
+      providerFactory: (@MainActor @Sendable () -> any BugDictationProvider)? = nil,
+      defaults: UserDefaults = .standard,
+      hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) {
+      self.init(logger: logger, providerFactory: providerFactory ?? { AppleDictationProvider(logger: logger) },
+                capture: AVDictationCapture(logger: logger), permissions: .system, defaults: defaults,
+                hostMicrophoneBusy: hostMicrophoneBusy)
+    }
+
+    init(logger: @escaping BugLogger, providerFactory: @escaping @MainActor @Sendable () -> any BugDictationProvider,
+         capture: any DictationCapture, permissions: DictationPermissions, defaults: UserDefaults,
+         hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) {
+      self.logger = logger; self.factory = providerFactory; self.capture = capture
+      self.permissions = permissions; self.defaults = defaults
+      self.hostMicrophoneBusy = hostMicrophoneBusy
+      selectedMicrophoneID = defaults.string(forKey: Self.microphoneKey)
+      capture.onFailure = { [weak self] message in
+        guard let self, self.listening else { return }
+        self.fail(message, ["where": "audio_route"])
+        Task { _ = await self.finish(why: "input_lost") }
+      }
+    }
+
+    /// Refreshes iOS inputs without recording. Category/mode/options/preferred input are restored afterward.
+    /// Skipped while the host records, because listing inputs reconfigures the shared audio session.
+    /// `hostMicrophoneBusy` is checked live: again after the permission prompt, right before listing.
+    public func refreshMicrophones() async {
+      guard !busy, !hostMicrophoneBusy() else { return }
+      let generation = owner
+      refreshingMicrophones = true
+      defer { if owner == generation { refreshingMicrophones = false } }
+      let granted = await permissions.microphone()
+      guard owner == generation, !Task.isCancelled else { return }
+      refreshingMicrophones = false
+      guard granted else { fail("The microphone is off for this app (Settings)", ["mic": "denied"]); return }
+      guard !hostMicrophoneBusy() else { return }
+      do {
+        microphones = try capture.availableMicrophones()
+        if let selectedMicrophoneID, !microphones.contains(where: { $0.id == selectedMicrophoneID }) {
+          selectMicrophone(nil)
+          logger("dictation_input_unavailable", [:])
+        }
+      } catch { fail("Microphones could not be listed", ["where": "inputs"]) }
+    }
+
+    public func selectMicrophone(_ id: String?) {
+      guard !busy, id == nil || microphones.contains(where: { $0.id == id }) else { return }
+      selectedMicrophoneID = id
+      defaults.set(id, forKey: Self.microphoneKey)
+      logger("dictation_input_selected", ["input": id.map(JSONValue.string) ?? .null])
+    }
 
     public func toggle(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
-      if listening { stop(why: "tap") } else { start(note: note, onText: onText) }
+      if listening { Task { _ = await finish(why: "tap") } }
+      else if !busy, !hostMicrophoneBusy() { start(note: note, onText: onText) }
     }
 
     private func start(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
-      problem = nil
-      problemState = [:]
-      SFSpeechRecognizer.requestAuthorization { status in
-        Task { @MainActor in
-          guard status == .authorized else {
-            self.fail("Speech recognition is off for this app (Settings)", ["auth": .int(status.rawValue)])
-            return
+      problem = nil; problemState = [:]
+      owner = UUID()
+      let generation = owner
+      typed = note; self.onText = onText
+      let backend = factory()
+      provider = backend
+      starting = true
+      startTask = Task { [weak self] in
+        guard let self else { return }
+        do {
+          if backend.requiresSpeechAuthorization, !(await self.permissions.speech()) {
+            throw DictationPermissionError.speech
           }
-          AVAudioApplication.requestRecordPermission { granted in
-            Task { @MainActor in
-              guard granted else {
-                self.fail("The microphone is off for this app (Settings)", ["mic": "denied"])
-                return
+          try Task.checkCancellation()
+          guard await self.permissions.microphone() else { throw DictationPermissionError.microphone }
+          try Task.checkCancellation()
+          guard self.owner == generation else { return }
+          guard !self.hostMicrophoneBusy() else { throw DictationPermissionError.microphoneBusy }
+          let results = try await backend.start()
+          try Task.checkCancellation()
+          guard self.owner == generation else { await backend.cancel(); return }
+          let onDevice = await backend.onDeviceRecognition
+          try Task.checkCancellation()
+          guard self.owner == generation else { await backend.cancel(); return }
+          guard !self.hostMicrophoneBusy() else { throw DictationPermissionError.microphoneBusy }
+          let audio = try self.capture.start(preferredInputID: self.selectedMicrophoneID)
+          self.starting = false; self.listening = true
+          self.logger("dictation_start", ["provider": .string(backend.name),
+            "input": self.capture.currentInputID.map(JSONValue.string) ?? .null,
+            "on_device": onDevice.map(JSONValue.bool) ?? .null])
+          self.audioTask = Task { [weak self] in
+            do {
+              for await chunk in audio {
+                try Task.checkCancellation()
+                try await backend.appendAudio(chunk)
               }
-              self.begin(note: note, onText: onText)
+            } catch {
+              guard let self, self.owner == generation, !Task.isCancelled else { return }
+              self.fail("Speech recognition stopped receiving audio", ["where": "audio_send"])
+              self.stop(why: "error")
             }
           }
+          self.resultTask = Task { [weak self] in
+            do {
+              for try await spoken in results {
+                guard let self, self.owner == generation, !Task.isCancelled else { return }
+                self.onText?(DictationText.merge(before: self.typed, spoken: spoken))
+              }
+              if let self, self.owner == generation, self.listening { self.stop(why: "final") }
+            } catch {
+              guard let self, self.owner == generation, !Task.isCancelled else { return }
+              self.fail("The speech service stopped unexpectedly", ["where": "recognizer"])
+              self.stop(why: "error")
+            }
+          }
+        } catch {
+          guard self.owner == generation, !Task.isCancelled else { await backend.cancel(); return }
+          let message = (error as? DictationPermissionError)?.localizedDescription ?? "Voice input could not start"
+          self.fail(message, ["where": "start", "provider": .string(backend.name)])
+          self.stop(why: "error")
         }
       }
     }
 
-    private func begin(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
-      guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else {
-        fail("This device cannot recognise speech right now", ["recognizer": "unavailable"])
-        return
-      }
-      let session = AVAudioSession.sharedInstance()
-      saved = (session.category, session.mode, session.categoryOptions)
-      let request = SFSpeechAudioBufferRecognitionRequest()
-      request.shouldReportPartialResults = true
-      request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
-      do {
-        try session.setCategory(
-          .playAndRecord, mode: .default, options: [.mixWithOthers, .defaultToSpeaker, .allowBluetoothHFP])
-        try session.setActive(true)
-        let input = engine.inputNode
-        input.installTap(onBus: 0, bufferSize: 1024, format: input.outputFormat(forBus: 0)) { buffer, _ in
-          request.append(buffer)
-        }
-        engine.prepare()
-        try engine.start()
-      } catch {
-        engine.inputNode.removeTap(onBus: 0)
-        restoreSession()
-        fail("The microphone would not start", ["error": .string("\(error)")])
-        return
-      }
-      self.request = request
-      self.onText = onText
-      join = DictationJoin(typed: note)
-      listening = true
-      logger("dictation_start", ["on_device": .bool(request.requiresOnDeviceRecognition)])
-      task = recognizer.recognitionTask(with: request) { result, error in
-        let text = result?.bestTranscription.formattedString
-        let segments = result?.bestTranscription.segments ?? []
-        let firstStart = segments.first?.timestamp ?? 0
-        let lastEnd = segments.last.map { $0.timestamp + $0.duration } ?? 0
-        let final = result?.isFinal ?? false
-        let message = error.map { "\($0)" }
-        Task { @MainActor in
-          guard self.listening else { return }
-          if let text {
-            let was = self.join.current
-            let wasEnd = self.join.currentEnd
-            if self.join.update(text: text, firstStart: firstStart, lastEnd: lastEnd) {
-              self.logger(
-                "dictation_pause",
-                ["kept_chars": .int(was.count), "new_chars": .int(text.count), "prev_end_s": .double(wasEnd),
-                 "new_start_s": .double(firstStart)])
-            }
-            self.onText?(self.join.note)
-          }
-          if let message, !final {
-            self.logger("dictation_error", ["error": .string(message)])
-            self.stop(why: "error")
-          } else if final {
-            self.stop(why: "final")
-          }
+    /// Stop capturing and wait for the provider's final words. Concurrent callers share one finish operation.
+    /// Returns false after a failure or cancellation; a save should then leave the dialog open for retry.
+    @discardableResult
+    public func finish(why: String) async -> Bool {
+      if let finishTask { return await finishTask.value }
+      guard !starting else { stop(why: why); return false }
+      guard let backend = provider else { return !processing }
+      let generation = owner
+      listening = false; processing = true
+      capture.stop(); capture.restore()
+      let sender = audioTask, results = resultTask
+      let work = Task { [weak self] () -> Bool in
+        do {
+          await sender?.value
+          try Task.checkCancellation()
+          try await backend.finish()
+          await results?.value
+          guard let self, self.owner == generation, !Task.isCancelled else { return false }
+          self.complete(why: why)
+          return true
+        } catch {
+          guard let self, self.owner == generation, !Task.isCancelled else { return false }
+          self.fail("Speech recognition could not finish. Your note is still here.", ["where": "finish"])
+          self.stop(why: "error")
+          return false
         }
       }
+      finishTask = work
+      let timeout = Task { [weak self] in
+        try? await Task.sleep(for: .seconds(10))
+        guard let self, !Task.isCancelled, self.owner == generation, self.processing else { return }
+        self.fail("Speech recognition took too long. Your note is still here.", ["where": "finish_timeout"])
+        self.stop(why: "timeout")
+      }
+      let success = await work.value
+      timeout.cancel()
+      if owner == generation { finishTask = nil }
+      return success
     }
 
-    /// Stops listening: a second tap, Log it, the dialog closing, the end of speech or an error.
+    /// Cancel/close stops immediately, invalidates permission/network callbacks, and preserves the current note.
     public func stop(why: String) {
-      guard listening else { return }
-      listening = false
-      engine.stop()
-      engine.inputNode.removeTap(onBus: 0)
-      request?.endAudio()
-      task?.finish()
-      request = nil
-      task = nil
-      onText = nil
-      restoreSession()
+      let wasBusy = busy
+      owner = UUID()
+      startTask?.cancel(); startTask = nil
+      audioTask?.cancel(); audioTask = nil
+      resultTask?.cancel(); resultTask = nil
+      finishTask?.cancel(); finishTask = nil
+      capture.stop(); capture.restore()
+      let backend = provider; provider = nil
+      Task { await backend?.cancel() }
+      listening = false; starting = false; processing = false; refreshingMicrophones = false; onText = nil
+      if wasBusy { logger("dictation_stop", ["why": .string(why)]) }
+    }
+
+    private func complete(why: String) {
+      provider = nil; audioTask = nil; resultTask = nil; onText = nil
+      listening = false; starting = false; processing = false
       logger("dictation_stop", ["why": .string(why)])
     }
 
-    private func restoreSession() {
-      guard let saved else { return }
-      self.saved = nil
-      let session = AVAudioSession.sharedInstance()
-      do {
-        try session.setCategory(saved.category, mode: saved.mode, options: saved.options)
-        // Nothing of the app's was sounding before: let go, so other apps resume.
-        if saved.category == .ambient || saved.category == .soloAmbient {
-          try session.setActive(false, options: .notifyOthersOnDeactivation)
-        }
-      } catch {
-        logger("error", ["where": "dictation_restore", "message": .string("\(error)")])
-      }
+    private func fail(_ message: String, _ fields: [String: JSONValue]) {
+      problem = message; problemState = fields
+      logger("dictation_error", fields.merging(["message": .string(message)]) { first, _ in first })
     }
+  }
 
-    private func fail(_ message: String, _ extra: [String: JSONValue]) {
-      problem = message
-      problemState = extra
-      logger("dictation_error", extra.merging(["message": .string(message)]) { a, _ in a })
+  struct DictationPermissions {
+    var speech: @MainActor () async -> Bool
+    var microphone: @MainActor () async -> Bool
+    static let system = Self(
+      speech: { await withCheckedContinuation { continuation in
+        SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+      } },
+      microphone: { await withCheckedContinuation { continuation in
+        AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
+      } })
+  }
+
+  private enum DictationPermissionError: Error, LocalizedError {
+    case speech, microphone, microphoneBusy
+    var errorDescription: String? {
+      switch self {
+      case .speech: "Speech recognition is off for this app (Settings)"
+      case .microphone: "The microphone is off for this app (Settings)"
+      case .microphoneBusy: "The microphone is in use by this app"
+      }
     }
   }
 #endif
