@@ -21,7 +21,6 @@ settings:
     CURRENT_PROJECT_VERSION: '1'
     BUGKIT_READER_BUNDLE_ID: com.example.BugKitCloudReader
     BUGKIT_CLOUD_CONTAINER: iCloud.com.example.BugKitReports
-    BUGKIT_CLOUD_ENVIRONMENT: Development
 targets:
   BugKitCloudReader:
     type: application

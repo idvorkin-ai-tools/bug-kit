@@ -279,11 +279,13 @@ UDIDs, emails or account identifiers.
 
 ### Each app's agent
 
-1. **Pin BugKit 0.3.0 exactly**, so every app and the Mac reader use the same sender/receiver format:
+1. **Pin BugKit 0.3.1 exactly for new adoption and the Mac fixes**. Existing apps on 0.3.0 can stay there:
+   their CloudKit report format remains compatible with the updated reader. lcd-timer and Magic Monitor's
+   Mac side need 0.3.1 for the Mac storage, CLT and listener fixes.
    - Xcode: **File › Add Package Dependencies** → `https://github.com/idvorkin/bug-kit` → **Dependency Rule:
-     Exact Version** → `0.3.0`. For an existing dependency, use the project's **Package Dependencies** tab.
-   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.0 } }`.
-   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.0")`.
+     Exact Version** → `0.3.1`. For an existing dependency, use the project's **Package Dependencies** tab.
+   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.1 } }`.
+   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.1")`.
 2. Add **Signing & Capabilities → + Capability → iCloud**, check **CloudKit**, and select the shared container
    from the local config alongside any existing iCloud Documents containers. All sending apps and the Mac reader
    must have this same container authorized in their provisioning profiles. Do not reuse a Documents container
@@ -318,8 +320,10 @@ them identical when editing either.
 
 The relevant entitlements are `com.apple.developer.icloud-services = ["CloudKit"]` and
 `com.apple.developer.icloud-container-identifiers = ["iCloud.com.example.BugKitReports"]`; Xcode/provisioning
-also supplies the container environment. Do not copy a signature's generated team-prefixed entitlements into
-source control. The app owns the opt-in preference: construct/pass delivery only when enabled. `stop()` stops
+also supplies the container environment for iOS/watchOS apps. Enable the iCloud capability and select the
+authorized container; do not manually add the Mac distribution reader's environment entitlement to their
+entitlements files. Do not copy a signature's generated team-prefixed entitlements into source control.
+The app owns the opt-in preference: construct/pass delivery only when enabled. `stop()` stops
 app-level retry timers; an already submitted CloudKit daemon operation may still finish.
 
 **Only reports saved after opt-in are delivered.** The first `start()` or `enqueue` records the IDs already in
@@ -355,6 +359,12 @@ A bare command-line tool cannot carry the profile required for CloudKit's restri
 reader is a tiny headless `BugKitCloudReader.app`, built from `Tools/CloudKitReader` by XcodeGen/Xcode, with
 `Contents/embedded.provisionprofile`. Its executable can be invoked directly by the listener; it checks its
 bundle, signature, embedded profile, container entitlement and configured environment before touching CloudKit.
+The supplied build recipe signs with **Apple Development** and omits
+`com.apple.developer.icloud-container-environment`: Mac Team Development profiles do not grant that key.
+Preflight accepts its absence only when the configured environment is Development; explicit environment
+mismatches are rejected. Production requires a separately provisioned distribution reader with an explicit
+Production entitlement (for example, Developer ID signing). The Development build script rejects a
+Production configuration instead of installing a reader that cannot pass this check.
 Apple documents this
 [app wrapper requirement](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
 
@@ -370,6 +380,13 @@ Keep signing/runtime values in **`~/.config/bug-kit/cloudkit.json`** (mode 600),
   "inbox": "~/tmp/agent/bugs/cloudkit"
 }
 ```
+
+**The generated Xcode project shows `com.example` placeholders unless locally overridden.** The build script
+passes the real values from this JSON through ignored `DerivedData/CloudKitReader/signing.xcconfig` to its
+command-line build; opening the generated project in Xcode does not apply that override. Before using
+**Signing & Capabilities** in the GUI, set the generated project's bundle ID and container to the actual
+`bundle` and `container` from the local config. Do not register the example app IDs or containers, or use
+**Fix Issue** while placeholders are selected. Keep these GUI overrides local; regeneration replaces them.
 
 Building is heavy work: only one build or simulator runs on this Mac at a time. Wait for an explicit build turn,
 then run a standalone build under the shared build lock:
@@ -387,6 +404,10 @@ the nested `lockf` would wait for itself. The signed build additionally takes
 workers, verifies the signature/profile and installs to the local config's `app` path. Generated signing
 settings and raw logs are ignored under `DerivedData/`; they can contain private identifiers. Do not commit
 or publish those logs.
+
+Run signing builds outside the agent sandbox so Xcode can access its existing account session; the build
+uses both `-allowProvisioningUpdates` and `-allowProvisioningDeviceRegistration` under the signing lock.
+`No Accounts` from a sandboxed process does not establish that Igor must add an Xcode account.
 
 Add to **`~/.config/bug-kit/apps.json`**, retaining its existing app/tracker entries:
 
@@ -414,12 +435,19 @@ lost seen-store write. An inbox-write failure retries that handoff without creat
 CloudKit downloads file immediately, because the sender uploads only post-opt-in reports; the device lane
 keeps its existing first-contact baseline.
 
+Before the first Development upload creates `BugKitReport`, CloudKit can answer the initial record-type
+query with `unknownItem` (code 11). The reader treats that initial query as an empty successful sync:
+`cloudkit_sync` has `ok: true` and `downloaded: 0`, and later polls still query for newly uploaded reports.
+Missing assets, pagination failures, authorization/network failures and missing query indexes still fail
+the sync. An empty success is bootstrap health, not evidence that a saved report reached the Mac.
+
 ### Igor's setup and real acceptance check
 
-Automatic provisioning cannot finish without these steps by Igor:
+Before the live check, confirm these setup steps with Igor:
 
-1. **Xcode → Settings… → Accounts → + → Apple ID**, sign in with the developer account and confirm the team
-   appears. Then, in each adopting app's target and in the generated `BugKitCloudReader` project, open
+1. **Xcode → Settings… → Accounts**, confirm the existing developer account and team are available. Add or
+   refresh the account only if needed; run the signing build outside the sandbox first. Then, in each
+   adopting app's target and in the generated `BugKitCloudReader` project, open
    **Signing & Capabilities**, select that team, and under **iCloud** check **CloudKit** and the container named
    in `~/.config/bug-kit/cloudkit.json` (use **+** under Containers to create it once if it does not exist).
 2. In the [developer portal](https://developer.apple.com/account/resources/identifiers/list): **Certificates,
@@ -428,7 +456,9 @@ Automatic provisioning cannot finish without these steps by Igor:
 3. Install a build of each app that saves one report in Development, so the `BugKitReport` record type exists.
    In [CloudKit Console](https://icloud.developer.apple.com/) select the container → **Schema → Indexes →
    BugKitReport → Add Basic Index → `recordName`, Queryable → Save**. Before using TestFlight/App Store builds,
-   **Deploy Schema Changes…** to Production and set `"environment": "Production"` in the local config.
+   **Deploy Schema Changes…** to Production and use a distribution-signed Mac reader with an explicit
+   Production environment entitlement before setting `"environment": "Production"` in the local config.
+   The supplied Apple Development build recipe handles Development only.
 4. Sign the phone/watch and Mac into the same iCloud user account, and allow
    cellular data for each app under **Settings → Cellular**.
 5. Run the signed reader build above, then `listener/bug-listener doctor --json`; `cloudkit_signing` must be ok.
