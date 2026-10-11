@@ -78,13 +78,16 @@ import Testing
 
 @MainActor
 @Test func dictationHostRecordingSkipsMicrophoneDiscovery() async throws {
-  let fixture = try DictationFixture()
+  let host = HostRecording()
+  host.busy = true
+  let fixture = try DictationFixture(hostMicrophoneBusy: { host.busy })
   defer { fixture.cleanup() }
-  await fixture.dictation.refreshMicrophones(requestPermission: false, hostMicrophoneBusy: { true })
-  await fixture.dictation.refreshMicrophones(hostMicrophoneBusy: { true })
+  await fixture.dictation.refreshMicrophones(requestPermission: false)
+  await fixture.dictation.refreshMicrophones()
   #expect(fixture.capture.lists == 0)
   #expect(fixture.permissions.microphone == 0)
   #expect(fixture.dictation.microphones.isEmpty)
+  host.busy = false
   await fixture.dictation.refreshMicrophones(requestPermission: false)
   #expect(fixture.capture.lists == 1)
 }
@@ -92,10 +95,10 @@ import Testing
 @MainActor
 @Test func dictationHostRecordingStartedDuringPermissionPromptSkipsDiscovery() async throws {
   let gate = MicrophonePermissionGate()
-  let fixture = try DictationFixture(microphone: { await gate.wait() })
-  defer { fixture.cleanup() }
   let host = HostRecording()
-  let refresh = Task { await fixture.dictation.refreshMicrophones(hostMicrophoneBusy: { host.busy }) }
+  let fixture = try DictationFixture(microphone: { await gate.wait() }, hostMicrophoneBusy: { host.busy })
+  defer { fixture.cleanup() }
+  let refresh = Task { await fixture.dictation.refreshMicrophones() }
   try await fixture.until { gate.waiting }
   host.busy = true
   gate.release()

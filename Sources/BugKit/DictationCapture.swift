@@ -96,10 +96,10 @@ final class AVDictationCapture: DictationCapture {
       let inputs = (session.availableInputs ?? []).map {
         BugMicrophone(id: $0.uid, name: $0.portName, kind: $0.portType.rawValue)
       }
-      try before.restore(session, deactivate: true)
+      try before.restore(session, deactivate: false)
       return inputs
     } catch {
-      try? before.restore(session, deactivate: true)
+      try? before.restore(session, deactivate: false)
       throw error
     }
   }

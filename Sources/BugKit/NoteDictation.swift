@@ -72,7 +72,6 @@ public struct DictationJoin: Equatable, Sendable {
     @Published public private(set) var problemState: [String: JSONValue] = [:]
     @Published public private(set) var microphones: [BugMicrophone] = []
     @Published public private(set) var selectedMicrophoneID: String?
-    @Published public private(set) var providerName = "Apple Speech"
 
     public var busy: Bool { starting || listening || processing || refreshingMicrophones }
     public var selectedMicrophoneName: String {
@@ -120,9 +119,8 @@ public struct DictationJoin: Equatable, Sendable {
     /// Refreshes iOS inputs without recording. Category/mode/options/preferred input are restored afterward.
     /// Skipped while the host records, because listing inputs reconfigures the shared audio session.
     /// `hostMicrophoneBusy` is checked live: again after the permission prompt, right before listing.
-    public func refreshMicrophones(requestPermission: Bool = true,
-                                   hostMicrophoneBusy: @MainActor () -> Bool = { false }) async {
-      guard !busy, !self.hostMicrophoneBusy(), !hostMicrophoneBusy(),
+    public func refreshMicrophones(requestPermission: Bool = true) async {
+      guard !busy, !hostMicrophoneBusy(),
             requestPermission || permissions.hasMicrophonePermission() else { return }
       let generation = owner
       refreshingMicrophones = true
@@ -131,7 +129,7 @@ public struct DictationJoin: Equatable, Sendable {
       guard owner == generation, !Task.isCancelled else { return }
       refreshingMicrophones = false
       guard granted else { fail("The microphone is off for this app (Settings)", ["mic": "denied"]); return }
-      guard !self.hostMicrophoneBusy(), !hostMicrophoneBusy() else { return }
+      guard !hostMicrophoneBusy() else { return }
       do {
         microphones = try capture.availableMicrophones()
         if let selectedMicrophoneID, !microphones.contains(where: { $0.id == selectedMicrophoneID }) {
@@ -159,7 +157,7 @@ public struct DictationJoin: Equatable, Sendable {
       let generation = owner
       typed = note; self.onText = onText
       let backend = factory()
-      provider = backend; providerName = backend.name
+      provider = backend
       starting = true
       startTask = Task { [weak self] in
         guard let self else { return }
