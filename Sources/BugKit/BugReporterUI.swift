@@ -416,7 +416,10 @@
         }
         .onAppear {
           noteFocused = true
-          if reporter.options.dictation { Task { await dictation.refreshMicrophones(requestPermission: false) } }
+          if reporter.options.dictation {
+            let hostBusy = reporter.hooks.microphoneBusy()
+            Task { await dictation.refreshMicrophones(requestPermission: false, hostMicrophoneBusy: hostBusy) }
+          }
         }
         .onDisappear { dictation.stop(why: "closed") }  // a swipe down
       }
@@ -451,7 +454,9 @@
             else { Text(microphone.name) }
           }
         }
-        Button("Refresh microphones") { Task { await dictation.refreshMicrophones() } }
+        Button("Refresh microphones") {
+          Task { await dictation.refreshMicrophones(hostMicrophoneBusy: reporter.hooks.microphoneBusy()) }
+        }
       } label: {
         LabeledContent("Microphone", value: dictation.selectedMicrophoneName)
       }

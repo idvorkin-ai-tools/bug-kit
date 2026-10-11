@@ -36,7 +36,6 @@ final class AppleDictationProvider: BugDictationProvider {
       let first = segments.first?.timestamp ?? 0
       let end = segments.last.map { $0.timestamp + $0.duration } ?? 0
       let final = result?.isFinal ?? false
-      let failed = error != nil
       Task { @MainActor in
         guard let self, self.owner == generation else { return }
         if let text {
@@ -47,8 +46,9 @@ final class AppleDictationProvider: BugDictationProvider {
           }
           self.continuation?.yield(self.join.note)
         }
-        if final { self.continuation?.finish(); self.continuation = nil }
-        else if failed {
+        if final || Self.endsQuietly(error, finishing: self.finishing) {
+          self.continuation?.finish(); self.continuation = nil
+        } else if error != nil {
           self.continuation?.finish(throwing: DictationProviderError.invalidResponse); self.continuation = nil
         }
       }
@@ -78,6 +78,12 @@ final class AppleDictationProvider: BugDictationProvider {
     let timedOut = continuation != nil
     await cancel()
     if timedOut { throw DictationProviderError.finishTimedOut }
+  }
+
+  /// After Stop/Log it, "no speech detected" or a request ended with the audio is a normal end; the note is kept.
+  nonisolated static func endsQuietly(_ error: Error?, finishing: Bool) -> Bool {
+    guard finishing, let error = error as NSError?, error.domain == "kAFAssistantErrorDomain" else { return false }
+    return [1110, 301].contains(error.code)
   }
 
   func cancel() async {

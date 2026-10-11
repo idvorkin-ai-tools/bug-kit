@@ -73,20 +73,18 @@ protocol DictationSocket: Sendable {
   func close() async
 }
 
-private final class URLSessionDictationSocket: DictationSocket, @unchecked Sendable {
+final class URLSessionDictationSocket: DictationSocket, @unchecked Sendable {
   private let session: URLSession
   private let task: URLSessionWebSocketTask
+  var handshake: URLRequest? { task.originalRequest }
   init(url: URL, credential: DeepgramDictationCredential) {
     let config = URLSessionConfiguration.ephemeral
     config.timeoutIntervalForRequest = 15
     session = URLSession(configuration: config)
-    // This also works on iOS versions that lose custom Authorization headers in the WebSocket handshake.
+    // Deepgram reads credentials from the subprotocol; iOS may drop a custom Authorization header in the handshake.
     switch credential {
     case .apiKey(let key): task = session.webSocketTask(with: url, protocols: ["token", key])
-    case .accessToken(let token):
-      var request = URLRequest(url: url)
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-      task = session.webSocketTask(with: request)
+    case .accessToken(let token): task = session.webSocketTask(with: url, protocols: ["bearer", token])
     }
     task.maximumMessageSize = 1_048_576
   }
@@ -132,9 +130,10 @@ public actor DeepgramDictationProvider: BugDictationProvider {
     self.socketFactory = { URLSessionDictationSocket(url: $0, credential: $1) }
   }
 
-  init(credential: @escaping @Sendable () async throws -> DeepgramDictationCredential, socket: any DictationSocket) {
+  init(credential: @escaping @Sendable () async throws -> DeepgramDictationCredential,
+       socketFactory: @escaping @Sendable (URL, DeepgramDictationCredential) -> any DictationSocket) {
     self.credential = credential; self.endpoint = URL(string: "wss://api.deepgram.com/v1/listen")!
-    self.model = "nova-3"; self.language = "en"; self.socketFactory = { _, _ in socket }
+    self.model = "nova-3"; self.language = "en"; self.socketFactory = socketFactory
   }
 
   public func start() async throws -> AsyncThrowingStream<String, Error> {

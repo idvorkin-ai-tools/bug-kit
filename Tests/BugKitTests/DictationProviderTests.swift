@@ -15,7 +15,7 @@ import Testing
 
 @Test func deepgramStreamsAudioAndDrainsFinalWords() async throws {
   let socket = DictationTestSocket()
-  let provider = DeepgramDictationProvider(credential: { .apiKey("test-only") }, socket: socket)
+  let provider = DeepgramDictationProvider(credential: { .apiKey("test-only") }, socketFactory: { _, _ in socket })
   let stream = try await provider.start()
   let words = Task { () throws -> [String] in
     var all: [String] = []
@@ -37,7 +37,7 @@ import Testing
 
 @Test func deepgramCancelEndsResultsAndReleasesSocket() async throws {
   let socket = DictationTestSocket()
-  let provider = DeepgramDictationProvider(credential: { .accessToken("test-token") }, socket: socket)
+  let provider = DeepgramDictationProvider(credential: { .accessToken("test-token") }, socketFactory: { _, _ in socket })
   let stream = try await provider.start()
   let completion = Task { for try await _ in stream {} }
   await provider.cancel()
@@ -47,7 +47,7 @@ import Testing
 
 @Test func deepgramMissingCredentialFailsBeforeOpeningSocket() async {
   let socket = DictationTestSocket()
-  let provider = DeepgramDictationProvider(credential: { .apiKey("  ") }, socket: socket)
+  let provider = DeepgramDictationProvider(credential: { .apiKey("  ") }, socketFactory: { _, _ in socket })
   do { _ = try await provider.start(); Issue.record("missing credential started a socket") }
   catch { #expect(error as? DictationProviderError == .missingCredential) }
   #expect(await socket.opens == 0)
@@ -56,7 +56,7 @@ import Testing
 @Test func deepgramCancelDuringCredentialFetchCannotStartLate() async throws {
   let gate = DictationCredentialGate()
   let socket = DictationTestSocket()
-  let provider = DeepgramDictationProvider(credential: { await gate.wait() }, socket: socket)
+  let provider = DeepgramDictationProvider(credential: { await gate.wait() }, socketFactory: { _, _ in socket })
   let start = Task { try await provider.start() }
   for _ in 0..<1_000 {
     if await gate.waiting { break }
@@ -72,13 +72,37 @@ import Testing
 
 @Test func deepgramUnreadableResponseFailsTheResultStream() async throws {
   let socket = DictationTestSocket()
-  let provider = DeepgramDictationProvider(credential: { .apiKey("test-only") }, socket: socket)
+  let provider = DeepgramDictationProvider(credential: { .apiKey("test-only") }, socketFactory: { _, _ in socket })
   let stream = try await provider.start()
   await socket.push(.string("not json"))
   do { for try await _ in stream {}; Issue.record("unreadable response was accepted") }
   catch { #expect(error is DecodingError) }
   await provider.cancel()
 }
+
+@Test func deepgramHandshakeCarriesCredentialsOnlyInTheSubprotocol() async throws {
+  for (credential, scheme) in [(DeepgramDictationCredential.apiKey("test-key"), "token"),
+                               (.accessToken("test-token"), "bearer")] {
+    let opened = DictationOpenedSocket()
+    let provider = DeepgramDictationProvider(credential: { credential }, socketFactory: { url, credential in
+      let socket = URLSessionDictationSocket(url: url, credential: credential)
+      opened.socket = socket
+      return DictationTestSocket()
+    })
+    _ = try await provider.start()
+    await provider.cancel()
+    let socket = try #require(opened.socket)
+    let request = try #require(socket.handshake)
+    let url = try #require(request.url?.absoluteString)
+    #expect(request.value(forHTTPHeaderField: "Sec-WebSocket-Protocol") == "\(scheme), \(credential.value)")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == nil)
+    #expect(!url.contains(credential.value))
+    #expect(url.contains("encoding=linear16"))
+    await socket.close()
+  }
+}
+
+private final class DictationOpenedSocket: @unchecked Sendable { var socket: URLSessionDictationSocket? }
 
 private func result(start: Double, text: String, final: Bool) -> URLSessionWebSocketTask.Message {
   let body: [String: Any] = ["type": "Results", "start": start, "is_final": final,
