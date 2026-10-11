@@ -16,7 +16,7 @@ import Security
     guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
           let values = info as? [String: Any],
           let entitlements = values[kSecCodeInfoEntitlementsDict as String] as? [String: Any] else { return false }
-    if let environment, entitlements["com.apple.developer.icloud-container-environment"] as? String != environment { return false }
+    guard cloudKitEnvironmentMatches(entitlements, expected: environment) else { return false }
     return (entitlements["com.apple.developer.icloud-services"] as? [String])?.contains("CloudKit") == true
       && (entitlements["com.apple.developer.icloud-container-identifiers"] as? [String])?.contains(identifier) == true
   }

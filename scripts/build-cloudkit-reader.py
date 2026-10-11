@@ -29,15 +29,16 @@ def main():
                 parser.error(f'local config needs a valid {key}')
         if not isinstance(config.get('app'), str) or not Path(config['app']).expanduser().is_absolute() or not config['app'].endswith('.app'):
             parser.error('app must be an absolute .app destination path (leading ~ is accepted)')
-        if config.get('environment') not in ('Development', 'Production'):
-            parser.error('environment must be Development or Production')
+        if config.get('environment') != 'Development':
+            parser.error('this build uses Apple Development signing; environment must be Development. '
+                         'Production requires a separately provisioned distribution reader')
         derived.mkdir(parents=True, exist_ok=True)
         local = derived / 'signing.xcconfig'
         local.write_text('\n'.join(f'{setting} = {config[key]}' for key, setting in [
             ('team', 'BUGKIT_SIGNING_TEAM'), ('bundle', 'BUGKIT_READER_BUNDLE_ID'),
-            ('container', 'BUGKIT_CLOUD_CONTAINER'), ('environment', 'BUGKIT_CLOUD_ENVIRONMENT')]) + '\n')
+            ('container', 'BUGKIT_CLOUD_CONTAINER')]) + '\n')
         local.chmod(0o600)
-        command += ['-xcconfig', str(local), '-allowProvisioningUpdates']
+        command += ['-xcconfig', str(local), '-allowProvisioningUpdates', '-allowProvisioningDeviceRegistration']
         lock = Path.home() / 'tmp/agent/locks/xcode-signing.lock'
         lock.parent.mkdir(parents=True, exist_ok=True)
         command = ['lockf', '-k', '-t', '900', str(lock)] + command

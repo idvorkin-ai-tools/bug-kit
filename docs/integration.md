@@ -355,6 +355,12 @@ A bare command-line tool cannot carry the profile required for CloudKit's restri
 reader is a tiny headless `BugKitCloudReader.app`, built from `Tools/CloudKitReader` by XcodeGen/Xcode, with
 `Contents/embedded.provisionprofile`. Its executable can be invoked directly by the listener; it checks its
 bundle, signature, embedded profile, container entitlement and configured environment before touching CloudKit.
+The supplied build recipe signs with **Apple Development** and omits
+`com.apple.developer.icloud-container-environment`: Mac Team Development profiles do not grant that key.
+Preflight accepts its absence only when the configured environment is Development; explicit environment
+mismatches are rejected. Production requires a separately provisioned distribution reader with an explicit
+Production entitlement (for example, Developer ID signing). The Development build script rejects a
+Production configuration instead of installing a reader that cannot pass this check.
 Apple documents this
 [app wrapper requirement](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
 
@@ -388,6 +394,10 @@ workers, verifies the signature/profile and installs to the local config's `app`
 settings and raw logs are ignored under `DerivedData/`; they can contain private identifiers. Do not commit
 or publish those logs.
 
+Run signing builds outside the agent sandbox so Xcode can access its existing account session; the build
+uses both `-allowProvisioningUpdates` and `-allowProvisioningDeviceRegistration` under the signing lock.
+`No Accounts` from a sandboxed process does not establish that Igor must add an Xcode account.
+
 Add to **`~/.config/bug-kit/apps.json`**, retaining its existing app/tracker entries:
 
 ```json
@@ -416,10 +426,11 @@ keeps its existing first-contact baseline.
 
 ### Igor's setup and real acceptance check
 
-Automatic provisioning cannot finish without these steps by Igor:
+Before the live check, confirm these setup steps with Igor:
 
-1. **Xcode → Settings… → Accounts → + → Apple ID**, sign in with the developer account and confirm the team
-   appears. Then, in each adopting app's target and in the generated `BugKitCloudReader` project, open
+1. **Xcode → Settings… → Accounts**, confirm the existing developer account and team are available. Add or
+   refresh the account only if needed; run the signing build outside the sandbox first. Then, in each
+   adopting app's target and in the generated `BugKitCloudReader` project, open
    **Signing & Capabilities**, select that team, and under **iCloud** check **CloudKit** and the container named
    in `~/.config/bug-kit/cloudkit.json` (use **+** under Containers to create it once if it does not exist).
 2. In the [developer portal](https://developer.apple.com/account/resources/identifiers/list): **Certificates,
@@ -428,7 +439,9 @@ Automatic provisioning cannot finish without these steps by Igor:
 3. Install a build of each app that saves one report in Development, so the `BugKitReport` record type exists.
    In [CloudKit Console](https://icloud.developer.apple.com/) select the container → **Schema → Indexes →
    BugKitReport → Add Basic Index → `recordName`, Queryable → Save**. Before using TestFlight/App Store builds,
-   **Deploy Schema Changes…** to Production and set `"environment": "Production"` in the local config.
+   **Deploy Schema Changes…** to Production and use a distribution-signed Mac reader with an explicit
+   Production environment entitlement before setting `"environment": "Production"` in the local config.
+   The supplied Apple Development build recipe handles Development only.
 4. Sign the phone/watch and Mac into the same iCloud user account, and allow
    cellular data for each app under **Settings → Cellular**.
 5. Run the signed reader build above, then `listener/bug-listener doctor --json`; `cloudkit_signing` must be ok.
