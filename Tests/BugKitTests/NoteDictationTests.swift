@@ -122,6 +122,25 @@ import Testing
 }
 
 @MainActor
+@Test func dictationSavedMicrophoneIsShownBeforeExplicitRefresh() async throws {
+  let fixture = try DictationFixture()
+  defer { fixture.cleanup() }
+  await fixture.dictation.refreshMicrophones()
+  fixture.dictation.selectMicrophone("usb")
+  let reopened = NoteDictation(logger: { _, _ in }, providerFactory: { [provider = fixture.provider] in provider },
+    capture: fixture.capture,
+    permissions: DictationPermissions(speech: { true }, microphone: { true }, hasMicrophonePermission: { true }),
+    defaults: fixture.defaults)
+  defer { reopened.stop(why: "test_closed") }
+  #expect(reopened.selectedMicrophoneID == "usb")
+  #expect(reopened.selectedMicrophoneName == "Saved microphone")
+  #expect(reopened.microphones.isEmpty)
+  #expect(fixture.capture.lists == 1)
+  await reopened.refreshMicrophones()
+  #expect(reopened.selectedMicrophoneName == "USB Microphone")
+}
+
+@MainActor
 @Test func dictationBusyHostSkipsPermissionsAndProviderStart() async throws {
   let fixture = try DictationFixture(hostMicrophoneBusy: { true })
   defer { fixture.cleanup() }

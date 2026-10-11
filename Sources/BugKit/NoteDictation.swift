@@ -75,7 +75,8 @@ public struct DictationJoin: Equatable, Sendable {
 
     public var busy: Bool { starting || listening || processing || refreshingMicrophones }
     public var selectedMicrophoneName: String {
-      microphones.first { $0.id == selectedMicrophoneID }?.name ?? "Automatic"
+      microphones.first { $0.id == selectedMicrophoneID }?.name
+        ?? (selectedMicrophoneID == nil ? "Automatic" : "Saved microphone")
     }
     private static let microphoneKey = "bugkit.dictation_microphone"
     private let logger: BugLogger

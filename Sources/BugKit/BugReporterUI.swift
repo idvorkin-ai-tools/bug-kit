@@ -417,9 +417,6 @@
         }
         .onAppear {
           noteFocused = true
-          if reporter.options.dictation {
-            Task { await dictation.refreshMicrophones(requestPermission: false) }
-          }
         }
         .onDisappear { dictation.stop(why: "closed") }  // a swipe down
       }

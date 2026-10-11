@@ -49,6 +49,20 @@ final class AVDictationCapture: DictationCapture {
         try session.setActive(false, options: .notifyOthersOnDeactivation)
       }
     }
+
+    func restoreAfterDiscovery(_ session: AVAudioSession, activated: Bool) throws {
+      let mixes = category == .ambient || !options.intersection([
+        .mixWithOthers, .duckOthers, .interruptSpokenAudioAndMixWithOthers
+      ]).isEmpty
+      if activated, !mixes {
+        // Release our temporary mixing session before restoring a non-mixing category,
+        // so an inactive host cannot acquire exclusive audio just by listing inputs.
+        // Explicit Refresh may stop a non-mixing host's I/O; do not discard the inputs
+        // when AVAudioSession reports that its I/O was busy during deactivation.
+        try? session.setActive(false, options: .notifyOthersOnDeactivation)
+      }
+      try restore(session, deactivate: false)
+    }
   }
 
   init(logger: @escaping BugLogger) {
@@ -90,16 +104,18 @@ final class AVDictationCapture: DictationCapture {
   func availableMicrophones() throws -> [BugMicrophone] {
     let session = AVAudioSession.sharedInstance()
     let before = SessionState(session)
+    var activated = false
     do {
       try configure(session)
       try session.setActive(true)
+      activated = true
       let inputs = (session.availableInputs ?? []).map {
         BugMicrophone(id: $0.uid, name: $0.portName, kind: $0.portType.rawValue)
       }
-      try before.restore(session, deactivate: false)
+      try before.restoreAfterDiscovery(session, activated: activated)
       return inputs
     } catch {
-      try? before.restore(session, deactivate: false)
+      try? before.restoreAfterDiscovery(session, activated: activated)
       throw error
     }
   }
