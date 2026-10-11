@@ -4,11 +4,11 @@ import Testing
 
 @Test func whatsNewResetHookIsExplicitAndPrefixScoped() {
   #expect(BugLaunchHooks.parse(["APP_WHATS_NEW_RESET": "1"], prefix: "APP").whatsNewReset)
-  #expect(!BugLaunchHooks.parse(["APP_WHATS_NEW_RESET": "1"], prefix: "APP").isEmpty)
+  #expect(BugLaunchHooks.parse(["APP_WHATS_NEW_RESET": "1"], prefix: "APP").isEmpty)
   for value in ["0", "true", "", "yes"] {
     #expect(!BugLaunchHooks.parse(["APP_WHATS_NEW_RESET": value], prefix: "APP").whatsNewReset)
   }
-  #expect(BugLaunchHooks.parse(["OTHER_WHATS_NEW_RESET": "1"], prefix: "APP").isEmpty)
+  #expect(!BugLaunchHooks.parse(["OTHER_WHATS_NEW_RESET": "1"], prefix: "APP").whatsNewReset)
 }
 
 @Test func whatsNewResetRunsBeforeFirstReadAndPreservesOtherDefaults() throws {
@@ -17,10 +17,17 @@ import Testing
   defer { defaults.removePersistentDomain(forName: name) }
   defaults.set("old", forKey: WhatsNewSeen.defaultKey)
   defaults.set("keep", forKey: "unrelated")
-  let unchanged = WhatsNewSeen(defaults: defaults, launchHookPrefix: "APP", environment: [:])
+  let events = IncomingEvents()
+  let unchanged = WhatsNewSeen(defaults: defaults, launchHookPrefix: "APP",
+    environment: ["OTHER_WHATS_NEW_RESET": "1"], logger: events.logger)
   #expect(unchanged.newestSeen == "old")
-  let reset = WhatsNewSeen(defaults: defaults, launchHookPrefix: "APP", environment: ["APP_WHATS_NEW_RESET": "1"])
+  #expect(events.all.isEmpty)
+  let reset = WhatsNewSeen(defaults: defaults, launchHookPrefix: "APP", environment: ["APP_WHATS_NEW_RESET": "1"],
+    logger: events.logger)
   #expect(reset.newestSeen == nil)
+  #expect(events.all.count == 1)
+  #expect(events.all.first?.0 == "bug_hook")
+  #expect(events.all.first?.1["whats_new_reset"] == true)
   #expect(defaults.string(forKey: "unrelated") == "keep")
   defaults.set("custom", forKey: "custom")
   WhatsNewSeen(defaults: defaults, key: "custom").reset()

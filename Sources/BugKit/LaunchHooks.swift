@@ -18,7 +18,7 @@ public struct BugLaunchHooks: Equatable, Sendable {
     self.notes = notes; self.shakeAfter = shakeAfter; self.whatsNewReset = whatsNewReset
   }
 
-  public var isEmpty: Bool { notes.isEmpty && shakeAfter == nil && !whatsNewReset }
+  public var isEmpty: Bool { notes.isEmpty && shakeAfter == nil }
 
   public static func parse(_ env: [String: String] = ProcessInfo.processInfo.environment, prefix: String) -> Self {
     var hooks = Self()
