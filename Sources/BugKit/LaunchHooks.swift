@@ -28,12 +28,14 @@ public struct BugLaunchHooks: Equatable, Sendable {
     if let bug = env["\(prefix)_BUG"] {
       hooks.notes = bug.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
-    if let after = env["\(prefix)_SHAKE_AFTER"].flatMap(Double.init), after >= 0 { hooks.shakeAfter = after }
+    hooks.shakeAfter = delay(env["\(prefix)_SHAKE_AFTER"])
     hooks.whatsNewReset = env["\(prefix)_WHATS_NEW_RESET"] == "1"
-    if let after = env["\(prefix)_BUG_AFTER"].flatMap(Double.init), after.isFinite, after >= 0 {
-      hooks.bugAfter = after
-    }
+    if let after = delay(env["\(prefix)_BUG_AFTER"]) { hooks.bugAfter = after }
     return hooks
+  }
+
+  private static func delay(_ value: String?) -> Double? {
+    value.flatMap(Double.init).flatMap { (0...86_400).contains($0) ? $0 : nil }
   }
 }
 
