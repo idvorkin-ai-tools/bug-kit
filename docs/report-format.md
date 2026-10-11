@@ -2,7 +2,9 @@
 
 [Back to BugKit](../README.md).
 
-`Documents/bugs.jsonl` has one line per report, newest last. Keys are sorted, and paths are relative to Documents.
+`bugs.jsonl` under the storage root has one line per report, newest last. Keys are sorted, and paths are relative
+to that root. The default root is app-container `Documents` on iOS/watchOS and app-specific Application Support on
+macOS; see [macOS storage](integration.md#macos-storage-and-command-line-tools).
 
 ```json
 {"app":"Exercise Analyzer","build":"1.0 (42)","bundle":"com.example.app","commit":"ab4f1a5",
