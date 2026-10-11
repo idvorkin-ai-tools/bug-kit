@@ -91,7 +91,7 @@ NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
 - `WhatsNewRow` and `WhatsNewView` also build on macOS. The UIKit reporter remains iOS-only.
 - `RecentSegments.covering(segments, now:, seconds: 90, start:, end:)` picks the recorded segments for `extraFiles`.
 
-For dictation, add `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` to Info.plist before setting `dictation = true`.
+For Apple dictation, add `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` to Info.plist before setting `dictation = true`. A cloud provider that does not require Apple Speech needs only the microphone usage description.
 
 4. **What's new** is a build phase. With XcodeGen:
 
@@ -192,3 +192,33 @@ Apps using `BugReportSheet` get the screenshot ✕ automatically after updating 
 `<PREFIX>_BUG_AFTER=<seconds>` controls when `<PREFIX>_BUG` captures and saves its reports. The default remains 2 seconds. Values must be between 0 and 86400 seconds (one day); invalid, negative, non-finite and larger values fall back to 2. Zero is allowed. Setting the delay alone does not create a report, and it does not change `_SHAKE_AFTER`, which accepts the same range and is ignored outside it. The `bug_hook` event includes `bug_after`.
 
 For EA's cold-launch `bug_again` smoke check, set `SIMCTL_CHILD_SWING_BUG_AFTER=10` alongside `SIMCTL_CHILD_SWING_BUG="first of two|second of two"` when calling `simctl launch`. Tune the delay to that app's cold startup and assert that the clip/load event precedes each report. For XCUITest, set `SWING_BUG_AFTER` in `launchEnvironment`. This is a fixed delay, not a readiness signal, so a slow launch can still exceed it. Other apps substitute their own prefix.
+
+## Voice input providers
+
+Enable `options.dictation = true` for the microphone button and microphone menu. Apple Speech remains the default. Choose a mic before starting; the choice is retained in `bugkit.dictation_microphone`. “Automatic” clears the preference and lets iOS route input. “Refresh microphones” requests mic permission if needed and queries the available ports. Opening a report alone never prompts for mic permission. The library restores the app's category, mode, category options and preferred input after listing or capturing; as before, it deactivates sessions that previously used the ambient categories. Hosts with active recording should return `true` from `microphoneBusy`.
+
+The input is a preference: iOS decides the actual route, and headset selection may also change playback routing. A selected mic that disappears is cleared from the picker on refresh. A route change or interruption during capture stops dictation and preserves the note; select the replacement and start again. Switching inputs during a dictation is intentionally disabled. Actual USB/Bluetooth hardware routing needs verification on a device.
+
+For Deepgram, keep the vendor key in the app's key store, or have your server issue a short-lived access token:
+
+```swift
+var options = BugReporterOptions()
+options.dictation = true
+let hooks = BugReporterHooks(
+  logger: log.logger,
+  dictationProvider: {
+    DeepgramDictationProvider(credential: {
+      .accessToken(try await speechServer.fetchDeepgramToken())
+      // Or: .apiKey(try await keyStore.deepgramKey())
+    })
+  })
+let reporter = BugReporter(hooks: hooks, options: options)
+```
+
+`fetchDeepgramToken` and `keyStore` are your app's code; BugKit does not provide a token server or store keys. Deepgram receives audio when this provider is selected, so the app's voice-input/privacy text should describe that. No vendor credentials or spoken text are written into dictation event logs. The adapter uses [Deepgram's streaming Listen API](https://developers.deepgram.com/reference/speech-to-text/listen-streaming), with Nova-3 by default, configurable model/language, and [API-key or temporary-token authentication](https://developers.deepgram.com/guides/fundamentals/token-based-authentication). It sends `CloseStream` and drains final results before saving.
+
+To use your own server/library, conform an actor or a Sendable type to `BugDictationProvider`, then return a fresh instance from the same hook. `start()` returns an `AsyncThrowingStream<String, Error>`. Each value is the complete spoken text so far, replacing the previous spoken value. BugKit prefixes the text typed before dictation. Audio chunks passed to `appendAudio` are mono signed little-endian PCM16 at 16 kHz. `finish()` must drain final text and close the stream; `cancel()` must promptly unblock stream and network work. The capture queue is bounded; a service that falls behind reports an error rather than dropping words silently.
+
+“Log it” and “Log it and another” wait for the provider's final words. A finish failure keeps the sheet and current note open. Cancel/dismiss invalidates permission, audio and provider callbacks so they cannot write into a later report. The UI shows startup/finish progress and disables duplicate operations.
+
+`voice-keyboard/ios/Host/AudioCapture.swift` and `DeepgramEngine.swift` were the design reference for input selection and streaming segment finalization. Its private `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.

@@ -21,6 +21,9 @@
     public var microphoneBusy: @MainActor () -> Bool
     /// Called before a save that copies the session log, so queued events reach the file (`log.flush()`).
     public var flushLog: @MainActor () -> Void
+    /// A fresh streaming recognizer for each dictation; nil uses Apple Speech.
+    /// The app owns vendor credentials and can supply a server-backed provider.
+    public var dictationProvider: (@MainActor @Sendable () -> any BugDictationProvider)?
 
     public init(
       screen: @escaping @MainActor () -> String = { "" },
@@ -29,10 +32,12 @@
       logger: @escaping BugLogger,
       extraFiles: BugExtraFiles? = nil,
       microphoneBusy: @escaping @MainActor () -> Bool = { false },
-      flushLog: @escaping @MainActor () -> Void = {}
+      flushLog: @escaping @MainActor () -> Void = {},
+      dictationProvider: (@MainActor @Sendable () -> any BugDictationProvider)? = nil
     ) {
       self.screen = screen; self.context = context; self.sessionLog = sessionLog; self.logger = logger
       self.extraFiles = extraFiles; self.microphoneBusy = microphoneBusy; self.flushLog = flushLog
+      self.dictationProvider = dictationProvider
     }
   }
 
@@ -52,6 +57,9 @@
     public let hooks: BugReporterHooks
     public let options: BugReporterOptions
     public let writer: BugReportWriter
+    /// Retained across report sheets; cancellation invalidates old permission and service callbacks.
+    public private(set) lazy var dictation = NoteDictation(
+      logger: hooks.logger, providerFactory: hooks.dictationProvider)
     /// Saves reports the app makes by itself; see `autoReport`.
     public private(set) lazy var auto = BugAutoReporter(writer: writer, options: options.auto)
 
@@ -302,12 +310,12 @@
   /// The dialog: a note (typed or spoken), the screenshot, what is attached, and "Log it" / "Log it and another".
   public struct BugReportSheet: View {
     @ObservedObject var reporter: BugReporter
-    @StateObject private var dictation: NoteDictation
+    @ObservedObject private var dictation: NoteDictation
     @FocusState private var noteFocused: Bool
 
     public init(reporter: BugReporter) {
       self.reporter = reporter
-      _dictation = StateObject(wrappedValue: NoteDictation(logger: reporter.hooks.logger))
+      _dictation = ObservedObject(wrappedValue: reporter.dictation)
     }
 
     public var body: some View {
@@ -325,6 +333,13 @@
             if dictation.listening {
               Text("Listening… tap stop when done").font(.footnote).foregroundStyle(.secondary)
             }
+            if dictation.starting || dictation.processing {
+              HStack {
+                ProgressView()
+                Text(dictation.starting ? "Starting voice input…" : "Finishing voice input…")
+              }.font(.footnote).foregroundStyle(.secondary)
+            }
+            if reporter.options.dictation { microphonePicker }
             if let problem = dictation.problem {
               if reporter.options.copyableErrors {
                 BugProblemView(
@@ -343,7 +358,7 @@
             }
             // Under the note too, so it is above the keyboard (a bottom bar sits behind it; CG story 142).
             Button("Log it and another") { logIt(another: true) }
-              .disabled(!reporter.flow.canLog)
+              .disabled(!reporter.flow.canLog || dictation.starting || dictation.processing)
               .accessibilityIdentifier("report-log-it-and-another")
           }
           Section {
@@ -385,7 +400,7 @@
           }
           ToolbarItem(placement: .confirmationAction) {
             Button("Log it") { logIt(another: false) }
-              .disabled(!reporter.flow.canLog)
+              .disabled(!reporter.flow.canLog || dictation.starting || dictation.processing)
               .keyboardShortcut(reporter.options.dialogKeys ? KeyboardShortcut(.return, modifiers: .command) : nil)
               .accessibilityIdentifier("report-log-it")
           }
@@ -394,12 +409,15 @@
           if reporter.options.dialogKeys {
             Button("Log it and another") { logIt(another: true) }
               .keyboardShortcut(.return, modifiers: [.command, .shift])
-              .disabled(!reporter.flow.canLog)
+              .disabled(!reporter.flow.canLog || dictation.starting || dictation.processing)
               .opacity(0)
               .accessibilityHidden(true)
           }
         }
-        .onAppear { noteFocused = true }
+        .onAppear {
+          noteFocused = true
+          if reporter.options.dictation { Task { await dictation.refreshMicrophones(requestPermission: false) } }
+        }
         .onDisappear { dictation.stop(why: "closed") }  // a swipe down
       }
     }
@@ -415,16 +433,46 @@
           .foregroundStyle(dictation.listening ? Color.red : Color.accentColor)
       }
       .buttonStyle(.borderless)
-      .disabled(busy)
+      .disabled((busy && !dictation.listening) || dictation.starting || dictation.processing)
       .accessibilityLabel(
         dictation.listening ? "Stop dictating" : busy ? "Dictation is off while the microphone is in use" : "Speak the note")
       .accessibilityIdentifier("report-dictate")
     }
 
+    private var microphonePicker: some View {
+      Menu {
+        Button { dictation.selectMicrophone(nil) } label: {
+          if dictation.selectedMicrophoneID == nil { Label("Automatic", systemImage: "checkmark") }
+          else { Text("Automatic") }
+        }
+        ForEach(dictation.microphones) { microphone in
+          Button { dictation.selectMicrophone(microphone.id) } label: {
+            if dictation.selectedMicrophoneID == microphone.id { Label(microphone.name, systemImage: "checkmark") }
+            else { Text(microphone.name) }
+          }
+        }
+        Button("Refresh microphones") { Task { await dictation.refreshMicrophones() } }
+      } label: {
+        LabeledContent("Microphone", value: dictation.selectedMicrophoneName)
+      }
+      .disabled(dictation.busy || reporter.hooks.microphoneBusy())
+      .accessibilityLabel("Microphone: \(dictation.selectedMicrophoneName)")
+      .accessibilityIdentifier("report-microphone-picker")
+    }
+
     private func logIt(another: Bool) {
-      dictation.stop(why: "log_it")
-      reporter.log(another: another)
-      if another { noteFocused = true }
+      if !dictation.busy {
+        reporter.log(another: another)
+        if another { noteFocused = true }
+        return
+      }
+      let draft = reporter.flow.draft
+      Task { @MainActor in
+        guard await dictation.finish(why: "log_it"), reporter.flow.isPresented,
+              reporter.flow.draft == draft else { return }
+        reporter.log(another: another)
+        if another { noteFocused = true }
+      }
     }
   }
 
