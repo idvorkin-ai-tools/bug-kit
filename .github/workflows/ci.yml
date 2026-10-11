@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v9
+      - name: Toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+      - name: Syntax and whitespace
+        run: |
+          set -eu
+          git diff --check
+          for script in scripts/*.sh; do bash -n "$script"; done
+          python3 -m py_compile listener/bug-listener
+          python3 -m compileall -q listener Tests
+      - name: Swift host tests
+        run: swift test
+      - name: Listener and deployment tests
+        run: uv run --python 3.12 --with typer --with pytest pytest listener/ Tests/ -q
+      - name: iOS compilation
+        run: |
+          xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0 \
+            -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" Sources/BugKit/*.swift

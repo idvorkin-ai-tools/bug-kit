@@ -1,0 +1,38 @@
+# Inherit the operator's configured agent. Gate-control settings become active
+# once this file lands on the default branch; do not enable branch overrides.
+commands:
+  lint: |
+    set -eu
+    git diff --check
+    for script in scripts/*.sh; do bash -n "$script"; done
+    python3 -m py_compile listener/bug-listener
+    python3 -m compileall -q listener Tests
+
+# Keep Test focused on the change. The complete regression suite runs in CI.
+test:
+  instructions: |
+    BugKit requires macOS with Xcode and Swift 6+, plus uv for Python tests.
+    Select behavioral tests relevant to the change:
+      swift test --filter <test-name>
+      uv run --python 3.12 --with typer --with pytest pytest listener/ Tests/ -k <case> -q
+    For UIKit or SwiftUI changes, also typecheck Sources/BugKit/*.swift with
+    xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0
+    -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" Sources/BugKit/*.swift
+    For interaction/accessibility behavior, run scripts/test-ios-diagnostics.sh
+    with an available simulator UDID (requires XcodeGen). Report separately what
+    was verified on host, simulator and physical device. Do not file real issues,
+    send notifications or deploy to paired devices as part of tests; listener
+    and deployment tests provide fake tools for those effects.
+
+document:
+  instructions: |
+    README.md owns quick start, per-feature enablement and developer commands.
+    docs/integration.md owns app integration; docs/ops/listener.md owns listener
+    operations; docs/report-format.md owns persisted evidence formats. Update
+    relevant docs when flags, defaults, commands or report fields change.
+
+auto_fix:
+  review: 0
+
+ci:
+  revalidate_repairs: true
