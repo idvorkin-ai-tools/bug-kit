@@ -77,6 +77,31 @@ import Testing
 }
 
 @MainActor
+@Test func dictationHostRecordingSkipsMicrophoneDiscovery() async throws {
+  let fixture = try DictationFixture()
+  defer { fixture.cleanup() }
+  await fixture.dictation.refreshMicrophones(requestPermission: false, hostMicrophoneBusy: true)
+  await fixture.dictation.refreshMicrophones(hostMicrophoneBusy: true)
+  #expect(fixture.capture.lists == 0)
+  #expect(fixture.permissions.microphone == 0)
+  #expect(fixture.dictation.microphones.isEmpty)
+  await fixture.dictation.refreshMicrophones(requestPermission: false)
+  #expect(fixture.capture.lists == 1)
+}
+
+@Test func appleNoSpeechEndsQuietlyOnlyAfterFinish() {
+  let noSpeech = NSError(domain: "kAFAssistantErrorDomain", code: 1110)
+  let ended = NSError(domain: "kAFAssistantErrorDomain", code: 301)
+  let network = NSError(domain: "kAFAssistantErrorDomain", code: 1101)
+  #expect(AppleDictationProvider.endsQuietly(noSpeech, finishing: true))
+  #expect(AppleDictationProvider.endsQuietly(ended, finishing: true))
+  #expect(!AppleDictationProvider.endsQuietly(noSpeech, finishing: false))
+  #expect(!AppleDictationProvider.endsQuietly(network, finishing: true))
+  #expect(!AppleDictationProvider.endsQuietly(NSError(domain: NSURLErrorDomain, code: 1110), finishing: true))
+  #expect(!AppleDictationProvider.endsQuietly(nil, finishing: true))
+}
+
+@MainActor
 private final class DictationFixture {
   let capture = TestDictationCapture()
   let provider = TestNoteProvider()
