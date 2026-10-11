@@ -4,6 +4,7 @@ This folder describes how Exercise Analyzer (EA), Context Grabber's native app (
 
 | Page | What it covers |
 |---|---|
+| [logging.md](logging.md) | The event catalogue, `ui` with `from:`, the logic version in `session_start`, status screens, a companion's events |
 | [pulling-and-filing.md](pulling-and-filing.md) | Getting logs, reports and crashes off the phone and iPad; filing each report once; devicectl quirks |
 | [runners.md](runners.md) | The listener, Monitor versus `/loop`, background builds, the no-mistakes pipeline, one agent at a time |
 | [deploying.md](deploying.md) | Build once, install on the phone, the iPad and the watch; the signing lock; the BUILD SUCCEEDED rule; error 10002 |
