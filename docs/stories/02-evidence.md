@@ -12,7 +12,9 @@ Part of the [BugKit stories](README.md).
   - `reportRoundTripsThroughItsLine`;
   - `lineUsesTheFixedSnakeCaseKeys`, which also checks that a note with a newline stays one line;
   - `reportedAtKeepsMillisecondsAndReadsTheOlderWholeSecondForm`;
-  - `readAllCountsLinesItCannotRead`.
+  - `readAllCountsLinesItCannotRead`;
+  - the `device` model by `DeviceModelTests` (bug-kit#6, from MM): a Mac reads `hw.model`, not "arm64". A device
+    still has not checked it.
 
 #### Use Case:
 - **As the** listener, or an agent filing reports from any app
@@ -25,6 +27,11 @@ Part of the [BugKit stories](README.md).
 - **Then:**
   - its line has `id`, `reported_at` (ms, UTC), `app`, `bundle`, `build`, `commit`, `device`, `screen`, `note`, `log`, `session_t_ms`, `screenshot`, `folder`, `files` and `context`;
   - a raw newline in the note is escaped, so the line is one valid JSON line.
+
+- **Scenario:** The device names its model
+- **Given:** a report is saved on a phone, a Mac or a simulator
+- **Then:** `device` starts with the model: "iPhone18,1" on a phone, "Mac16,12" on a Mac (not the CPU's "arm64"),
+  and the simulated model on a simulator. It never holds the device's own name.
 
 - **Scenario:** An older line
 - **Given:** `bugs.jsonl` also holds an older app's line, or a torn one
