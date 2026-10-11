@@ -7,9 +7,13 @@ import PackageDescription
 let package = Package(
   name: "BugKit",
   platforms: [.iOS(.v17), .macOS(.v14)],
-  products: [.library(name: "BugKit", targets: ["BugKit"])],
+  products: [
+    .library(name: "BugKit", targets: ["BugKit"]),
+    .executable(name: "bug-cloudkit", targets: ["BugCloudKitCLI"]),
+  ],
   targets: [
     .target(name: "BugKit"),
+    .executableTarget(name: "BugCloudKitCLI", dependencies: ["BugKit"]),
     .testTarget(name: "BugKitTests", dependencies: ["BugKit"]),
   ]
 )

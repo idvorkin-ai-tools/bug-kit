@@ -79,13 +79,16 @@ public struct BugReportWriter: Sendable {
   public var copySessionLog = false
   /// Also write the report as pretty `report.json` in its folder (MM story 040), for a folder read on its own.
   public var writeReportJSON = false
+  /// Optional durable cloud delivery. Local saving completes before enqueue, which must not await a network.
+  public var delivery: (any BugReportDelivery)?
 
   public init(
     store: BugStore, info: BugAppInfo, logger: @escaping BugLogger, copySessionLog: Bool = false,
-    writeReportJSON: Bool = false
+    writeReportJSON: Bool = false, delivery: (any BugReportDelivery)? = nil
   ) {
     self.store = store; self.info = info; self.logger = logger
     self.copySessionLog = copySessionLog; self.writeReportJSON = writeReportJSON
+    self.delivery = delivery
   }
 
   /// `log`: the session log's path under Documents and the milliseconds since it began, from the app.
@@ -169,6 +172,13 @@ public struct BugReportWriter: Sendable {
     if let source { fields["source"] = .string(source) }
     if let reason { fields["reason"] = .string(reason) }
     logger(event, fields)
+    if let delivery {
+      do { try await delivery.enqueue(report, documents: store.documents) }
+      catch {
+        logger("error", ["where": "bug_delivery_enqueue", "id": .string(report.id.uuidString),
+                         "message": "Cloud delivery is pending; the report remains local."])
+      }
+    }
     return report
   }
 }

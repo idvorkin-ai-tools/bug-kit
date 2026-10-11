@@ -3,6 +3,7 @@
 import importlib.machinery
 import importlib.util
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -12,6 +13,119 @@ loader = importlib.machinery.SourceFileLoader("bug_listener", str(HERE / "bug-li
 spec = importlib.util.spec_from_loader("bug_listener", loader)
 bl = importlib.util.module_from_spec(spec)
 loader.exec_module(bl)
+
+
+def cloud_fixture(tmp_path):
+    inbox = tmp_path / "cloud"
+    identity = str(uuid.uuid4()).upper()
+    folder = inbox / identity
+    documents = folder / "Documents"
+    evidence = documents / "bugs" / "sample" / "screen.png"
+    evidence.parent.mkdir(parents=True)
+    evidence.write_bytes(b"synthetic screen")
+    rec = {"id": identity, "bundle": "local.fixture", "app": "fixture", "note": "fixture note",
+           "reported_at": "2026-10-11T00:00:00Z", "folder": "bugs/sample", "files": [],
+           "screenshot": "bugs/sample/screen.png", "device": "synthetic"}
+    (folder / "report.json").write_text(json.dumps(rec))
+    (folder / "files.json").write_text(json.dumps({rec["screenshot"]: len(b"synthetic screen")}))
+    a = {"name": "fixture", "bundle": "local.fixture", "tracker": {"kind": "none"}}
+    cfg = {"apps": [a], "poll_seconds": 300, "poll_devices": False, "cloudkit_inbox": str(inbox)}
+    return cfg, rec, evidence
+
+
+class CloudFakeFiler:
+    def __init__(self):
+        self.calls = []
+
+    def check(self, a, rec):
+        return None
+
+    def file(self, a, rec, key, dev, local):
+        self.calls.append((key, local))
+        return "filed", "synthetic-ref"
+
+
+def cloud_summary():
+    return {"reachable": 0, "new": 0, "filed": 0, "would_file": 0, "errors": 0, "skipped": 0}
+
+
+def test_cloud_reports_file_once_and_dedupe_later_device_delivery(listener_state):
+    cfg, rec, evidence = cloud_fixture(listener_state)
+    filer = CloudFakeFiler()
+    seen = {}
+    summary = cloud_summary()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert len(filer.calls) == 1
+    assert (filer.calls[0][1] / rec["screenshot"]).read_bytes() == b"synthetic screen"
+    # Actual cloud intake must count as delivery across the device lane, even for Beads/inbox trackers.
+    entry = {"keys": []}
+    assert bl.already_filed(filer, cfg["apps"][0], rec, {"dir": "phone"}, entry, "keys", seen, summary)
+    assert entry["keys"] == [rec["id"]]
+    assert len(filer.calls) == 1
+
+
+def test_cloud_reports_dedupe_previous_device_delivery(listener_state):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    filer = CloudFakeFiler()
+    seen = {"_deliveries": {rec["bundle"] + ":" + rec["id"]: {"ref": "device-ref"}}}
+    summary = cloud_summary()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert not filer.calls
+    assert summary["skipped"] == 1
+
+
+def test_cloud_missing_or_truncated_evidence_stays_pending_then_retries(listener_state):
+    cfg, rec, evidence = cloud_fixture(listener_state)
+    evidence.write_bytes(b"cut")
+    filer, seen, summary = CloudFakeFiler(), {}, cloud_summary()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    entry = seen[rec["bundle"] + "|cloudkit"]
+    assert entry["keys"] == [] and rec["id"] in entry["pending"]
+    assert summary["errors"] == 1 and not filer.calls
+    evidence.write_bytes(b"synthetic screen")
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert len(filer.calls) == 1 and not entry["pending"]
+
+
+def test_cloud_payload_path_escape_is_rejected(listener_state):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    folder = Path(cfg["cloudkit_inbox"]) / rec["id"]
+    rec["screenshot"] = "../outside.png"
+    (folder / "report.json").write_text(json.dumps(rec))
+    (folder / "files.json").write_text(json.dumps({rec["screenshot"]: 1}))
+    (folder / "outside.png").write_bytes(b"x")
+    filer, summary = CloudFakeFiler(), cloud_summary()
+    bl.poll_cloud_reports(cfg, {}, filer, summary, False)
+    assert not filer.calls and summary["errors"] == 1
+
+
+def test_cloud_only_poll_never_queries_devices(listener_state, monkeypatch):
+    cfg, _, _ = cloud_fixture(listener_state)
+    monkeypatch.setattr(bl, "list_devices", lambda: pytest.fail("Cloud-only poll queried devices"))
+    monkeypatch.setattr(bl, "Filer", CloudFakeFiler)
+    summary = bl.poll(cfg, False)
+    assert summary["devices"] == 0 and summary["filed"] == 1 and summary["reachable"] == 1
+
+
+def test_cloud_dry_run_retains_delivery_state(listener_state, monkeypatch):
+    cfg, _, _ = cloud_fixture(listener_state)
+    monkeypatch.setattr(bl, "DRY", True)
+    bl.poll_cloud_reports(cfg, {}, bl.Filer(), cloud_summary(), False)
+    assert not bl.SEEN.exists() and not bl.INBOX.exists()
+
+
+def test_cloud_only_config_and_doctor_do_not_require_devicectl(listener_state, monkeypatch):
+    cfg, _, _ = cloud_fixture(listener_state)
+    config = listener_state / "apps.json"
+    config.write_text(json.dumps(cfg))
+    monkeypatch.setattr(bl.shutil, "which", lambda _: None)
+    loaded = bl.load_config(config)
+    assert loaded["poll_devices"] is False
+    result = bl.doctor_checks(config)
+    assert result["ok"]
+    assert any(c["check"] == "cloudkit_inbox" for c in result["checks"])
+    assert not any(c["check"] == "devicectl" for c in result["checks"])
 
 
 def test_index_tolerates_broken_lines_and_keeps_u2028(tmp_path, monkeypatch):

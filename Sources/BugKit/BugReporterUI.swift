@@ -92,7 +92,7 @@
 
     public init(
       hooks: BugReporterHooks, options: BugReporterOptions = BugReporterOptions(), store: BugStore = BugStore(),
-      info: BugAppInfo? = nil
+      info: BugAppInfo? = nil, delivery: (any BugReportDelivery)? = nil
     ) {
       self.hooks = hooks
       self.options = options
@@ -100,7 +100,7 @@
       let device = "\(BugAppInfo.hardwareModel()) \(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
       self.writer = BugReportWriter(
         store: store, info: info ?? .fromMainBundle(device: device), logger: hooks.logger,
-        copySessionLog: options.copySessionLog, writeReportJSON: options.writeReportJSON)
+        copySessionLog: options.copySessionLog, writeReportJSON: options.writeReportJSON, delivery: delivery)
       dismissWatcher.onDismiss = { [weak self] in self?.dismissedBySwipe() }
     }
 
