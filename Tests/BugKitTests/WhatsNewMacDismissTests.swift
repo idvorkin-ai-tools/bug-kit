@@ -6,6 +6,8 @@
   @testable import BugKit
 
   /// The Mac row's ✕, clicked in a hosted window: the row disappears and stays hidden.
+  /// It needs a logged-in desktop session (it hung headless CI), so it runs only when the driver opts in:
+  /// `BUGKIT_GUI_TESTS=1 swift test --filter WhatsNewMacDismissTests`.
   @MainActor
   final class WhatsNewMacDismissTests: XCTestCase {
     private func settle(_ host: NSView) {
@@ -25,6 +27,8 @@
     }
 
     func testTheDismissButtonHidesTheRowAndKeepsItHidden() throws {
+      try XCTSkipUnless(
+        ProcessInfo.processInfo.environment["BUGKIT_GUI_TESTS"] == "1", "Set BUGKIT_GUI_TESTS=1 on a desktop session")
       let suite = "bugkit-mac-dismiss-\(UUID().uuidString)"
       let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
       defer { defaults.removePersistentDomain(forName: suite) }
