@@ -32,6 +32,25 @@
 - **Deep links:** open them from an XCUITest (`XCUIApplication().open(url)`). `simctl openurl` stops at an "Open in…?" prompt no script can answer.
 - **Services the simulator lacks:** use one environment variable to point the app at a plain stand-in. EA's `SWING_SYNC_DIR` stands in for the iCloud container, and two simulators sharing it test sync end to end.
 
+## A smoke script on `scripts/smoke-lib.sh`
+
+Each app keeps its own checks. The plumbing is shared: source `scripts/smoke-lib.sh` from the BugKit checkout.
+
+| Helper | What it does | From |
+|---|---|---|
+| `launch APP_BUG=x …` | terminates, remembers the newest log, launches with `SIMCTL_CHILD_` hooks | EA, CG |
+| `wait_for <type> <secs>` | waits for an event in a log newer than the launch; a timeout fails the run | EA `sim-smoke.sh` |
+| `require_event <type> [jq] [label]` | this launch's log has the event; `require_event selftest_finished` is the finish marker | MM's selftest |
+| `fail_on_errors [label]` | any `error` event in this launch's log fails the run, naming `where` and `message` | CG `sim-smoke.sh` |
+| `stash <paths>` / `unstash` | moves Documents paths aside and back, also on exit or Ctrl-C; a stash a killed run left is put back first | EA |
+| `run <check> …` | runs the check unless `ONLY=<substring>` excludes it | EA |
+| `smoke_done` | prints the result and exits 1 on any failure | |
+
+- **A scripted flow logs that it finished** (`selftest_finished`, or the app's own name for it) as its last line. A
+  crash or an early quit then fails the run instead of passing with whatever was logged before it (MM).
+- **Any `error` event fails the run**, even when the feature under test passed. BugKit logs every failed step as
+  `error`, and this gate turns those into failures (CG).
+
 ## Preferences: plist edits need cfprefsd restarted
 
 - **For a key the app has never written,** use `xcrun simctl spawn <udid> defaults write <bundle> <key> <value>`. The app reads it.
