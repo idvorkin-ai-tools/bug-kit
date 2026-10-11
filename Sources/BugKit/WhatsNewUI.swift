@@ -8,8 +8,21 @@ public struct WhatsNewSeen: @unchecked Sendable {
   let defaults: UserDefaults
   let key: String
 
-  public init(defaults: UserDefaults = .standard, key: String = defaultKey) {
+  /// Construct once in app initialization, before home reads `showsRow`, to apply the reset launch hook.
+  public init(defaults: UserDefaults = .standard, key: String = defaultKey,
+              launchHookPrefix: String? = nil,
+              environment: [String: String] = ProcessInfo.processInfo.environment,
+              logger: BugLogger? = nil) {
     self.defaults = defaults; self.key = key
+    if let prefix = launchHookPrefix, BugLaunchHooks.parse(environment, prefix: prefix).whatsNewReset {
+      reset(logger: logger)
+    }
+  }
+
+  /// Clears only this store's dismissal. Other app preferences are retained.
+  public func reset(logger: BugLogger? = nil) {
+    defaults.removeObject(forKey: key)
+    logger?("bug_hook", ["whats_new_reset": true])
   }
 
   public var newestSeen: String? { defaults.string(forKey: key) }

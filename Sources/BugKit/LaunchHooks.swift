@@ -12,12 +12,13 @@ import Foundation
 public struct BugLaunchHooks: Equatable, Sendable {
   public var notes: [String] = []
   public var shakeAfter: Double?
+  public var whatsNewReset: Bool = false
 
-  public init(notes: [String] = [], shakeAfter: Double? = nil) {
-    self.notes = notes; self.shakeAfter = shakeAfter
+  public init(notes: [String] = [], shakeAfter: Double? = nil, whatsNewReset: Bool = false) {
+    self.notes = notes; self.shakeAfter = shakeAfter; self.whatsNewReset = whatsNewReset
   }
 
-  public var isEmpty: Bool { notes.isEmpty && shakeAfter == nil }
+  public var isEmpty: Bool { notes.isEmpty && shakeAfter == nil && !whatsNewReset }
 
   public static func parse(_ env: [String: String] = ProcessInfo.processInfo.environment, prefix: String) -> Self {
     var hooks = Self()
@@ -25,6 +26,7 @@ public struct BugLaunchHooks: Equatable, Sendable {
       hooks.notes = bug.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
     }
     if let after = env["\(prefix)_SHAKE_AFTER"].flatMap(Double.init), after >= 0 { hooks.shakeAfter = after }
+    hooks.whatsNewReset = env["\(prefix)_WHATS_NEW_RESET"] == "1"
     return hooks
   }
 }

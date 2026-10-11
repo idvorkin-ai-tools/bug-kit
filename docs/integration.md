@@ -176,3 +176,9 @@ Add stable `.accessibilityIdentifier("settings-button")` values to views whereve
 `accessibility.json` is a bounded traversal of UIKit subviews and [public accessibility containers](https://developer.apple.com/documentation/uikit/uiaccessibilitycontainer), with parent IDs, classes, frames, identifiers, labels, hints and traits. It marks truncation after 500 nodes or depth 30. It omits accessibility values and skips text-field/text-view subtrees. Other visible labels and hints can contain app content, just as the screenshot can. This is not the private VoiceOver/XCTest AX tree; some virtual SwiftUI elements may be absent. The file describes its scope and redaction explicitly.
 
 For a custom UIKit flow, `AccessibilitySnapshot.capture(view)` exposes the same JSON snapshot. The lower-level writer accepts `BugDiagnosticsSnapshot` to attach pre-captured data.
+
+### Reset What's new before UI tests
+
+Create and retain `WhatsNewSeen(launchHookPrefix: "GRABBER", logger: logger)` in app initialization, before the home view first calls `showsRow`. Pass that same store to `WhatsNewRow`. CG tests can then launch with `GRABBER_WHATS_NEW_RESET=1` in `XCUIApplication.launchEnvironment` (or `SIMCTL_CHILD_GRABBER_WHATS_NEW_RESET=1` with simctl). Other apps substitute their prefix. Only the exact value `1` enables the hook.
+
+The initializer synchronously clears `bugkit.whats_new_seen` and logs `bug_hook` with `whats_new_reset: true`. Custom defaults suites and keys are respected. Construct the store once per launch; recreating it during view rendering would reset a dismissal made during that launch. `reporter.runLaunchHooks()` handles report/shake hooks; it does not reset this store. Remove CG's manual plist deletion workaround after adopting this initializer.

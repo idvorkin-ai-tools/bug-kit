@@ -102,3 +102,9 @@ Part of the [BugKit stories](README.md). What's new was built in Context Grabber
   - the ✕ removes it, and the relaunch does not bring it back until a build with a newer change;
   - the app's settings still open the list;
   - the log has `ui` dismiss_whats_new.
+
+### Reset dismissal for a test launch
+
+**Issues:** #16
+
+Given a dismissed newest change, when the app constructs its retained `WhatsNewSeen` with a launch prefix and `<PREFIX>_WHATS_NEW_RESET=1`, its first read has no dismissed change. Other defaults remain intact, and `bug_hook.whats_new_reset` is true. Missing, wrong-prefix and non-`1` values preserve the dismissal. Host coverage: `whatsNewResetHookIsExplicitAndPrefixScoped`, `whatsNewResetRunsBeforeFirstReadAndPreservesOtherDefaults`.
