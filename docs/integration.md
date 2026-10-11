@@ -353,7 +353,7 @@ recorded before the user can save. The boundary is recorded once per store and c
 turns delivery off and back on, reports saved while it was off are uploaded too.
 
 Saving completes locally before a network request. The immutable outbox lives below
-`Documents/bug-delivery/cloudkit-<container-hash>/`. Uploads explicitly allow cellular, use user-initiated QoS,
+the store root at `bug-delivery/cloudkit-<container-hash>/`. Uploads explicitly allow cellular, use user-initiated QoS,
 and are long-lived CloudKit operations so the system can continue an already submitted operation after the app
 exits. Only an idle request times out after 60 seconds; a large upload over a slow cellular link is not cut off
 by a total deadline. Its operation ID is persisted and callbacks reattach after restart. Stable report UUID

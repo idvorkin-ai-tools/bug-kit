@@ -35,7 +35,7 @@ Optional UI diagnostics add `interactions.jsonl` and `accessibility.json` to the
 
 The private `BugKitReport` record ID is the report UUID. Fields: `bundle` (String), `reportedAt` (Date), and
 `payload` (CKAsset). Asset JSON has `version: 1`, the existing Codable `report`, and `files`, a mapping of
-Documents-relative paths to base64 file data. Declared files, screenshot and log must match the envelope's
+storage-root-relative paths to base64 file data. Declared files, screenshot and log must match the envelope's
 paths; absolute/traversing/symlink-escaping paths are rejected. Limits are 100 files, 20 MB raw evidence and
 30 MB encoded asset. Local reports and evidence remain unchanged. Mac imports publish `<UUID>/report.json`,
 `<UUID>/files.json` (path → byte length) and `<UUID>/Documents/<path>` atomically; incomplete or mismatched

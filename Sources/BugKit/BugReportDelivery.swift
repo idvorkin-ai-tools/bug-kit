@@ -5,7 +5,7 @@ public protocol BugReportDelivery: Sendable {
   func enqueue(_ report: BugReport, documents: URL) async throws
 }
 
-/// The immutable wire payload carried by a CloudKit asset. Paths remain relative to Documents.
+/// The immutable wire payload carried by a CloudKit asset. Paths remain relative to the storage root.
 struct CloudReportPayload: Codable, Sendable {
   var version = 1
   let report: BugReport

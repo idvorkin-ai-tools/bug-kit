@@ -199,7 +199,7 @@ scripts/deploy-all.sh my-app --dry-run        # inspect the configured deploymen
 | Guide | Contents |
 |---|---|
 | [Integration](docs/integration.md) | Hooks, options, session logs, dictation and What's new |
-| [Report format](docs/report-format.md) | JSON Lines keys and Documents layout |
+| [Report format](docs/report-format.md) | JSON Lines keys and storage layout |
 | [Principles](docs/principles.md) | Evidence, reporting, deduplication, crashes and debugging practices |
 | [App migrations](docs/migration.md) | Historical feature matrix and EA, CG and MM migration checklists |
 | [User stories](docs/stories/README.md) | Acceptance criteria and verification rungs |
