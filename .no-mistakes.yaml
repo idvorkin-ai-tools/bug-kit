@@ -11,10 +11,10 @@ commands:
 # Keep Test focused on the change. The complete regression suite runs in CI.
 test:
   instructions: |
-    Host rung only: run the touched module's host tests (swift test --filter / jest / pytest) and read the diff.
+    Host rung only: run the touched module's host tests (swift test --filter / pytest) and read the diff.
     Do not build for, create, or boot a simulator, and do not run xcodebuild against a simulator or device;
     the driving session owns live evidence under the build turn. List what only the simulator or phone can show
-    as "to verify live" in the report. Do not re-run `just test`: the gate already ran it.
+    as "to verify live" in the report. Do not run the full suite: CI runs it.
     BugKit host commands use Swift 6+ and uv:
       swift test --jobs 2 --filter <test-name>
       uv run --python 3.12 --with typer --with pytest pytest --import-mode=importlib listener/ Tests/ scripts/tests/ -k <case> -q
@@ -22,7 +22,6 @@ test:
     Run heavy host commands one at a time. Do not file real issues, send notifications, or deploy to devices;
     listener and deployment tests use fake tools for those effects.
     Live simulator and device checks happen once in the driving session's build turn and are recorded in the PR body.
-    Only one simulator on this Mac at a time: before booting, check xcrun simctl list devices booted and wait until it's empty; shut yours down when done.
 
 document:
   instructions: |
