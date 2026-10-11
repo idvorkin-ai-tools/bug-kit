@@ -183,9 +183,9 @@ Crash files are discovered on every poll, even without a manual report. Signal/e
 
 Reports land under `~/tmp/agent/bugs/<app>/<device>/`. Failed copies of a report’s folder or named session log leave it pending for the next poll. Screenshots stay on the Mac; issue bodies contain their local paths.
 
-See [listener setup](docs/ops/listener.md) for configuration, logging and launchd. For manual pulls and deployment:
-
 Apps storing evidence in an App Group can pass the group's `Documents` directory to the store, log and crash capture, and set `app_group` in their entry in the apps config; the listener and `scripts/pull-reports.sh` (including `--check`) then copy from the group's container. See [App Group storage](docs/integration.md#app-group-storage).
+
+See [listener setup](docs/ops/listener.md) for configuration, logging and launchd. For manual pulls and deployment:
 
 ```sh
 scripts/pull-reports.sh                       # all configured apps and devices
