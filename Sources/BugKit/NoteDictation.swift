@@ -120,9 +120,8 @@ public struct DictationJoin: Equatable, Sendable {
     /// Refreshes iOS inputs without recording. Category/mode/options/preferred input are restored afterward.
     /// Skipped while the host records, because listing inputs reconfigures the shared audio session.
     /// `hostMicrophoneBusy` is checked live: again after the permission prompt, right before listing.
-    public func refreshMicrophones(requestPermission: Bool = true) async {
-      guard !busy, !hostMicrophoneBusy(),
-            requestPermission || permissions.hasMicrophonePermission() else { return }
+    public func refreshMicrophones() async {
+      guard !busy, !hostMicrophoneBusy() else { return }
       let generation = owner
       refreshingMicrophones = true
       defer { if owner == generation { refreshingMicrophones = false } }
@@ -287,15 +286,13 @@ public struct DictationJoin: Equatable, Sendable {
   struct DictationPermissions {
     var speech: @MainActor () async -> Bool
     var microphone: @MainActor () async -> Bool
-    var hasMicrophonePermission: @MainActor () -> Bool = { true }
     static let system = Self(
       speech: { await withCheckedContinuation { continuation in
         SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
       } },
       microphone: { await withCheckedContinuation { continuation in
         AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
-      } },
-      hasMicrophonePermission: { AVAudioApplication.shared.recordPermission == .granted })
+      } })
   }
 
   private enum DictationPermissionError: Error, LocalizedError {

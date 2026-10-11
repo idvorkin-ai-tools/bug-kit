@@ -54,16 +54,6 @@ import Testing
 }
 
 @MainActor
-@Test func dictationDoesNotPromptForMicrophoneWhenOpeningTheSheet() async throws {
-  let fixture = try DictationFixture(hasMicrophone: false)
-  defer { fixture.cleanup() }
-  await fixture.dictation.refreshMicrophones(requestPermission: false)
-  #expect(fixture.permissions.microphone == 0)
-  #expect(fixture.capture.lists == 0)
-  #expect(fixture.dictation.microphones.isEmpty)
-}
-
-@MainActor
 @Test func dictationRemovedMicrophoneReturnsPickerToAutomatic() async throws {
   let fixture = try DictationFixture()
   defer { fixture.cleanup() }
@@ -82,13 +72,13 @@ import Testing
   host.busy = true
   let fixture = try DictationFixture(hostMicrophoneBusy: { host.busy })
   defer { fixture.cleanup() }
-  await fixture.dictation.refreshMicrophones(requestPermission: false)
   await fixture.dictation.refreshMicrophones()
   #expect(fixture.capture.lists == 0)
   #expect(fixture.permissions.microphone == 0)
   #expect(fixture.dictation.microphones.isEmpty)
   host.busy = false
-  await fixture.dictation.refreshMicrophones(requestPermission: false)
+  await fixture.dictation.refreshMicrophones()
+  #expect(fixture.permissions.microphone == 1)
   #expect(fixture.capture.lists == 1)
 }
 
@@ -129,7 +119,7 @@ import Testing
   fixture.dictation.selectMicrophone("usb")
   let reopened = NoteDictation(logger: { _, _ in }, providerFactory: { [provider = fixture.provider] in provider },
     capture: fixture.capture,
-    permissions: DictationPermissions(speech: { true }, microphone: { true }, hasMicrophonePermission: { true }),
+    permissions: DictationPermissions(speech: { true }, microphone: { true }),
     defaults: fixture.defaults)
   defer { reopened.stop(why: "test_closed") }
   #expect(reopened.selectedMicrophoneID == "usb")
@@ -190,15 +180,15 @@ private final class DictationFixture {
   let defaults: UserDefaults
   let suite: String
   let dictation: NoteDictation
-  init(microphone: (@MainActor () async -> Bool)? = nil, hasMicrophone: Bool = true,
+  init(microphone: (@MainActor () async -> Bool)? = nil,
        hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) throws {
     suite = "BugKit-dictation-\(UUID())"
     defaults = try #require(UserDefaults(suiteName: suite))
     let counts = permissions
     dictation = NoteDictation(logger: { _, _ in }, providerFactory: { [provider] in provider }, capture: capture,
       permissions: DictationPermissions(speech: { counts.speech += 1; return true },
-        microphone: { counts.microphone += 1; return await microphone?() ?? true },
-        hasMicrophonePermission: { hasMicrophone }), defaults: defaults, hostMicrophoneBusy: hostMicrophoneBusy)
+        microphone: { counts.microphone += 1; return await microphone?() ?? true }),
+      defaults: defaults, hostMicrophoneBusy: hostMicrophoneBusy)
   }
   func until(_ predicate: @MainActor () -> Bool) async throws {
     for _ in 0..<2_000 {
