@@ -141,6 +141,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Copy the log into each report | Set `options.copySessionLog = true` with the session-log hooks above; adds `session.jsonl`. Default: `false`. |
 | Standalone report metadata | Set `options.writeReportJSON = true` to add `report.json` beside attachments. Default: `false`; the main `bugs.jsonl` index is always written. |
 | Dictate a note | Add `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` to Info.plist, then set `options.dictation = true`. Default: `false`. |
+| Remove a report screenshot | Tap the ✕ on the screenshot in “Attached automatically.” Enabled by default. The choice persists for `.keepMoment`; `.recapture` takes a fresh image. Context stays attached. |
 | Fresh evidence for “Log it and another” | Set `options.another = .recapture`. The default `.keepMoment` reuses the captured screenshot and diagnostics. |
 | App context and extra attachments | Supply the `context` and `extraFiles` hooks; see the [integration example](docs/integration.md). |
 | Commit in reports | Set `BugKitCommit` in the app's Info.plist to its build's git commit. |

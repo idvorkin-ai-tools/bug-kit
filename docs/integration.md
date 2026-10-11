@@ -182,3 +182,7 @@ For a custom UIKit flow, `AccessibilitySnapshot.capture(view)` exposes the same 
 Create and retain `WhatsNewSeen(launchHookPrefix: "GRABBER", logger: logger)` in app initialization, before the home view first calls `showsRow`. Pass that same store to `WhatsNewRow`. CG tests can then launch with `GRABBER_WHATS_NEW_RESET=1` in `XCUIApplication.launchEnvironment` (or `SIMCTL_CHILD_GRABBER_WHATS_NEW_RESET=1` with simctl). Other apps substitute their prefix. Only the exact value `1` enables the hook.
 
 The initializer synchronously clears `bugkit.whats_new_seen` and logs `bug_hook` with `whats_new_reset: true`. Custom defaults suites and keys are respected. Construct the store once per launch; recreating it during view rendering would reset a dismissal made during that launch. `reporter.runLaunchHooks()` handles report/shake hooks; it does not reset this store. Remove CG's manual plist deletion workaround after adopting this initializer.
+
+### Let people remove screenshot attachments
+
+Apps using `BugReportSheet` get the screenshot ✕ automatically after updating BugKit; no option is required. EA can remove its screenshot-drop workaround if present. CG must first adopt the shared sheet to receive this UI. Custom sheets call `reporter.dropScreenshot()`. Context and diagnostics remain attached. `.keepMoment` keeps the removal for subsequent notes; `.recapture` takes a new screenshot. The writer logs `screenshot_dropped: true` when explicitly removed; an ordinary capture failure does not set it.

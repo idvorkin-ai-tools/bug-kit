@@ -26,3 +26,45 @@ import Testing
   WhatsNewSeen(defaults: defaults, key: "custom").reset()
   #expect(defaults.object(forKey: "custom") == nil)
 }
+
+@Test func screenshotDropPersistsForSameMomentAndResetsOnRecapture() {
+  var flow = BugReportFlow()
+  flow.open(from: .button)
+  flow.dropScreenshot()
+  flow.note = "first"
+  #expect(flow.log(another: true) == "first")
+  #expect(flow.screenshotDropped)
+  flow.note = "second"
+  #expect(flow.log(another: true, style: .recapture) == "second")
+  let reopened = flow.reopenIfPending()
+  #expect(reopened)
+  #expect(!flow.screenshotDropped)
+  flow.dropScreenshot()
+  flow.cancel()
+  flow.open(from: .button)
+  #expect(!flow.screenshotDropped)
+}
+
+@Test func droppedScreenshotIsAbsentFromSavedReportAndFolder() async throws {
+  let docs = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+  defer { try? FileManager.default.removeItem(at: docs) }
+  let events = IncomingEvents()
+  let store = BugStore(documents: docs)
+  let writer = BugReportWriter(store: store,
+    info: BugAppInfo(app: "T", bundle: "b", build: "1", commit: "c", device: "d"), logger: events.logger)
+  let report = await writer.save(note: "private screen", screen: "home", context: ["mode": "test"],
+    screenshotPNG: Data([1, 2, 3]), log: nil, extraFiles: nil, screenshotDropped: true)
+  #expect(report.screenshot == nil)
+  #expect(report.context["mode"] == "test")
+  #expect(!FileManager.default.fileExists(atPath: docs.appendingPathComponent(report.folder + "/screen.png").path))
+  #expect(try store.readAll().reports.first?.screenshot == nil)
+  #expect(events.all.last?.1["screenshot_dropped"] == true)
+}
+
+private final class IncomingEvents: @unchecked Sendable {
+  private let lock = NSLock()
+  private var items: [(String, [String: JSONValue])] = []
+  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var all: [(String, [String: JSONValue])] { lock.lock(); defer { lock.unlock() }; return items }
+}
