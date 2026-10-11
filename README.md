@@ -304,9 +304,18 @@ their public repos. MM ids (`mmn-…`) and story numbers refer to its own repo. 
        dependencies: [{ package: BugKit }]
    ```
 
-2. Optionally, bake the commit into Info.plist as `BugKitCommit`, for example
-   `BugKitCommit: $(GIT_COMMIT)` set from `git rev-parse --short HEAD` in a build script. Without it, reports say
-   "unknown".
+2. Optionally, bake the commit into Info.plist as `BugKitCommit`. The simplest way is a build setting, not a
+   script phase (EA): put `BugKitCommit: $(BUGKIT_COMMIT)` in Info.plist and pass the value on the `xcodebuild`
+   line, for both simulator and device builds:
+
+   ```sh
+   xcodebuild … BUGKIT_COMMIT="$(git describe --always --dirty --exclude='*')" build
+   ```
+
+   - `--dirty` makes a build from uncommitted changes say `abc1234-dirty` (MM), so it never passes for a clean
+     commit.
+   - `scripts/deploy-all.sh` fills `{describe}` in a `build.settings` entry with the same value.
+   - A build from the Xcode GUI leaves the setting empty, and reports honestly say "unknown".
 
 3. At launch:
    - open the session log, if the app has none of its own;
@@ -384,6 +393,8 @@ NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
    - A commit counts when its subject starts with "Story NNN:", ends with "(story NNN)", names the story in its
      message, or names an issue that a story's Issues line lists.
    - Without git history it writes an empty feed and never fails the build.
+   - The phase reads `.git` and writes into the bundle, so the app target needs `ENABLE_USER_SCRIPT_SANDBOXING: NO`
+     (EA set it on a hand-made project). The sandboxed failure has not been seen in BugKit, only avoided.
 
 ## The report format
 

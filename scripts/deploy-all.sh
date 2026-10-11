@@ -65,12 +65,14 @@ product=$(jq -r '.build.app' <<<"$cfg")
 watch_app=$(jq -r '.build.watch_app // empty' <<<"$cfg")
 xcodegen=$(jq -r '.build.xcodegen // empty' <<<"$cfg")  # the folder holding project.yml, relative to the repo
 settings=()  # bash 3.2 (macOS /bin/bash) has no mapfile
-# Build settings; {sha} and {branch} become the repo's short commit and branch (CG bakes them into About).
+# Build settings: {sha} and {branch} become the repo's short commit and branch (CG bakes them into About);
+# {describe} is the short commit plus "-dirty" when the tree has uncommitted changes (MM), for BUGKIT_COMMIT.
 sha=$(git -C "$repo" rev-parse --short HEAD 2>/dev/null || echo unknown)
 branch=$(git -C "$repo" branch --show-current 2>/dev/null || echo unknown)
+describe=$(git -C "$repo" describe --always --dirty --exclude='*' 2>/dev/null || echo unknown)
 while IFS= read -r s; do
   [ -n "$s" ] || continue
-  s=${s//\{sha\}/$sha}; settings+=("${s//\{branch\}/$branch}")
+  s=${s//\{sha\}/$sha}; s=${s//\{describe\}/$describe}; settings+=("${s//\{branch\}/$branch}")
 done < <(jq -r '.build.settings // [] | .[]' <<<"$cfg")
 
 tmp=$(mktemp -d)

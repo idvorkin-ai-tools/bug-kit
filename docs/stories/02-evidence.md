@@ -14,7 +14,10 @@ Part of the [BugKit stories](README.md).
   - `reportedAtKeepsMillisecondsAndReadsTheOlderWholeSecondForm`;
   - `readAllCountsLinesItCannotRead`;
   - the `device` model by `DeviceModelTests` (bug-kit#6, from MM): a Mac reads `hw.model`, not "arm64". A device
-    still has not checked it.
+    still has not checked it;
+  - `commit` from a build with uncommitted changes ends in `-dirty`: the `BUGKIT_COMMIT` recipe in the README and
+    `deploy-all.sh`'s `{describe}`, verified on the host by `scripts/tests/test_deploy_all.py` (dry run). An app
+    build reading it back is a device check, still to do.
 
 #### Use Case:
 - **As the** listener, or an agent filing reports from any app
@@ -32,6 +35,10 @@ Part of the [BugKit stories](README.md).
 - **Given:** a report is saved on a phone, a Mac or a simulator
 - **Then:** `device` starts with the model: "iPhone18,1" on a phone, "Mac16,12" on a Mac (not the CPU's "arm64"),
   and the simulated model on a simulator. It never holds the device's own name.
+
+- **Scenario:** A build from uncommitted changes
+- **Given:** the app was built with `BUGKIT_COMMIT` from `git describe --always --dirty` while the tree had changes
+- **Then:** `commit` reads `abc1234-dirty`, never the clean commit's `abc1234`.
 
 - **Scenario:** An older line
 - **Given:** `bugs.jsonl` also holds an older app's line, or a torn one
