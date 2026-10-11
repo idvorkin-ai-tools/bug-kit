@@ -65,3 +65,15 @@ These steps come from EA and CG DEBUGGING.md and from MM AGENTS.md.
 2. Open the named log at the report's `session_t_ms`: `jq -c 'select(.t > N-5000 and .t < N+2000)' <log>`. Put what it shows on the issue as a comment.
 3. If the log cannot explain it, add the event that would, deploy, and wait for the next report. Never ship a guessed fix.
 4. Make one commit per issue, verified on the cheapest rung. Close the issue once the build is on the device, with a comment naming the rung and the log line that proves the fix.
+
+## Video and screenshots: a cheaper model looks, the driving agent reads text
+
+A report from a camera or video app often needs frames looked at. Images are the most expensive thing an agent can read. At MM, one Sonnet review of frames cost about 91k tokens.
+
+- **Frames never go to the driving agent.** A cheap vision model, or a read-only subagent on a small model, describes them, and the driving agent reads the descriptions (MM AGENTS.md; EA AGENTS.md "delegate the eyes, keep the text").
+- **Name frames by wall-clock time** (`frame-15-10-04.250.jpg`) and extract only a window (`--from 15:10:00 --to 15:10:10`). With `wall` on every log line, a log time gives a frame range, and a frame's name gives a log slice (MM `frames.py`).
+- **Ask narrow questions against a rubric.** For example, "are both hands on the handle: yes, no or unclear", written in a file and kept with the scripts (MM `hands-rubric.txt`). Write the answers to a CSV, resumable, so a rerun skips the frames already described.
+- **Sample coarsely first,** one frame every second or two, and then take short dense runs around what changed (EA DEBUGGING.md).
+- **Cache the descriptions** next to the frames, so the next session reads text, not the frames again.
+
+The extraction and description scripts stay per app; this is the rule.
