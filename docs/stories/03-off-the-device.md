@@ -155,7 +155,9 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Before fixing, read the log at the report's moment (technical)
 - **From:** EA DEBUGGING.md (steps 4 and 5); CG DEBUGGING.md; MM AGENTS.md
-- **Status:** a practice, described in the README's principles and [../ops/pulling-and-filing.md](../ops/pulling-and-filing.md). There is no code to test.
+- **Status:**
+  - A practice, described in the README's principles and [../ops/pulling-and-filing.md](../ops/pulling-and-filing.md). There is no code to test.
+  - Saving the evidence before a relaunch (MM's `grab.sh`, mmn-1ui) is a rule in [../ops/deploying.md](../ops/deploying.md). MM's recipes follow it; EA's and CG's do not yet.
 
 #### Use Case:
 - **As an** agent picking up a filed report
@@ -170,3 +172,10 @@ Part of the [BugKit stories](README.md).
   - I comment with what the log shows at the moment;
   - I fix it in one commit that names the issue, on the cheapest rung that can see it;
   - I close it with the rung named once the build is on the device.
+
+- **Scenario:** "That just happened"
+- **Given:** the person says something went wrong a moment ago, and I am about to rebuild
+- **When:** I relaunch or reinstall the app
+- **Then:**
+  - the newest session log and the app's rolling buffer were copied to a timestamped folder first;
+  - the copy names the wall-clock span it covers, so the log can be sliced at the person's time.
