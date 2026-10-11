@@ -12,7 +12,7 @@ Verify every change on the cheapest rung that can see it, and **name the rung** 
 ## Rules
 
 - **Put logic in a Swift package** so the host rung can see it. BugKit itself does this: the report format, the store, the dialog's flow, the shake gesture, log retention and What's new are host-tested, and only the views are not.
-- **Simulator checks assert on log events** (`jq` over the session log), not on screenshots or UI automation.
+- **Simulator checks assert on log events** (`jq` over the session log), not on screenshots or UI automation. Layout is the exception, since no event shows it: take one named screenshot per state and read them by eye (see [simulators.md](simulators.md#screenshots-for-layout)).
 - **A wrong result from data gets a fixture first.** Turn the recorded input into a host test that fails, then fix the code. Never tune by reinstalling (EA).
 - **Keep long test reports in a file.** SwiftPM caps a test's stdout and silently cuts long reports.
 - **Close issues only after the verifying rung has run.** Use `Fixes #N` in the commit when that rung already ran; otherwise close by hand once the build is on the device. Either way, name the rung and the log line that proves the fix, for example `watch_inbox stuck 14 recovered 2` (EA #197), and say what the person should feel.
