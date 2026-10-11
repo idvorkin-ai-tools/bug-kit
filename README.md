@@ -54,7 +54,7 @@ Beyond the code, the repo holds:
 | Extra files: clip, recent segments, report.json | ✓ frame | – | ✓ | `extraFiles`, `RecentSegments`, `writeReportJSON` |
 | JSON Lines session log per launch | ✓ | ✓ | ✓ | `SessionLog` (optional) |
 | Periodic status line helper | ad hoc | ad hoc | ad hoc | `SessionLog.status(every:)` |
-| Logs pruned at 30 days, reported ones kept | ✓ | ✓ | – | `BugStore.pruneLogs` |
+| Logs pruned at 30 days, reported ones kept | ✓ | ✓ | – (newest 20, reported or not) | `BugStore.pruneLogs`; `keepNewest:` for a count cap too |
 | MetricKit, signal and exception files, announced once | ✓ | ✓ | – | `CrashReports` |
 | Simulator hooks for reports | ✓ `SWING_BUG` | ✓ `GRABBER_BUG` | selftest script | `launchHookPrefix` |
 | What's new from git and the stories (CG story 148) | – | ✓ | – | `WhatsNew`, `WhatsNewView`, `WhatsNewRow`, `scripts/whats-new.sh` |
@@ -97,7 +97,7 @@ The order is EA first (CG's copy came from it), then CG, then MM. Each app keeps
    - `extraFiles` copying `RecentSegments.covering(…, seconds: 90)`.
    Note that BugKit's keys differ from MM's: ⌘Return logs and ⇧⌘Return logs another, because the note field is multi-line.
 3. The Mac app is not iOS. Keep its SwiftUI sheet, and use `BugReportFlow` and `BugReportWriter`, which build on macOS.
-4. Add `CrashReports` and `pruneLogs`. MM has neither.
+4. Add `CrashReports` and `pruneLogs(keepNewest: 20)`. MM has no crash capture, and its own cap of 20 logs can delete a log a report names; its logs are a few MB a launch, so it keeps the cap as well as the 30 days.
 5. Set the tracker to `beads` in the listener's config, and keep `just file-bugs` for the Mac's own reports.
 
 ## The principles
@@ -369,6 +369,8 @@ NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
 - `reporter.lastStatus` says "Problem logged. Thanks." after a save, for a status line.
 - `log.status(every: 5) { [...] }` writes a periodic status line.
 - `RecentSegments.covering(segments, now:, seconds: 90, start:, end:)` picks the recorded segments for `extraFiles`.
+- An app with its own `[String: Any]` logger passes `{ type, fields in log.event(type, fields.mapValues(\.foundation)) }`
+  as `logger` (`JSONValue.foundation`).
 
 4. **What's new** is a build phase. With XcodeGen:
 
