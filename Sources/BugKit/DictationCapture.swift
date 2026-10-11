@@ -52,8 +52,8 @@ final class AVDictationCapture: DictationCapture {
 
     func restoreAfterDiscovery(_ session: AVAudioSession, activated: Bool) throws {
       if activated, !AVDictationCapture.keepsDiscoveryActivation(category: category, options: options) {
-        // Release our temporary mixing session before restoring a non-mixing category,
-        // so an inactive host cannot acquire exclusive audio just by listing inputs.
+        // Release our temporary mixing session before restoring a non-mixing or ducking/
+        // interrupting category, so an inactive host cannot acquire exclusive audio just by listing inputs.
         // Explicit Refresh may stop a non-mixing host's I/O; do not discard the inputs
         // when AVAudioSession reports that its I/O was busy during deactivation.
         try? session.setActive(false, options: .notifyOthersOnDeactivation)
