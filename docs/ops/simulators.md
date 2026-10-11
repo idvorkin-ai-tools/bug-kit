@@ -88,6 +88,18 @@ A check deletes what it set. One hook's mode leaked into later launches until it
 - **Fresh worktrees:** a fresh worktree lacks gitignored model files, so the app launches with no model and every check times out.
 - **Watch simulators:** WatchConnectivity's `transferUserInfo` does not cross between paired simulators. To stage a lost phone, shut the phone simulator down; terminating the app is not enough, because watch messages relaunch it.
 
+## Real data on the simulator
+
+Host fixtures check the logic. A screen that shows real data needs the data on the simulator (CG):
+
+1. Copy the real export into the container: `cp fixture.db "$(xcrun simctl get_app_container <udid> <bundle> data)/Documents/import-fixture.db"`.
+2. Launch with an import hook, for example `SIMCTL_CHILD_<PREFIX>_IMPORT_DB=import-fixture.db,recent`.
+3. **`recent` shifts every timestamp by whole weeks,** so the newest point lands in the last seven days. Screens that show "this week" or "today" then always have data, whenever the test runs. Whole weeks keep weekdays and times of day as they were.
+4. Assert exact counts against the source of truth (CG compares with its older TypeScript import), and that a second import adds nothing.
+5. A UI test that needs the fixture `XCTSkip`s with the copy command when it is missing, and undoes its own changes, so it can run twice.
+
+The import hook is per app. The week shift is the part that is easy to miss.
+
 ## Screenshots for layout
 
 Log events cannot show a tile's width or an iPad's landscape layout. Two cheap ways to see it on every run:
