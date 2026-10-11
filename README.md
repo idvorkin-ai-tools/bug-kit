@@ -57,6 +57,7 @@ Beyond the code, the repo holds:
 | Logs pruned at 30 days, reported ones kept | ✓ | ✓ | – | `BugStore.pruneLogs` |
 | MetricKit, signal and exception files, announced once | ✓ | ✓ | – | `CrashReports` |
 | Simulator hooks for reports | ✓ `SWING_BUG` | ✓ `GRABBER_BUG` | selftest script | `launchHookPrefix` |
+| Smoke script plumbing: waits on a new log, finish marker, fails on `error`, stash | ✓ | ✓ | ✓ selftest | `scripts/smoke-lib.sh` |
 | What's new from git and the stories (CG story 148) | – | ✓ | – | `WhatsNew`, `WhatsNewView`, `WhatsNewRow`, `scripts/whats-new.sh` |
 | Pull from the phone **and** the iPad | – (one device) | ✓ (PR #241) | – | `scripts/pull-reports.sh` |
 | File each report once | ✓ GitHub, gist images | ✓ GitHub, no images | ✓ beads | `listener/bug-listener` (GitHub, beads, none) |
