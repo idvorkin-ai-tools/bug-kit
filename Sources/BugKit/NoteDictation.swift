@@ -8,6 +8,53 @@ public enum DictationText {
   }
 }
 
+/// Speaking after a pause adds to the note, never replaces it (CG #249: "when I stop talking the input gets
+/// replaced"). The recogniser can start a fresh transcription after a pause (on-device recognition does), each
+/// result then holding only the new stretch of speech. The note is what was typed, then every finished stretch, then
+/// the one being heard. Whether a restart after a pause is the cause is what `dictation_pause` is there to show.
+public struct DictationJoin: Equatable, Sendable {
+  /// What was typed when listening began, then every finished stretch of speech.
+  public private(set) var kept: String
+  /// The stretch being heard now, as the recogniser last gave it.
+  public private(set) var current = ""
+  private var currentStart: Double?
+  /// When the stretch being heard last ended, in seconds from the start of listening.
+  public private(set) var currentEnd: Double = 0
+
+  public init(typed: String) { kept = typed.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+  /// The whole note so far.
+  public var note: String { Self.join(kept, current) }
+
+  /// One result from the recogniser: its text and when its first and last words were spoken, in seconds from the
+  /// start of listening. Returns true when it began a new stretch (the one before it was kept).
+  @discardableResult
+  public mutating func update(text: String, firstStart: Double, lastEnd: Double) -> Bool {
+    let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    var fresh = false
+    if let start = currentStart, !current.isEmpty, !text.isEmpty {
+      // A result that starts after the last one ended is new speech; so is a shorter one that no longer begins
+      // with the same word (the recogniser revises a stretch's words, it does not drop its start).
+      let after = firstStart >= currentEnd - 0.05 && firstStart > start
+      let restarted = text.count < current.count && Self.firstWord(text) != Self.firstWord(current)
+      fresh = after || restarted
+    }
+    if fresh { kept = Self.join(kept, current) }
+    current = text
+    currentStart = firstStart
+    currentEnd = lastEnd
+    return fresh
+  }
+
+  private static func join(_ a: String, _ b: String) -> String {
+    a.isEmpty ? b : b.isEmpty ? a : "\(a) \(b)"
+  }
+
+  private static func firstWord(_ s: String) -> Substring {
+    s.split(separator: " ").first.map { $0.lowercased()[...] } ?? ""
+  }
+}
+
 #if canImport(UIKit) && os(iOS)
   import AVFoundation
   import Speech
@@ -18,7 +65,8 @@ public enum DictationText {
   ///
   /// Needs `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` in Info.plist. Logs
   /// `dictation_start` (on_device), `dictation_stop` (why: tap / log_it / cancel / closed / final / error) and
-  /// `dictation_error` (auth, mic, recognizer, error, message).
+  /// `dictation_error` (auth, mic, recognizer, error, message), and `dictation_pause` (kept_chars, new_chars,
+  /// prev_end_s, new_start_s) each time a pause starts a new stretch of speech.
   @MainActor
   public final class NoteDictation: ObservableObject {
     @Published public private(set) var listening = false
@@ -30,7 +78,7 @@ public enum DictationText {
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
     private var saved: (category: AVAudioSession.Category, mode: AVAudioSession.Mode, options: AVAudioSession.CategoryOptions)?
-    private var before = ""
+    private var join = DictationJoin(typed: "")
     private var onText: (@MainActor @Sendable (String) -> Void)?
 
     public init(logger: @escaping BugLogger) { self.logger = logger }
@@ -88,16 +136,29 @@ public enum DictationText {
       }
       self.request = request
       self.onText = onText
-      before = note
+      join = DictationJoin(typed: note)
       listening = true
       logger("dictation_start", ["on_device": .bool(request.requiresOnDeviceRecognition)])
       task = recognizer.recognitionTask(with: request) { result, error in
         let text = result?.bestTranscription.formattedString
+        let segments = result?.bestTranscription.segments ?? []
+        let firstStart = segments.first?.timestamp ?? 0
+        let lastEnd = segments.last.map { $0.timestamp + $0.duration } ?? 0
         let final = result?.isFinal ?? false
         let message = error.map { "\($0)" }
         Task { @MainActor in
           guard self.listening else { return }
-          if let text { self.onText?(DictationText.merge(before: self.before, spoken: text)) }
+          if let text {
+            let was = self.join.current
+            let wasEnd = self.join.currentEnd
+            if self.join.update(text: text, firstStart: firstStart, lastEnd: lastEnd) {
+              self.logger(
+                "dictation_pause",
+                ["kept_chars": .int(was.count), "new_chars": .int(text.count), "prev_end_s": .double(wasEnd),
+                 "new_start_s": .double(firstStart)])
+            }
+            self.onText?(self.join.note)
+          }
           if let message, !final {
             self.logger("dictation_error", ["error": .string(message)])
             self.stop(why: "error")
