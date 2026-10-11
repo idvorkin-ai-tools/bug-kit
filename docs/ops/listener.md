@@ -66,7 +66,7 @@ Every step is a JSON line in `~/tmp/agent/bugs/listener.log`:
 - `notify`
 - `poll_end`, with counts
 
-A poll that throws is logged with its traceback as `poll_error`, and the loop goes on. `--once` exits 1 when the poll reports failures. `status.json` records the start, completion, last successful poll, device reachability and summary; pending delivery reasons are persisted in `seen.json`. Dry runs leave both files unchanged.
+A poll that throws is logged with its traceback as `poll_error`, and the loop goes on. `--once` exits 1 when the poll reports failures or reaches no device; an offline paired device is not a failure while another device is reachable. `status.json` records the start, completion, last successful poll, device reachability and summary; pending delivery reasons are persisted in `seen.json`. Dry runs leave both files unchanged.
 
 ```sh
 jq -c 'select(.event=="copy" and .ok==false)' ~/tmp/agent/bugs/listener.log   # every failed copy

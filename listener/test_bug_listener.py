@@ -279,7 +279,7 @@ def invoke(args):
 
 def test_old_cli_flags_still_poll(cli_config, monkeypatch):
     calls = []
-    monkeypatch.setattr(bl, "poll", lambda cfg, backfill: (calls.append(backfill) or {"errors": 0}))
+    monkeypatch.setattr(bl, "poll", lambda cfg, backfill: (calls.append(backfill) or {"errors": 0, "reachable": 1}))
     result = invoke(["--config", str(cli_config), "--once", "--dry-run", "--backfill"])
     assert result.exit_code == 0, result.output
     assert calls == [True]
@@ -337,10 +337,10 @@ def test_offline_paired_device_is_not_a_poll_error(cli_config, monkeypatch, reac
     monkeypatch.setattr(bl, "list_devices", lambda: [phone, ipad])
     monkeypatch.setattr(bl, "probe", lambda dev: {"locked": False} if reachable and dev is phone else None)
     monkeypatch.setattr(bl, "copy", lambda *args, **kwargs: True)
-    summary = bl.poll({"apps": [{"name": "app", "bundle": "app.bundle", "tracker": {"kind": "none"}}],
-                       "poll_seconds": 300}, backfill=False)
-    assert summary["errors"] == 0 and summary["reachable"] == int(reachable)
+    result = invoke(["--config", str(cli_config), "--once"])
+    assert result.exit_code == (0 if reachable else 1), result.output
     state = bl.read_status()
+    assert state["summary"]["errors"] == 0 and state["summary"]["reachable"] == int(reachable)
     assert [d["reachable"] for d in state["devices"]] == [reachable, False]
     assert ("last_successful_poll" in state) == reachable
     result = invoke(["status", "--config", str(cli_config), "--json"])

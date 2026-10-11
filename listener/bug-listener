@@ -876,7 +876,7 @@ def main(
     while True:
         try:
             summary = poll(cfg, backfill)
-            if once and summary["errors"]:
+            if once and (summary["errors"] or not summary["reachable"]):
                 raise typer.Exit(1)
         except typer.Exit:
             raise
