@@ -51,9 +51,10 @@ final class AVDictationCapture: DictationCapture {
     }
 
     func restoreAfterDiscovery(_ session: AVAudioSession, activated: Bool) throws {
-      let mixes = category == .ambient || !options.intersection([
-        .mixWithOthers, .duckOthers, .interruptSpokenAudioAndMixWithOthers
+      let changesOtherAudio = !options.intersection([
+        .duckOthers, .interruptSpokenAudioAndMixWithOthers
       ]).isEmpty
+      let mixes = !changesOtherAudio && (category == .ambient || options.contains(.mixWithOthers))
       if activated, !mixes {
         // Release our temporary mixing session before restoring a non-mixing category,
         // so an inactive host cannot acquire exclusive audio just by listing inputs.
