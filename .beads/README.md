@@ -1,81 +1,26 @@
-# Beads - AI-Native Issue Tracking
+# BugKit issue tracking
 
-Welcome to Beads! This repository uses **Beads** for issue tracking - a modern, AI-native tool designed to live directly in your codebase alongside your code.
+BugKit uses Beads (`bd`) for agent work. The issue prefix is `bug`. GitHub reports and PRs link to beads through external references; the Dolt database is the task source of truth.
 
-## What is Beads?
-
-Beads is issue tracking that lives in your repo, making it perfect for AI coding agents and developers who want their issues close to their code. No web UI required - everything works through the CLI and integrates seamlessly with git.
-
-**Learn more:** [github.com/steveyegge/beads](https://github.com/steveyegge/beads)
-
-## Quick Start
-
-### Essential Commands
-
-```bash
-# Create new issues
-bd create "Add user authentication"
-
-# View all issues
-bd list
-
-# View issue details
-bd show <issue-id>
-
-# Update issue status
-bd update <issue-id> --claim
-bd update <issue-id> --status done
-
-# Sync with Dolt remote
+```sh
+bd prime
+bd ready
+bd create "Describe the work" --type task --description "Why and acceptance criteria"
+bd update <id> --status in_progress
+bd close <id> --reason "What shipped and how it was verified"
 bd dolt push
 ```
 
-### Working with Issues
+Every worktree uses the main checkout's `.beads/embeddeddolt` database. This directory is ignored by Git. Code commits carry configuration; `bd dolt push` and `bd dolt pull` sync the database to the configured GitHub Dolt remote. An ordinary code push does not sync tasks. JSONL exports are optional interchange, not backups.
 
-Issues in Beads are:
-- **Git-native**: Stored in Dolt database with version control and branching
-- **AI-friendly**: CLI-first design works perfectly with AI coding agents
-- **Branch-aware**: Issues can follow your branch workflow
-- **Sync-ready**: Uses Dolt remotes for backup and team sharing
+On a fresh clone, initialize the local store from the existing remote (do not reinitialize an existing database):
 
-## Why Beads?
-
-✨ **AI-Native Design**
-- Built specifically for AI-assisted development workflows
-- CLI-first interface works seamlessly with AI coding agents
-- No context switching to web UIs
-
-🚀 **Developer Focused**
-- Issues live in your repo, right next to your code
-- Works offline, syncs when you push
-- Fast, lightweight, and stays out of your way
-
-🔧 **Git Integration**
-- Dolt-native sync via bd dolt push / bd dolt pull
-- Branch-aware issue tracking
-- Dolt-native three-way merge resolution
-
-## Get Started with Beads
-
-Try Beads in your own projects:
-
-```bash
-# Install Beads
-curl -sSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
-
-# Initialize in your repo
-bd init
-
-# Create your first issue
-bd create "Try out Beads"
+```sh
+bd init --prefix bug --remote git+https://github.com/idvorkin/bug-kit.git \
+  --non-interactive --skip-hooks --skip-agents
+bd dolt pull
 ```
 
-## Learn More
+This was verified with a fresh local clone recovering all three active beads. Existing clones use `bd dolt pull` directly.
 
-- **Documentation**: [github.com/steveyegge/beads/docs](https://github.com/steveyegge/beads/tree/main/docs)
-- **Quick Start Guide**: Run `bd quickstart`
-- **Examples**: [github.com/steveyegge/beads/examples](https://github.com/steveyegge/beads/tree/main/examples)
-
----
-
-*Beads: Issue tracking that moves at the speed of thought* ⚡
+See [agent instructions](../AGENTS.md) for validation and simulator coordination, and [the README](../README.md#beads-work-tracking) for clone setup.
