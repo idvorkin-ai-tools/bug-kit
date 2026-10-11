@@ -17,6 +17,7 @@ This folder describes how Exercise Analyzer (EA), Context Grabber's native app (
 All three scripts are configured through `~/.config/bug-kit/apps.json`, the listener's file.
 
 - `scripts/pull-reports.sh [--check] [app]`: pulls logs, reports and crash files from every device.
+- `scripts/symbolicate.sh <crash.json> <dSYM or folder>`: resolves a MetricKit payload's frames against the build's dSYMs.
 - `scripts/deploy-all.sh <app> [--only …] [--register dev] [--watch] [--dry-run]`: builds once under the signing lock and installs on every device.
 - `scripts/whats-new.sh <out.json> --repo … --base-url …`: the What's new build phase.
 

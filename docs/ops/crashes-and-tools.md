@@ -20,19 +20,19 @@
 
 ## Symbolicating a MetricKit payload
 
-Use the dSYM from the same build as the crash, which is normally the last device build:
+Use the dSYMs from the same build as the crash, normally the last device build:
 
 ```sh
-DSYM=$(find Build/Build/Products/Debug-iphoneos -maxdepth 1 -name "App.app.dSYM" | head -1)
-BIN="$DSYM/Contents/Resources/DWARF/App"
-jq -r '.crashDiagnostics[]? | (.callStackTree.callStacks[] | select(.threadAttributed == true) | .. | objects
-  | select(has("address")) | "\(.binaryName // "?") \(.offsetIntoBinaryTextSegment // 0)")' crash.json |
-while read -r name off; do
-  if [ "$name" = App ]; then atos -o "$BIN" -arch arm64 -l 0x0 "$(printf '0x%x' "$off")"; else echo "$name +$off"; fi
-done
+scripts/symbolicate.sh ~/tmp/agent/bugs/<app>/<device>/crashes/<stamp>.json Build/Build/Products/Debug-iphoneos
 ```
 
-EA and CG each ship this as `scripts/symbolicate.sh` (`just symbolicate <file>`).
+- It prints the cause (exception type, signal, termination reason), then each frame of the attributed thread: a
+  symbol with file and line for the app's binaries, `+offset (system)` for the rest.
+- Frames are matched to dSYMs by binary UUID, so a dSYM from another build prints "no dSYM for this build" instead
+  of a wrong symbol.
+- **`atos -l 0x0 <offset>` does not work.** It prints the address back unresolved. The older recipe in this file,
+  and EA's script, used it. The offset counts from the binary's `__TEXT` start (`0x100000000` for an arm64 app),
+  so pass that start as `-l` and start + offset as the address. The script reads the start with `otool -l`.
 
 ## The device's own crash reports
 

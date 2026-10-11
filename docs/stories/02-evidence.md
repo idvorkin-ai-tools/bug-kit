@@ -137,6 +137,8 @@ Part of the [BugKit stories](README.md).
 - **Status:**
   - `CrashReports`. The announce-once is verified on the host by `crashFilesAreAnnouncedOnceThenRenamed`.
   - The MetricKit subscriber and the signal and exception handlers are verified by typecheck and build.
+  - `scripts/symbolicate.sh` (EA's, generalized). It is verified on the host by `scripts/tests/test_symbolicate.py`
+    against a real arm64 binary and its dSYM. That test found that the older `atos -l 0x0` recipe never resolved.
   - A real crash in a BugKit app is still to come.
 
 #### Use Case:
