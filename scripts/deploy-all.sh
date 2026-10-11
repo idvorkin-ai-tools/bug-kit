@@ -46,7 +46,7 @@ fi
 
 exec 3>&2  # the terminal's stderr, kept for run() when a call's own output is redirected to a file
 run() {  # prints the command; runs it unless --dry-run
-  { printf '+ %q' "$1"; shift; printf ' %q' "$@"; echo; } >&3
+  { printf '+ '; printf '%q ' "$@"; echo; } >&3
   [ "$dry" = 1 ] || "$@"
 }
 

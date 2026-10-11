@@ -6,8 +6,8 @@
 """bug-listener: pulls new bug reports off every reachable iPhone and iPad and files each one once.
 
 Each poll, for each physical iOS device `devicectl` lists and each app in ~/.config/bug-kit/apps.json:
-copy Documents/bugs.jsonl; for each report not in the seen-store, copy its folder, the session log it names
-and the app's crash logs to ~/tmp/agent/bugs/<app>/<device>/, file it through the app's tracker, append a line
+copy Documents/bugs.jsonl and independently discover crash files; for each report not in the seen-store,
+copy its folder and session evidence to ~/tmp/agent/bugs/<app>/<device>/, file it through the app's tracker, append a line
 to ~/tmp/agent/bugs/inbox.jsonl and send a Herdr notification. Every step is a JSON line in
 ~/tmp/agent/bugs/listener.log.
 
@@ -17,6 +17,7 @@ filing it: the apps' own `just file-bugs` filed those. --backfill files them ins
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -45,6 +46,7 @@ FIXED = {
 
 app = typer.Typer(add_completion=False, help=__doc__)
 DRY = False
+QUIET = False
 
 
 def now() -> str:
@@ -53,6 +55,8 @@ def now() -> str:
 
 def log(event: str, **fields: Any) -> None:
     """One JSON line per step in listener.log, and a short line on stdout for the pane."""
+    if QUIET:
+        return
     rec = {"t": now(), "event": event, **({"dry_run": True} if DRY else {}), **fields}
     STATE.mkdir(parents=True, exist_ok=True)
     with LOG.open("a") as f:
@@ -85,25 +89,45 @@ def slug(text: str) -> str:
 
 def load_config(path: Path) -> dict:
     cfg = json.loads(path.read_text())
-    apps = cfg.get("apps", [])
-    for a in apps:
+    if not isinstance(cfg, dict) or not isinstance(cfg.get("apps"), list) or not cfg["apps"]:
+        raise ValueError("config needs a nonempty apps array")
+    names, bundles = set(), set()
+    for a in cfg["apps"]:
+        if not isinstance(a, dict):
+            raise ValueError("each app must be an object")
         for key in ("name", "bundle"):
-            if not a.get(key):
-                raise ValueError(f"an app in {path} has no {key}: {a}")
-        a.setdefault("tracker", {"kind": "none"})
-        a.setdefault("log_dir", "Documents/logs")
-        a.setdefault("crash_dir", "Documents/crashes")
+            if not isinstance(a.get(key), str) or not a[key].strip():
+                raise ValueError(f"each app needs a nonempty {key}")
+        if a["name"] in (".", "..") or "/" in a["name"] or a["name"] in names or a["bundle"] in bundles:
+            raise ValueError("app names must be unique directory names; bundles must be unique")
+        names.add(a["name"])
+        bundles.add(a["bundle"])
+        tracker = a.setdefault("tracker", {"kind": "none"})
+        if not isinstance(tracker, dict) or tracker.get("kind") not in ("github", "beads", "none"):
+            raise ValueError(f"{a['name']}: tracker.kind must be github, beads or none")
+        if tracker["kind"] == "github" and not re.fullmatch(r"[^/\s]+/[^/\s]+", str(tracker.get("repo", ""))):
+            raise ValueError(f"{a['name']}: GitHub tracker needs owner/repo")
+        if tracker["kind"] == "beads" and not a.get("repo"):
+            raise ValueError(f"{a['name']}: beads needs a local repo")
+        for key, default in (("log_dir", "Documents/logs"), ("crash_dir", "Documents/crashes")):
+            value = a.setdefault(key, default)
+            if not isinstance(value, str) or not value or Path(value).is_absolute() or ".." in Path(value).parts:
+                raise ValueError(f"{a['name']}: {key} must be relative to the app container")
         if a.get("repo"):
             a["repo"] = str(Path(a["repo"]).expanduser())
-    cfg["apps"] = apps
-    cfg.setdefault("poll_seconds", 300)
+    interval = cfg.setdefault("poll_seconds", 300)
+    if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
+        raise ValueError("poll_seconds must be a positive integer")
     return cfg
 
 
 def load_seen() -> dict:
     if not SEEN.exists():
         return {}
-    return json.loads(SEEN.read_text())
+    data = json.loads(SEEN.read_text())
+    if not isinstance(data, dict) or any(not isinstance(entry, dict) for entry in data.values()):
+        raise ValueError("seen.json must map app/device pairs to state objects")
+    return data
 
 
 def save_seen(seen: dict) -> None:
@@ -126,7 +150,7 @@ def list_devices() -> list[dict]:
         rc, _, err = run(["xcrun", "devicectl", "list", "devices", "--json-output", str(out)], timeout=60)
         if rc != 0 or not out.exists():
             log("devices_error", rc=rc, stderr=tail(err))
-            return []
+            raise RuntimeError(f"device discovery failed (exit {rc}): {tail(err)}")
         data = json.loads(out.read_text())
     devices, used = [], set()
     for d in data.get("result", {}).get("devices", []):
@@ -165,7 +189,7 @@ def probe(dev: dict) -> Optional[dict]:
     return state
 
 
-def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any) -> bool:
+def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> bool:
     """devicectl copy from the app's container. Every copy is logged with its outcome and the lock state."""
     dest.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
@@ -173,8 +197,12 @@ def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any) -> bool:
                       "--domain-type", "appDataContainer", "--domain-identifier", a["bundle"],
                       "--source", source, "--destination", str(dest), "--timeout", "90"], timeout=120)
     ms = int((time.monotonic() - t0) * 1000)
-    ok = rc == 0 and dest.exists()
+    missing = allow_missing and rc not in (0, 124, 127) and bool(re.search(
+        r"no such file|file[^\n]*(?:does not exist|not found)|directory[^\n]*(?:does not exist|not found)", err, re.I))
+    ok = (rc == 0 and dest.exists()) or missing
     fields = dict(device=dev["dir"], app=a["name"], source=source, ok=ok, ms=ms, locked=locked)
+    if missing:
+        fields["missing"] = True
     if not ok:
         fields.update(rc=rc, stderr=tail(err))
     log("copy", **fields)
@@ -254,7 +282,8 @@ def issue_body(rec: dict, key: str, dev: dict, a: dict, local: Path) -> str:
     log_name = rec.get("log")
     if log_name:
         at = f" at {rec['session_t_ms']} ms" if rec.get("session_t_ms") is not None else ""
-        rows.append(("Log", f"`{log_name}`{at}, pulled to `{tilde(local / 'logs' / Path(log_name).name)}`"))
+        log_path = local / log_name if rec.get("kind") == "crash" else local / "logs" / Path(log_name).name
+        rows.append(("Log", f"`{log_name}`{at}, pulled to `{tilde(log_path)}`"))
     if rec.get("screenshot"):
         rows.append(("Screenshot", f"`{tilde(local / rec['screenshot'])}` on the Mac, not uploaded"))
     for f in rec.get("files") or []:
@@ -263,7 +292,9 @@ def issue_body(rec: dict, key: str, dev: dict, a: dict, local: Path) -> str:
     context.update({k: v for k, v in rec.items() if k not in FIXED})  # older lines keep context at the top level
     rows += [(k, v) for k, v in sorted(context.items())]
     table = "\n".join(f"| {cell(k)} | {cell(v)} |" for k, v in rows if v is not None)
-    markers = f"<!-- bug:{rec.get('reported_at', '')} -->" + (f"\n<!-- bug-id:{rec['id']} -->" if rec.get("id") else "")
+    markers = "" if rec.get("kind") == "crash" else f"<!-- bug:{rec.get('reported_at', '')} -->"
+    if rec.get("id"):
+        markers += f"\n<!-- bug-id:{rec['id']} -->"
     return (f"**Report from the {dev['type']}** ({a['name']}, pulled by bug-listener), {rec.get('reported_at', '?')}\n\n"
             f"> {note}\n\n| | |\n|---|---|\n{table}\n\n{markers}")
 
@@ -276,20 +307,37 @@ class Filer:
     so the next poll tries again)."""
 
     def __init__(self) -> None:
-        self.filed_markers: dict[str, Optional[str]] = {}
-        self.bodies: dict[str, str] = {}
+        self.filed_markers: dict[str, Optional[set[str]]] = {}
+        self.legacy_markers: dict[str, set[str]] = {}
+        self.bodies: dict[str, list[str]] = {}
 
-    def github_markers(self, repo: str) -> Optional[str]:
+    def github_markers(self, repo: str) -> Optional[set[str]]:
         """The bodies' markers, read once per poll. A failed read stops filing (CG 6fed157): better late than twice."""
         if repo not in self.filed_markers:
             rc, out, err = run(["gh", "issue", "list", "-R", repo, "--state", "all", "--limit", "1000",
-                                "--json", "body", "--jq", ".[].body"], timeout=90)
+                                "--json", "body"], timeout=90)
             if rc != 0:
                 log("tracker_error", tracker="github", repo=repo, step="list", rc=rc, stderr=tail(err))
                 self.filed_markers[repo] = None
             else:
-                self.filed_markers[repo] = "\n".join(re.findall(r"<!-- bug(?:-id)?:[^ ]+ -->", out))
-                self.bodies[repo] = re.sub(r"\s+", " ", out)
+                try:
+                    issues = json.loads(out)
+                    if not isinstance(issues, list):
+                        raise ValueError("issue list is not an array")
+                    bodies = [issue.get("body") or "" for issue in issues]
+                    self.filed_markers[repo] = set()
+                    self.legacy_markers[repo] = set()
+                    self.bodies[repo] = []
+                    for body in bodies:
+                        markers = set(re.findall(r"<!-- bug(?:-id)?:[^ ]+ -->", body))
+                        self.filed_markers[repo].update(markers)
+                        if not any(marker.startswith("<!-- bug-id:") for marker in markers):
+                            self.legacy_markers[repo].update(markers)
+                        if not markers:
+                            self.bodies[repo].append(re.sub(r"\s+", " ", body))
+                except (ValueError, TypeError, AttributeError) as e:
+                    log("tracker_error", tracker="github", repo=repo, step="list", message=str(e))
+                    self.filed_markers[repo] = None
         return self.filed_markers[repo]
 
     def check(self, a: dict, rec: dict) -> Optional[tuple[str, Optional[str]]]:
@@ -302,12 +350,16 @@ class Filer:
         if markers is None:
             return "error", None
         at = rec.get("reported_at")
-        if (rec.get("id") and f"<!-- bug-id:{rec['id']} -->" in markers) or (at and f"<!-- bug:{at} -->" in markers):
+        # UUID reports can share a timestamp. Only use a timestamp to match an old issue without a UUID.
+        timestamp_markers = self.legacy_markers.get(repo, set()) if rec.get("id") else markers
+        if rec.get("kind") == "crash":
+            timestamp_markers = set()  # a manual report at this second is a different event
+        if (rec.get("id") and f"<!-- bug-id:{rec['id']} -->" in markers) or (at and f"<!-- bug:{at} -->" in timestamp_markers):
             return "already_filed", repo
         # Some issues were filed without the marker (by hand, or by an older script), so the apps' own dedupe
-        # missed them: a note whose first 60 characters already appear in an issue is taken as filed, and logged.
+        # missed them: a note whose first 60 characters already appear in a marker-free issue is taken as filed.
         note = re.sub(r"\s+", " ", rec.get("note") or "").strip()
-        if len(note) >= 30 and note[:60] in self.bodies.get(repo, ""):
+        if rec.get("kind") != "crash" and len(note) >= 30 and any(note[:60] in body for body in self.bodies.get(repo, [])):
             log("possible_duplicate", repo=repo, reported_at=at, note=note[:60])
             return "already_filed", repo
         return None
@@ -332,7 +384,14 @@ class Filer:
                 log("tracker_error", tracker="github", repo=repo, step="create", rc=rc, stderr=tail(err))
                 return "error", None
             url = out.strip().splitlines()[-1]
-            self.filed_markers[repo] = (self.filed_markers.get(repo) or "") + f"\n<!-- bug:{at} -->"
+            markers = self.filed_markers.setdefault(repo, set())
+            if markers is not None:
+                if at and rec.get("kind") != "crash":
+                    markers.add(f"<!-- bug:{at} -->")
+                if rec.get("id"):
+                    markers.add(f"<!-- bug-id:{rec['id']} -->")
+                elif at:
+                    self.legacy_markers.setdefault(repo, set()).add(f"<!-- bug:{at} -->")
             return "filed", url
         if kind == "beads":
             if DRY:
@@ -365,114 +424,464 @@ def notify(title: str, body: str) -> None:
     log("notify", ok=rc == 0, title=title, **({"rc": rc, "stderr": tail(err)} if rc else {}))
 
 
-# --- one poll -----------------------------------------------------------------------------------------------
+# --- crash discovery and delivery ---------------------------------------------------------------------------
+
+
+def parse_time(value: Any) -> Optional[dt.datetime]:
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed.astimezone(dt.timezone.utc) if parsed.tzinfo else None
+    except ValueError:
+        return None
+
+
+def crash_record(path: Path, a: dict, dev: dict) -> Optional[dict]:
+    """One issue per diagnostic file. Renaming to .reported.txt never changes its identity."""
+    name = path.name.replace(".reported.txt", ".txt")
+    match = re.fullmatch(r"(signal|exception)-(\d+)\.txt", name)
+    context = {}
+    if match:
+        kind = match[1]
+        occurred = dt.datetime.fromtimestamp(int(match[2]), dt.timezone.utc)
+        if not path.read_text(errors="replace").strip():
+            raise ValueError("empty crash file")
+        # Keep stack contents local: a generic title is enough to find the evidence.
+        note = f"Automatic {kind} crash: {name}"
+    elif re.fullmatch(r"\d{8}-\d{6}\.json", name):
+        payload = json.loads(path.read_text())
+        if not isinstance(payload, dict):
+            raise ValueError("MetricKit payload is not an object")
+        crashes, hangs = payload.get("crashDiagnostics", []), payload.get("hangDiagnostics", [])
+        if not crashes and not hangs:
+            return None
+        kind = "metrickit"
+        occurred = dt.datetime.strptime(path.stem, "%Y%m%d-%H%M%S").replace(tzinfo=dt.timezone.utc)
+        context = {"crash_count": len(crashes), "hang_count": len(hangs), "time_basis": "payload interval end"}
+        note = f"Automatic MetricKit diagnostics: {len(crashes)} crash(es), {len(hangs)} hang(s), {name}"
+    else:
+        return None
+    identity = hashlib.sha256(f"{a['bundle']}|{dev['id']}|{name}".encode()).hexdigest()
+    return {"id": f"crash:{identity}", "kind": "crash", "app": a["name"], "bundle": a["bundle"],
+            "reported_at": occurred.isoformat().replace("+00:00", "Z"), "note": note,
+            "files": [f"crashes/{name}"], "context": {"diagnostic_kind": kind, **context}}
+
+
+def attach_crash_session(rec: dict, logs: Path) -> None:
+    """Signal/exception epochs can suggest a preceding session. MetricKit delivery time cannot."""
+    rec["context"]["session_match"] = "unknown"
+    if rec["context"]["diagnostic_kind"] == "metrickit":
+        return
+    occurred = parse_time(rec["reported_at"])
+    candidates = []
+    for path in logs.rglob("*.jsonl") if logs.exists() else []:
+        try:
+            with path.open(errors="replace") as f:
+                start = json.loads(f.readline())
+            began = parse_time(start.get("started"))
+            if start.get("type") == "session_start" and began and occurred and began <= occurred:
+                candidates.append((began, path, start))
+        except (OSError, ValueError, AttributeError):
+            continue
+    if candidates:
+        began, path, start = max(candidates, key=lambda item: (item[0], item[1].name))
+        rec["log"] = f"logs/{path.relative_to(logs).as_posix()}"
+        rec["session_t_ms"] = int((occurred - began).total_seconds() * 1000)
+        rec["context"]["session_match"] = "inferred: latest session_start before crash"
+        for field in ("build", "commit"):
+            if field in start:
+                rec[field] = start[field]
+
+
+def pending(entry: dict, rec: dict, reason: str, a: dict, dev: dict) -> None:
+    items = entry.setdefault("pending", {})
+    first = items.get(rec["id"], {}).get("first_seen", now())
+    items[rec["id"]] = {"key": rec["id"], "app": a["name"], "device": dev["dir"],
+                        "kind": rec.get("kind", "report"), "reason": reason,
+                        "first_seen": first, "last_attempt": now()}
+
+
+def deliver(filer: Filer, a: dict, rec: dict, dev: dict, local: Path, entry: dict,
+            keys_field: str, seen: dict, summary: dict, key: Optional[str] = None) -> bool:
+    key = key or rec["id"]
+    outcome, ref = filer.file(a, rec, key, dev, local)
+    log("file", key=key, outcome=outcome, ref=ref, tracker=a["tracker"]["kind"], app=a["name"], device=dev["dir"])
+    if outcome == "error":
+        summary["errors"] += 1
+        pending(entry, {**rec, "id": key}, "tracker", a, dev)
+        save_seen(seen)
+        return False
+    if outcome == "would_file":
+        summary["would_file"] += 1
+        print(f"  WOULD FILE {a['name']} / {dev['dir']} {key}\n{issue_body(rec, key, dev, a, local)}", flush=True)
+        return False
+    if outcome == "filed":
+        summary["filed"] += 1
+    if not DRY:
+        with INBOX.open("a") as f:
+            f.write(json.dumps({"t": now(), "app": a["name"], "repo": a.get("repo"), "device": dev["dir"],
+                                "key": key, "kind": rec.get("kind", "report"), "reported_at": rec.get("reported_at"),
+                                "note": rec.get("note"), "tracker": a["tracker"]["kind"], "ref": ref,
+                                "dir": str(local)}, ensure_ascii=False) + "\n")
+        notify(f"Bug: {a['name']}", f"{title_of(rec)} ({dev['type']}) {ref or ''}".strip())
+    entry[keys_field].append(key)
+    entry.setdefault("pending", {}).pop(key, None)
+    save_seen(seen)
+    return True
+
+
+def already_filed(filer: Filer, a: dict, rec: dict, dev: dict, entry: dict, keys_field: str,
+                  seen: dict, summary: dict, key: Optional[str] = None) -> bool:
+    key = key or rec["id"]
+    stop = filer.check(a, rec)
+    if stop is None:
+        return False
+    if stop[0] == "error":
+        summary["errors"] += 1
+        pending(entry, {**rec, "id": key}, "tracker_lookup", a, dev)
+    else:
+        summary["skipped"] += 1
+        entry[keys_field].append(key)
+        entry.setdefault("pending", {}).pop(key, None)
+    log("file", key=key, outcome=stop[0], ref=stop[1], app=a["name"], device=dev["dir"])
+    save_seen(seen)
+    return True
+
+
+def poll_reports(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer: Filer,
+                 summary: dict, backfill: bool) -> None:
+    ctx = {"device": dev["dir"], "app": a["name"]}
+    # Read a fresh snapshot. A missing index must not replay a stale local copy.
+    with tempfile.TemporaryDirectory() as tmp:
+        index = Path(tmp) / "bugs.jsonl"
+        if not copy(dev, a, "Documents/bugs.jsonl", index, locked, allow_missing=True):
+            summary["errors"] += 1
+            return
+        reports = read_index(index, ctx) if index.exists() else []
+        if index.exists():
+            local.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(index, local / "bugs.jsonl")
+    pair = f"{a['bundle']}|{dev['id']}"
+    entry = seen.setdefault(pair, {"since": now()})
+    first = "keys" not in entry
+    known = set(entry.setdefault("keys", []))
+    fresh = dict((k, r) for k, r in reports if k not in known)
+    log("index", reports=len(reports), new=len(fresh), first_contact=first, **ctx)
+    if first and not backfill:
+        entry["keys"] = sorted(set(k for k, _ in reports))
+        summary["baselined"] += len(entry["keys"])
+        log("baseline", marked_seen=len(entry["keys"]), **ctx)
+        save_seen(seen)
+        return
+    save_seen(seen)
+    for key, rec in fresh.items():
+        summary["new"] += 1
+        log("report", key=key, reported_at=rec.get("reported_at"), title=title_of(rec), **ctx)
+        if already_filed(filer, a, rec, dev, entry, "keys", seen, summary, key):
+            continue
+        folder = folder_of(rec)
+        evidence_ok = not folder or copy(dev, a, under_documents(folder), local / folder, locked)
+        src = log_source(rec, a)
+        if src:
+            log_ok = copy(dev, a, src, local / "logs" / Path(src).name, locked)
+            evidence_ok = evidence_ok and log_ok
+        if not evidence_ok:
+            summary["errors"] += 1
+            pending(entry, {**rec, "id": key}, "evidence", a, dev)
+            log("evidence_pending", key=key, **ctx)
+            save_seen(seen)
+            continue
+        deliver(filer, a, rec, dev, local, entry, "keys", seen, summary, key)
+
+
+def poll_crashes(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer: Filer,
+                 summary: dict, backfill: bool) -> None:
+    ctx = {"device": dev["dir"], "app": a["name"]}
+    pair = f"{a['bundle']}|{dev['id']}"
+    with tempfile.TemporaryDirectory() as tmp:
+        snapshot = Path(tmp) / "crashes"
+        if not copy(dev, a, a.get("crash_dir", "Documents/crashes"), snapshot, locked, allow_missing=True):
+            summary["errors"] += 1
+            return
+        records = {}
+        for path in sorted(snapshot.glob("*")):
+            if not path.is_file():
+                continue
+            try:
+                rec = crash_record(path, a, dev)
+                if rec:
+                    dest = local / rec["files"][0]
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(path, dest)
+                    records[rec["id"]] = rec
+            except (OSError, ValueError, TypeError, OverflowError) as e:
+                summary["errors"] += 1
+                log("crash_unreadable", file=path.name, message=str(e), **ctx)
+        entry = seen.setdefault(pair, {"since": now()})
+        first = "crash_keys" not in entry
+        known = set(entry.setdefault("crash_keys", []))
+        if first and not backfill:
+            entry["crash_keys"] = sorted(records)
+            summary["baselined"] += len(records)
+            log("crash_baseline", marked_seen=len(records), **ctx)
+            save_seen(seen)
+            return
+        save_seen(seen)
+        fresh = [r for key, r in records.items() if key not in known]
+        logs_ready = None
+        logs = Path(tmp) / "logs"
+        for rec in fresh:
+            summary["new"] += 1
+            summary["crashes"] += 1
+            log("crash", key=rec["id"], file=rec["files"][0], **ctx)
+            if already_filed(filer, a, rec, dev, entry, "crash_keys", seen, summary):
+                continue
+            if logs_ready is None:
+                logs_ready = copy(dev, a, a.get("log_dir", "Documents/logs"), logs, locked, allow_missing=True)
+                if logs_ready and logs.exists():
+                    shutil.copytree(logs, local / "logs", dirs_exist_ok=True)
+            if not logs_ready:
+                summary["errors"] += 1
+                pending(entry, rec, "crash_logs", a, dev)
+                log("evidence_pending", key=rec["id"], **ctx)
+                save_seen(seen)
+                continue
+            attach_crash_session(rec, logs)
+            if rec["context"]["session_match"] == "unknown":
+                rec["context"]["logs_directory"] = tilde(local / "logs") if logs.exists() else "unavailable on device"
+            metadata = rec["files"][0] + ".report.json"
+            rec["files"].append(metadata)
+            (local / metadata).write_text(json.dumps(rec, indent=2, sort_keys=True) + "\n")
+            deliver(filer, a, rec, dev, local, entry, "crash_keys", seen, summary)
+
+
+# --- poll health --------------------------------------------------------------------------------------------
+
+
+def read_status() -> dict:
+    path = STATE / "status.json"
+    data = json.loads(path.read_text()) if path.exists() else {}
+    if not isinstance(data, dict):
+        raise ValueError("status.json is not an object")
+    return data
+
+
+def save_status(data: dict) -> None:
+    if DRY:
+        return
+    STATE.mkdir(parents=True, exist_ok=True)
+    fd, name = tempfile.mkstemp(dir=STATE, prefix=".status-")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+        os.replace(name, STATE / "status.json")
+    finally:
+        Path(name).unlink(missing_ok=True)
 
 
 def poll(cfg: dict, backfill: bool) -> dict:
     t0 = time.monotonic()
+    health = read_status()
+    health.update(last_poll_started=now(), in_progress=True, last_error=None,
+                  poll_seconds=cfg.get("poll_seconds", 300))
+    save_status(health)
     log("poll_start", apps=[a["name"] for a in cfg["apps"]])
-    summary = {"devices": 0, "reachable": 0, "new": 0, "filed": 0, "would_file": 0, "skipped": 0, "baselined": 0, "errors": 0}
-    seen = load_seen()
-    filer = Filer()
-    for dev in list_devices():
-        summary["devices"] += 1
-        lock = probe(dev)
-        if lock is None:
-            continue
-        summary["reachable"] += 1
-        for a in cfg["apps"]:
-            local = STATE / a["name"] / dev["dir"]
-            ctx = {"device": dev["dir"], "app": a["name"]}
-            index = local / "bugs.jsonl"
-            if not copy(dev, a, "Documents/bugs.jsonl", index, lock["locked"]):
+    summary = {"devices": 0, "reachable": 0, "new": 0, "crashes": 0, "filed": 0, "would_file": 0,
+               "skipped": 0, "baselined": 0, "errors": 0}
+    try:
+        seen = load_seen()
+        filer = Filer()
+        health["devices"] = []
+        for dev in list_devices():
+            summary["devices"] += 1
+            lock = probe(dev)
+            health["devices"].append({"id": dev["id"], "device": dev["dir"], "reachable": lock is not None,
+                                      "locked": lock.get("locked") if lock else None})
+            if lock is None:
                 summary["errors"] += 1
                 continue
-            reports = read_index(index, ctx)
-            pair = f"{a['bundle']}|{dev['id']}"
-            first = pair not in seen
-            known = set(seen.get(pair, {}).get("keys", []))
-            fresh = [(k, r) for k, r in reports if k not in known]
-            log("index", reports=len(reports), new=len(fresh), first_contact=first, **ctx)
-            if first and not backfill:
-                seen[pair] = {"keys": sorted(k for k, _ in reports), "since": now()}
-                summary["baselined"] += len(reports)
-                log("baseline", marked_seen=len(reports), **ctx,
-                    message="first contact: existing reports marked seen, not filed (--backfill files them)")
-                save_seen(seen)
-                continue
-            seen.setdefault(pair, {"keys": [], "since": now()})
-            crashes_copied = False
-            for key, rec in fresh:
-                summary["new"] += 1
-                log("report", key=key, reported_at=rec.get("reported_at"), title=title_of(rec), **ctx)
-                stop = filer.check(a, rec)
-                if stop:
-                    log("file", key=key, outcome=stop[0], ref=stop[1], tracker=a["tracker"].get("kind"), **ctx)
-                    if stop[0] == "error":
+            summary["reachable"] += 1
+            for a in cfg["apps"]:
+                local = STATE / a["name"] / dev["dir"]
+                # Independent streams: an absent or unreadable bug index must never suppress a crash.
+                for action in (poll_reports, poll_crashes):
+                    try:
+                        action(a, dev, local, lock["locked"], seen, filer, summary, backfill)
+                    except (OSError, ValueError, TypeError) as e:
                         summary["errors"] += 1
-                    else:
-                        summary["skipped"] += 1
-                        seen[pair]["keys"].append(key)
-                        save_seen(seen)
-                    continue
-                folder = folder_of(rec)
-                if folder:
-                    copy(dev, a, under_documents(folder), local / folder, lock["locked"])
-                src = log_source(rec, a)
-                if src:
-                    copy(dev, a, src, local / "logs" / Path(src).name, lock["locked"])
-                if not crashes_copied:
-                    copy(dev, a, a["crash_dir"], local / "crashes", lock["locked"])
-                    crashes_copied = True
-                outcome, ref = filer.file(a, rec, key, dev, local)
-                log("file", key=key, outcome=outcome, ref=ref, tracker=a["tracker"].get("kind"), **ctx)
-                if outcome == "error":
-                    summary["errors"] += 1
-                    continue  # stays unseen: the next poll tries again
-                if outcome == "would_file":
-                    summary["would_file"] += 1
-                    body = issue_body(rec, key, dev, a, local).replace("\n", "\n      ")
-                    print(f"  WOULD FILE  {a['name']} / {dev['dir']}  {key}\n    {ref}\n      {body}", flush=True)
-                    continue
-                if outcome == "filed":
-                    summary["filed"] += 1
-                if outcome in ("filed", "none") and not DRY:
-                    with INBOX.open("a") as f:
-                        f.write(json.dumps({"t": now(), "app": a["name"], "repo": a.get("repo"), "device": dev["dir"],
-                                            "key": key, "reported_at": rec.get("reported_at"), "note": rec.get("note"),
-                                            "tracker": a["tracker"].get("kind"), "ref": ref,
-                                            "dir": str(local)}, ensure_ascii=False) + "\n")
-                    notify(f"Bug: {a['name']}", f"{title_of(rec)} ({dev['type']}) {ref or ''}".strip())
-                seen[pair]["keys"].append(key)
-                save_seen(seen)
-    summary["ms"] = int((time.monotonic() - t0) * 1000)
-    log("poll_end", **summary)
-    return summary
+                        log("app_poll_error", app=a["name"], device=dev["dir"], step=action.__name__, message=str(e))
+        summary["ms"] = int((time.monotonic() - t0) * 1000)
+        health.update(last_poll_completed=now(), in_progress=False, summary=summary)
+        if not summary["errors"] and summary["reachable"]:
+            health["last_successful_poll"] = health["last_poll_completed"]
+        save_status(health)
+        log("poll_end", **summary)
+        return summary
+    except Exception as e:
+        health.update(in_progress=False, last_error=str(e), last_poll_completed=now())
+        save_status(health)
+        raise
+
+
+# --- agent diagnostics --------------------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def quiet_logs():
+    global QUIET
+    previous, QUIET = QUIET, True
+    try:
+        yield
+    finally:
+        QUIET = previous
+
+
+def doctor_checks(config: Path) -> dict:
+    checks = []
+
+    def record(name: str, state: str, detail: str) -> None:
+        checks.append({"check": name, "state": state, "detail": detail})
+
+    try:
+        cfg = load_config(config)
+        record("config", "ok", f"{len(cfg['apps'])} apps configured")
+    except (OSError, ValueError, TypeError) as e:
+        cfg = {"apps": []}
+        record("config", "error", str(e))
+    try:
+        STATE.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryFile(dir=STATE):
+            pass
+        for name in ("listener.log", "inbox.jsonl", "seen.json", "status.json"):
+            path = STATE / name
+            if path.exists() and (not path.is_file() or not os.access(path, os.R_OK | os.W_OK)):
+                raise OSError(f"{path} is not a readable, writable file")
+        load_seen()
+        read_status()
+        record("state_directory", "ok", str(STATE))
+    except (OSError, ValueError, TypeError) as e:
+        record("state_directory", "error", str(e))
+    if not shutil.which("xcrun"):
+        record("devicectl", "error", "xcrun missing; select an Xcode installation")
+    else:
+        rc, _, err = run(["xcrun", "--find", "devicectl"], timeout=15)
+        record("devicectl", "error" if rc else "ok", tail(err) if rc else "available")
+        if not rc:
+            with quiet_logs():
+                try:
+                    devices = list_devices()
+                    if not devices:
+                        record("devices", "warning", "no paired iPhone or iPad")
+                    for dev in devices:
+                        state = probe(dev)
+                        record(f"device:{dev['dir']}", "ok" if state else "warning",
+                               f"pairing={dev.get('pairing')}; reachable; locked={state['locked']}" if state
+                               else f"pairing={dev.get('pairing')}; unreachable; check pairing and connection")
+                except (OSError, ValueError, RuntimeError) as e:
+                    record("devices", "error", str(e))
+    for a in cfg["apps"]:
+        kind = a["tracker"]["kind"]
+        name = f"tracker:{a['name']}"
+        if kind == "none":
+            record(name, "ok", "local inbox only")
+        elif kind == "github":
+            if not shutil.which("gh"):
+                record(name, "error", "gh missing")
+                continue
+            rc, _, err = run(["gh", "auth", "status"], timeout=20)
+            if rc:
+                record(name, "error", "GitHub authentication failed; run gh auth login")
+                continue
+            rc, _, err = run(["gh", "issue", "list", "-R", a["tracker"]["repo"], "--limit", "1", "--json", "number"], timeout=30)
+            record(name, "error" if rc else "ok", "cannot read repository issues: " + tail(err) if rc else "authenticated; issues readable")
+        else:
+            repo = Path(a["repo"])
+            if not repo.is_dir() or not shutil.which("bd"):
+                record(name, "error", "bd missing or local repository does not exist")
+                continue
+            rc, _, err = run(["bd", "status", "--json"], timeout=20, cwd=repo)
+            record(name, "error" if rc else "ok", tail(err) if rc else "beads repository readable")
+    record("notifications", "ok" if shutil.which("herdr") else "warning",
+           "herdr available" if shutil.which("herdr") else "herdr missing; reports still reach the inbox")
+    return {"schema_version": 1, "ok": not any(c["state"] == "error" for c in checks), "checks": checks}
 
 
 @app.command()
+def doctor(ctx: typer.Context, config: Optional[Path] = typer.Option(None, "--config"),
+           json_output: bool = typer.Option(False, "--json", help="Emit one JSON object for agents.")) -> None:
+    """Check setup, device reachability, tracker access and local storage without filing."""
+    result = doctor_checks(config or ctx.obj["config"])
+    if json_output:
+        print(json.dumps(result))
+    else:
+        for check in result["checks"]:
+            print(f"{check['state'].upper():7} {check['check']}: {check['detail']}")
+    if not result["ok"]:
+        raise typer.Exit(1)
+
+
+@app.command()
+def status(ctx: typer.Context, config: Optional[Path] = typer.Option(None, "--config"),
+           json_output: bool = typer.Option(False, "--json", help="Emit one JSON object for agents.")) -> None:
+    """Read the last poll and pending reports. Does not contact devices or trackers."""
+    try:
+        cfg = load_config(config or ctx.obj["config"])
+        result = read_status()
+        seen = load_seen()
+        result["pending"] = [item for entry in seen.values() for item in entry.get("pending", {}).values()]
+        completed = parse_time(result.get("last_poll_completed"))
+        age = (dt.datetime.now(dt.timezone.utc) - completed).total_seconds() if completed else None
+        stale = age is None or age > 2 * result.get("poll_seconds", cfg["poll_seconds"])
+        result.update(schema_version=1, stale=stale, seconds_since_poll=round(age) if age is not None else None)
+        result["ok"] = not (stale or result.get("last_error") or result["pending"]
+                            or result.get("summary", {}).get("errors") or not result.get("summary", {}).get("reachable"))
+    except (OSError, ValueError, TypeError, AttributeError) as e:
+        result = {"schema_version": 1, "ok": False, "error": str(e)}
+        print(json.dumps(result) if json_output else f"ERROR: {e}")
+        raise typer.Exit(2)
+    if json_output:
+        print(json.dumps(result))
+    else:
+        print(f"Last completed poll: {result.get('last_poll_completed', 'never')}")
+        print(f"Last successful poll: {result.get('last_successful_poll', 'never')}")
+        print(f"In progress: {result.get('in_progress', False)}; stale: {stale}; pending: {len(result['pending'])}")
+        if result.get("last_error"):
+            print(f"Last error: {result['last_error']}")
+        for item in result["pending"]:
+            print(f"{item['app']} / {item['device']} {item['key']}: {item['reason']}")
+    if not result["ok"]:
+        raise typer.Exit(1)
+
+
+@app.callback(invoke_without_command=True)
 def main(
+    ctx: typer.Context,
     once: bool = typer.Option(False, "--once", help="Poll once and exit."),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Copy and print what would be filed; file nothing, "
-                                 "write no seen-store, inbox or notification."),
-    interval: Optional[int] = typer.Option(None, "--interval", help="Seconds between polls (config: poll_seconds, 300)."),
-    backfill: bool = typer.Option(False, "--backfill", help="On first contact, file existing reports instead of "
-                                  "marking them seen."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Copy and print without filing or updating delivery/health state."),
+    interval: Optional[int] = typer.Option(None, "--interval", min=1, help="Seconds between polls (config: 300)."),
+    backfill: bool = typer.Option(False, "--backfill", help="File existing reports and crashes on first contact."),
     config: Path = typer.Option(CONFIG, "--config", help="The apps file."),
 ) -> None:
     global DRY
+    ctx.obj = {"config": config}
+    if ctx.invoked_subcommand is not None:
+        return
     DRY = dry_run
     try:
         cfg = load_config(config)
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, TypeError) as e:
         log("config_error", path=str(config), message=str(e))
         raise typer.Exit(2)
-    every = interval or int(cfg["poll_seconds"])
+    every = interval if interval is not None else cfg["poll_seconds"]
+    cfg["poll_seconds"] = every
     log("start", config=str(config), apps=len(cfg["apps"]), interval=every, once=once, backfill=backfill)
     while True:
         try:
-            poll(cfg, backfill)
-        except Exception as e:  # one bad poll must not end the loop; it is logged with its traceback
+            summary = poll(cfg, backfill)
+            if once and summary["errors"]:
+                raise typer.Exit(1)
+        except typer.Exit:
+            raise
+        except Exception as e:
             log("poll_error", message=repr(e), traceback=traceback.format_exc())
             if once:
                 raise typer.Exit(1)

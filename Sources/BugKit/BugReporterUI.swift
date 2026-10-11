@@ -55,6 +55,13 @@
     /// Set false to ignore shakes (EA's instrumented run, story 037: a phone in a pocket shakes).
     public var shakeEnabled = true
     private var screen = ""
+    private var diagnostics = BugDiagnosticsSnapshot()
+    private var capturedLogPosition: (path: String, tMs: Int)?
+    private var breadcrumbs: InteractionBreadcrumbs
+    private let diagnosticsStarted = ProcessInfo.processInfo.systemUptime
+    private lazy var interactions = InteractionCapture { [weak self] event, fields in
+      self?.recordInteraction(event, fields: fields)
+    }
     private weak var presented: UIViewController?
     private let dismissWatcher = DismissWatcher()
     private lazy var motion = ShakeMotion { [weak self] peak in
@@ -68,6 +75,7 @@
     ) {
       self.hooks = hooks
       self.options = options
+      self.breadcrumbs = InteractionBreadcrumbs(capacity: options.interactionLimit)
       let device = "\(BugAppInfo.hardwareModel()) \(UIDevice.current.systemName) \(UIDevice.current.systemVersion)"
       self.writer = BugReportWriter(
         store: store, info: info ?? .fromMainBundle(device: device), logger: hooks.logger,
@@ -91,6 +99,8 @@
 
     private func present(source: BugReportFlow.Source) {
       let window = Self.keyWindow()
+      diagnostics = diagnosticsSnapshot(in: window)
+      capturedLogPosition = hooks.sessionLog()
       screenshot = window.map(Self.snapshot)
       context = hooks.context()
       screen = hooks.screen()
@@ -117,12 +127,14 @@
     public func log(another: Bool) {
       guard let note = flow.log(another: another, style: options.another) else { return }
       let png = screenshot?.pngData()
-      let screen = screen, context = context, sessionLog = hooks.sessionLog()
+      let screen = screen, context = context, sessionLog = capturedLogPosition
+      let diagnostics = diagnostics
       let writer = writer, extra = hooks.extraFiles
       if options.copySessionLog { hooks.flushLog() }
       Task { @MainActor in
         let report = await writer.save(
-          note: note, screen: screen, context: context, screenshotPNG: png, log: sessionLog, extraFiles: extra)
+          note: note, screen: screen, context: context, screenshotPNG: png, log: sessionLog, extraFiles: extra,
+          diagnostics: diagnostics)
         self.lastStatus = report.folder.isEmpty ? "Problem noted in the log only" : "Problem logged. Thanks."
       }
       guard !flow.isPresented else { return }  // keepMoment: the dialog stays, empty
@@ -163,18 +175,43 @@
       Task { @MainActor in
         try? await Task.sleep(for: .seconds(2))  // the first frame must be on screen for the picture
         let png = Self.keyWindow().map(Self.snapshot)?.pngData()
+        let diagnostics = self.diagnosticsSnapshot(in: Self.keyWindow())
+        if self.options.copySessionLog { self.hooks.flushLog() }
         for note in hooks.notes {
           _ = await self.writer.save(
             note: note, screen: self.hooks.screen(), context: self.hooks.context(), screenshotPNG: png,
-            log: self.hooks.sessionLog(), extraFiles: self.hooks.extraFiles)
+            log: self.hooks.sessionLog(), extraFiles: self.hooks.extraFiles, diagnostics: diagnostics)
         }
       }
     }
 
     /// The gentle shake runs only while the scene is active (the `.bugReporting` modifier calls this).
     func sceneActive(_ active: Bool) {
-      guard options.gentleShake else { return }
-      if active { motion.start() } else { motion.stop() }
+      recordInteraction("ui_scene", fields: ["active": .bool(active)])
+      if options.recordInteractions {
+        if active, let window = Self.keyWindow() { interactions.start(in: window) }
+        else { interactions.stop() }
+      }
+      if options.gentleShake {
+        if active { motion.start() } else { motion.stop() }
+      }
+    }
+
+    /// Add semantic actions for custom SwiftUI controls, keyboard shortcuts or accessibility activation.
+    /// Automatic touch breadcrumbs describe physical input; they cannot identify every virtual SwiftUI action.
+    public func recordInteraction(_ action: String, fields: [String: JSONValue] = [:]) {
+      guard options.recordInteractions else { return }
+      var fields = fields
+      fields["screen"] = .string(hooks.screen())
+      let t = hooks.sessionLog()?.tMs ?? Int((ProcessInfo.processInfo.systemUptime - diagnosticsStarted) * 1_000)
+      breadcrumbs.record(action, tMs: t, fields: fields)
+      hooks.logger(action, fields)
+    }
+
+    private func diagnosticsSnapshot(in window: UIWindow?) -> BugDiagnosticsSnapshot {
+      BugDiagnosticsSnapshot(
+        interactions: options.recordInteractions ? breadcrumbs.jsonLines : nil,
+        accessibility: options.captureAccessibility ? window.map { AccessibilitySnapshot.capture($0) } : nil)
     }
 
     private func dismissedBySwipe() {
