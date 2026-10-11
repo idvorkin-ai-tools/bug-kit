@@ -185,7 +185,7 @@ Reports land under `~/tmp/agent/bugs/<app>/<device>/`. Failed copies of a report
 
 See [listener setup](docs/ops/listener.md) for configuration, logging and launchd. For manual pulls and deployment:
 
-Apps storing evidence in an App Group can pass the group's `Documents` directory to the store, log and crash capture, and set `app_group` in their listener entry. See [App Group storage](docs/integration.md#app-group-storage).
+Apps storing evidence in an App Group can pass the group's `Documents` directory to the store, log and crash capture, and set `app_group` in their entry in the apps config; the listener and `scripts/pull-reports.sh` (including `--check`) then copy from the group's container. See [App Group storage](docs/integration.md#app-group-storage).
 
 ```sh
 scripts/pull-reports.sh                       # all configured apps and devices

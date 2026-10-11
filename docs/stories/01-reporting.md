@@ -286,4 +286,4 @@ With `captureScreenshots = false`, opening a report and launch-hook saving skip 
 
 ### Pull evidence from an App Group
 
-An app can give its store, log and crash capture the App Group's `Documents` directory. A listener entry with `app_group` reads that group's report index, report folders, logs and crashes using `appGroupDataContainer`. An entry without it retains `appDataContainer`. Fake-tool listener tests verify the actual command arguments and identifier validation. Paired-device entitlement/access checks remain a separate device verification.
+An app can give its store, log and crash capture the App Group's `Documents` directory. A listener entry with `app_group` reads that group's report index, report folders, logs and crashes using `appGroupDataContainer`. An entry without it retains `appDataContainer`. `scripts/pull-reports.sh` and its `--check` use the same domain for every copy, including `pull_extra`. Fake-tool listener and pull-reports tests verify the actual command arguments, identifier validation and that `--check` lists the group's unfiled reports. Paired-device entitlement/access checks remain a separate device verification.
