@@ -29,6 +29,7 @@ targets:
     sources:
       - ../BugKitTests/InteractionDiagnosticsTests.swift
       - ../BugKitTests/NoteDictationTests.swift
+      - ../BugKitTests/ScreenshotPrivacyTests.swift
     dependencies:
       - target: BugKit
       - target: DiagnosticsHost

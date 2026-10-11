@@ -14,6 +14,37 @@ bl = importlib.util.module_from_spec(spec)
 loader.exec_module(bl)
 
 
+@pytest.mark.parametrize("group, domain, identifier", [
+    (None, "appDataContainer", "local.fixture"),
+    ("group.local.fixture", "appGroupDataContainer", "group.local.fixture"),
+])
+def test_copy_uses_configured_container_domain(listener_state, monkeypatch, group, domain, identifier):
+    calls = []
+    destination = listener_state / "copied" / "bugs.jsonl"
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        destination.write_text('{"id":"fixture"}\n')
+        return 0, "", ""
+    monkeypatch.setattr(bl, "run", fake_run)
+    a = {"name": "fixture", "bundle": "local.fixture"}
+    if group:
+        a["app_group"] = group
+    assert bl.copy({"id": "fake-device", "dir": "fixture"}, a, "Documents/bugs.jsonl", destination, False)
+    cmd = calls[0]
+    assert cmd[cmd.index("--domain-type") + 1] == domain
+    assert cmd[cmd.index("--domain-identifier") + 1] == identifier
+    assert cmd[cmd.index("--source") + 1] == "Documents/bugs.jsonl"
+    assert json.loads((listener_state / "listener.log").read_text())["domain"] == domain
+
+
+@pytest.mark.parametrize("group", ["", "not-a-group", "group.bad/path", 7, None])
+def test_config_rejects_invalid_app_group(tmp_path, group):
+    config = tmp_path / "apps.json"
+    config.write_text(json.dumps({"apps": [{"name": "fixture", "bundle": "local.fixture", "app_group": group}]}))
+    with pytest.raises(ValueError, match="app_group"):
+        bl.load_config(config)
+
+
 def test_index_tolerates_broken_lines_and_keeps_u2028(tmp_path, monkeypatch):
     monkeypatch.setattr(bl, "STATE", tmp_path)
     monkeypatch.setattr(bl, "LOG", tmp_path / "listener.log")
