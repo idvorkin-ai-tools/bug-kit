@@ -27,6 +27,7 @@ Beyond the code, the repo holds:
 - [Adding BugKit to an app](#adding-bugkit-to-an-app)
 - [The report format](#the-report-format)
 - [The listener](#the-listener): install, run in a Herdr pane, or run under launchd
+- [Where a bug gets fixed](#where-a-bug-gets-fixed): in BugKit, not in the app
 - [Developing BugKit](#developing-bugkit)
 
 ## What each app gains
@@ -516,6 +517,24 @@ the login keychain.
 ```
 
 Stop it with `launchctl bootout gui/$(id -u)/com.example.bug-listener`.
+
+## Where a bug gets fixed
+
+**A bug in BugKit's code is fixed in BugKit, not in the app.** That covers the dialog, shake, dictation, the store
+and its format, crash capture, pruning, What's new, the listener and the scripts. Every app shares one copy, so a
+patch inside one app leaves the others broken and the copies drift apart, which is how three apps ended up with
+three bug-report implementations.
+
+1. File the issue here (idvorkin/bug-kit), quoting the app's report and log line. The app's issue links to it.
+2. Fix it on a branch here, with a host test that fails before the fix. This is a public repo, so leave out
+   personal data.
+3. PR and merge, then bump the BugKit version in each app (its SPM reference) and redeploy.
+4. Until the fix lands, an app may work around it through BugKit's hooks or options, never by copying BugKit's
+   code in. Mark the workaround with a `ponytail:` comment naming the BugKit issue.
+
+Example: Context Grabber's dictation reset (CG #249) was fixed here as PR #3, then picked up by each app.
+
+A bug in the app's own hooks (its context, screen names, extra files, logger bridge) stays in the app.
 
 ## Developing BugKit
 
