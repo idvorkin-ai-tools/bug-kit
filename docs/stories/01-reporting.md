@@ -238,6 +238,8 @@ Part of the [BugKit stories](README.md).
 - **Status:**
   - `BugLaunchHooks` is verified on the host by `launchHooksParseNotesAndShakeAfter`.
   - `BugReporter.runLaunchHooks` is verified by typecheck.
+  - `scripts/smoke-lib.sh`, the shared plumbing for an app's smoke script (EA, CG and MM's rules), is verified on the
+    host by `scripts/tests/test_smoke_lib.py` with a stub simctl. A real app's smoke script on it is still to come.
 
 #### Use Case:
 - **As an** agent verifying a change on the simulator
@@ -251,3 +253,9 @@ Part of the [BugKit stories](README.md).
 - **Then:**
   - two reports are saved about two seconds after launch, each with the screenshot;
   - the log has `bug_hook` and two `bug_report` lines.
+
+- **Scenario:** A smoke check that cannot pass by accident
+- **Given:** a smoke script on `scripts/smoke-lib.sh`
+- **When:** the app crashes before it logs, the launch writes no new log, a step logs `error`, or the scripted flow
+  stops before `selftest_finished`
+- **Then:** the run fails and names why. An older launch's log never satisfies the check.
