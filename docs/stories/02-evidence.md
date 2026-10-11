@@ -72,6 +72,8 @@ Part of the [BugKit stories](README.md).
 - **Summary:** A status line every few seconds (technical)
 - **From:** device-debug-loop; EA `clock` (#23), `sync_status` (#231); CG `call_out_level` (#186)
 - **Status:** `SessionLog.status(every:)`, verified on the host by `theStatusLineRepeats`.
+  - `memory: true` adds `rss_mb` (MM's special sauce), verified on the host by `residentMemoryIsReadable` and
+    `theStatusLineCarriesRSSWhenAsked`.
 
 #### Use Case:
 - **As a** developer reading a report about something that went quiet
@@ -82,6 +84,10 @@ Part of the [BugKit stories](README.md).
 - **Scenario:** A stuck pass
 - **Given:** `log.status(every: 5) { [...] }`
 - **Then:** the log has a `status` line every 5 s with those fields, until the app ends
+
+- **Scenario:** A leak, or the memory limit
+- **Given:** `log.status(every: 5, memory: true) { [...] }`
+- **Then:** each status line also has `rss_mb`, so a climb before a kill with no crash file is in the log
 
 ---
 

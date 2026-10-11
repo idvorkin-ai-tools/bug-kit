@@ -87,16 +87,38 @@ public final class SessionLog: @unchecked Sendable {
   public func flush() { queue.sync {} }
 
   /// A periodic status line (`type`, every `seconds`): for anything that can go quiet or get stuck, so the minutes
-  /// before every report are in the log. Runs until the log is released.
-  public func status(_ type: String = "status", every seconds: Double, _ fields: @escaping @Sendable () -> [String: JSONValue]) {
+  /// before every report are in the log. Runs until the log is released. `memory: true` adds `rss_mb`, the process's
+  /// resident memory, so a leak or a climb toward the memory limit (a kill with no crash file) shows in the log
+  /// (MM's selftest status line).
+  public func status(
+    _ type: String = "status", every seconds: Double, memory: Bool = false,
+    _ fields: @escaping @Sendable () -> [String: JSONValue]
+  ) {
     let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
     timer.schedule(deadline: .now() + seconds, repeating: seconds)
-    timer.setEventHandler { [weak self] in self?.event(type, fields()) }
+    timer.setEventHandler { [weak self] in
+      var line = fields()
+      if memory, let mb = Self.residentMegabytes() { line["rss_mb"] = .int(mb) }
+      self?.event(type, line)
+    }
     timer.resume()
     queue.sync { timers.append(timer) }
   }
 
   deinit { timers.forEach { $0.cancel() } }
+
+  /// The process's resident memory in MB (Mach `task_info`), nil if the kernel refuses.
+  public static func residentMegabytes() -> Int? {
+    var info = mach_task_basic_info()
+    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+      $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+        task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+      }
+    }
+    guard result == KERN_SUCCESS else { return nil }
+    return Int(info.resident_size / 1_048_576)
+  }
 
   /// The wall-clock time of a host-clock (`mono`) time: a camera frame's or a recorded segment's time as the moment
   /// a person would name. `now` and `nowMono` are for tests.
