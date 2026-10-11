@@ -176,3 +176,45 @@ Part of the [BugKit stories](README.md).
 - **Scenario:** A hang
 - **Given:** MetricKit delivers a hang diagnostic
 - **Then:** `crashes/<stamp>.json` holds it, and the log has `crash_report` kind hang with the seconds
+
+---
+
+### User Story 017:
+
+- **Summary:** The app reports by itself when its own check says something went wrong (technical)
+- **From:** CG's diagnostics gist (`docs/DEBUGGING.md:12,21-22`: a call that went wrong uploads its log as a secret
+  gist). Igor decided on 2026-10-10 to replace gist delivery with an automatic report that the listener picks up.
+- **Status:**
+  - `BugAutoReporter`, with `BugReporter.autoReport` on iOS. On the host, `AutoReportTests` (5) verify:
+    - the report's line, folder, files and event;
+    - one report per reason per window, held across a relaunch;
+    - a person's report gaining no new keys;
+    - the tail kept under the size cap.
+  - `autoReport` itself is verified by typecheck.
+  - The listener's title, body, `auto` label and id dedupe are verified by `listener/test_bug_listener.py`.
+  - CG calling it from its went-wrong path is still to do, and so is a real failed call on the phone.
+
+#### Use Case:
+- **As the** developer of an app with a failure the person may never notice (a call that dropped its transcript)
+- **I want to** have the app save a report with its big log by itself, filed like any other
+- **so that** the evidence reaches the Mac with no token on the device, nothing public, and nothing to clean up
+
+#### Acceptance Criteria:
+- **Scenario:** A call goes wrong
+- **Given:** the app's check decides the call failed
+- **When:** it calls `autoReport(reason: "call_failed", files: [callLog])`
+- **Then:**
+  - `bugs.jsonl` gets a line with `source: "auto"`, `reason: "call_failed"`, no screenshot, and the call log in `files`;
+  - the log has `bug_report_auto`;
+  - the listener files "Automatic report: call_failed" with the labels `bug` and `auto`.
+
+- **Scenario:** A flapping trigger
+- **Given:** a report for `call_failed` was saved 2 minutes ago, and the window is 10 minutes
+- **When:** the check fires again, even after a relaunch
+- **Then:** nothing is saved, and the log has `bug_report_auto_skipped` with the reason. Another reason still reports.
+
+- **Scenario:** A huge log
+- **Given:** the call log is larger than `maxBytes`
+- **Then:** the report keeps the log's tail, starting at a whole line, and the log has `bug_report_auto_cut` with the
+  bytes kept and dropped.
+

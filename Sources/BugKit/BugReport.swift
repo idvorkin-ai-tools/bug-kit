@@ -34,21 +34,26 @@ public struct BugReport: Codable, Equatable, Identifiable, Sendable {
   public var files: [String]
   /// Whatever the app attaches: exercise, playhead, mode, replay time.
   public var context: [String: JSONValue]
+  /// "auto" for a report the app saved by itself (`BugAutoReporter`); nil for one a person made.
+  public var source: String?
+  /// Why an automatic report was saved ("call_failed"), as the app's trigger names it.
+  public var reason: String?
 
   public init(
     id: UUID = UUID(), reportedAt: Date = Date(), app: String, bundle: String, build: String, commit: String,
     device: String, screen: String, note: String, log: String? = nil, sessionTMs: Int? = nil,
-    screenshot: String? = nil, folder: String, files: [String] = [], context: [String: JSONValue] = [:]
+    screenshot: String? = nil, folder: String, files: [String] = [], context: [String: JSONValue] = [:],
+    source: String? = nil, reason: String? = nil
   ) {
     // Kept at the millisecond the line stores, so a report equals itself read back.
     self.id = id; self.reportedAt = Self.parseDate(Self.formatDate(reportedAt)) ?? reportedAt; self.app = app; self.bundle = bundle; self.build = build
     self.commit = commit; self.device = device; self.screen = screen; self.note = note; self.log = log
     self.sessionTMs = sessionTMs; self.screenshot = screenshot; self.folder = folder; self.files = files
-    self.context = context
+    self.context = context; self.source = source; self.reason = reason
   }
 
   enum CodingKeys: String, CodingKey {
-    case id, app, bundle, build, commit, device, screen, note, log, screenshot, folder, files, context
+    case id, app, bundle, build, commit, device, screen, note, log, screenshot, folder, files, context, source, reason
     case reportedAt = "reported_at"
     case sessionTMs = "session_t_ms"
   }
@@ -74,6 +79,8 @@ public struct BugReport: Codable, Equatable, Identifiable, Sendable {
     folder = try c.decode(String.self, forKey: .folder)
     files = try c.decodeIfPresent([String].self, forKey: .files) ?? []
     context = try c.decodeIfPresent([String: JSONValue].self, forKey: .context) ?? [:]
+    source = try c.decodeIfPresent(String.self, forKey: .source)
+    reason = try c.decodeIfPresent(String.self, forKey: .reason)
   }
 
   public func encode(to encoder: Encoder) throws {
@@ -93,6 +100,8 @@ public struct BugReport: Codable, Equatable, Identifiable, Sendable {
     try c.encode(folder, forKey: .folder)
     try c.encode(files, forKey: .files)
     try c.encode(context, forKey: .context)
+    try c.encodeIfPresent(source, forKey: .source)
+    try c.encodeIfPresent(reason, forKey: .reason)
   }
 
   /// One line of bugs.jsonl, without the newline. Keys sorted, so two writes of one report are byte-identical.

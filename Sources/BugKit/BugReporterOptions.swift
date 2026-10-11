@@ -27,6 +27,8 @@ public struct BugReporterOptions: Equatable, Sendable {
   public var writeReportJSON = false
   /// Environment variable prefix for the simulator hooks (`<PREFIX>_BUG`, `<PREFIX>_SHAKE_AFTER`); nil for none.
   public var launchHookPrefix: String?
+  /// Limits for `BugReporter.autoReport`: one report per reason per window, and a cap on the copied files.
+  public var auto = BugAutoReportOptions()
 
   public init() {}
 }

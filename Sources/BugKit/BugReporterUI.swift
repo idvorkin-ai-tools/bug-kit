@@ -52,6 +52,18 @@
     public let hooks: BugReporterHooks
     public let options: BugReporterOptions
     public let writer: BugReportWriter
+    /// Saves reports the app makes by itself; see `autoReport`.
+    public private(set) lazy var auto = BugAutoReporter(writer: writer, options: options.auto)
+
+    /// Saves a report without a dialog or a screenshot, when the app's own check says something went wrong. The
+    /// screen and session log come from the hooks; `files` (a big log) are copied in within `options.auto.maxBytes`.
+    /// At most one report per reason per `options.auto.window`; a skip is logged as `bug_report_auto_skipped`.
+    public func autoReport(reason: String, context: [String: JSONValue] = [:], files: [URL] = []) {
+      hooks.flushLog()
+      let auto = auto, screen = hooks.screen(), log = hooks.sessionLog()
+      Task { await auto.report(reason: reason, screen: screen, context: context, files: files, log: log) }
+    }
+
     /// Set false to ignore shakes (EA's instrumented run, story 037: a phone in a pocket shakes).
     public var shakeEnabled = true
     private var screen = ""
