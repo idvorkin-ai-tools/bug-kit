@@ -126,10 +126,12 @@ protocol CloudReportTransport: Sendable {
   func retryDelay(for error: any Error, attempt: Int) -> TimeInterval?
 }
 
+func cloudRetryBackoff(attempt: Int) -> TimeInterval { min(300, 5 * pow(2, Double(min(attempt, 6)))) }
+
 extension CloudReportTransport {
   func retryDelay(for error: any Error, attempt: Int) -> TimeInterval? {
     guard error as? CloudDeliveryError == .accountUnavailable else { return nil }
-    return min(300, 5 * pow(2, Double(min(attempt, 6))))
+    return cloudRetryBackoff(attempt: attempt)
   }
 }
 
@@ -155,6 +157,7 @@ actor CloudReportOutbox: BugReportDelivery {
     guard documents.standardizedFileURL == store.documents.standardizedFileURL else {
       throw CloudDeliveryError.wrongStore
     }
+    _ = try preexistingReports(eligible: report.id)
     try stage(report)
     logger("bug_delivery_queued", ["id": .string(report.id.uuidString), "transport": "cloudkit"])
     start()
@@ -162,6 +165,8 @@ actor CloudReportOutbox: BugReportDelivery {
 
   /// Retain one outbox per store. Start at launch/foreground to recover after suspension or termination.
   func start() {
+    do { _ = try preexistingReports() }
+    catch { logger("bug_delivery_pending", ["transport": "cloudkit", "reason": "opt-in boundary could not be recorded"]) }
     guard retrying == nil else { return }
     retrying = Task { await self.retryUntilIdle() }
   }
@@ -192,6 +197,23 @@ actor CloudReportOutbox: BugReportDelivery {
     }
   }
 
+  /// Reports saved before opt-in stay local. Recorded by ID once, so later saves stay eligible after a crash
+  /// before enqueue, and an enqueued report is never excluded by a boundary recorded concurrently.
+  private func preexistingReports(eligible id: UUID? = nil) throws -> Set<String> {
+    let file = root.appendingPathComponent("preexisting.json")
+    var ids: Set<String>
+    if FileManager.default.fileExists(atPath: file.path) {
+      ids = try JSONDecoder().decode(Set<String>.self, from: Data(contentsOf: file))
+      guard let id, ids.contains(id.uuidString) else { return ids }
+    } else {
+      ids = Set(try store.readAll().reports.map(\.id.uuidString))
+    }
+    if let id { ids.remove(id.uuidString) }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try JSONEncoder().encode(ids).write(to: file, options: .atomic)
+    return ids
+  }
+
   private var pending: URL { root.appendingPathComponent("pending") }
   private var sent: URL { root.appendingPathComponent("sent") }
   private func stage(_ report: BugReport) throws {
@@ -203,7 +225,7 @@ actor CloudReportOutbox: BugReportDelivery {
     try data.write(to: pending.appendingPathComponent(name), options: .atomic)
   }
 
-  /// Resume persisted work and enqueue locally saved reports that could not be staged earlier.
+  /// Resume persisted work and stage reports saved after opt-in that could not be staged earlier.
   /// Call at app launch/foreground or when connectivity returns. One upload pass is shared by concurrent calls.
   func flush() async throws -> Int {
     if let flushing { return try await flushing.value }
@@ -223,7 +245,8 @@ actor CloudReportOutbox: BugReportDelivery {
         throw CloudDeliveryError.accountChanged
       }
     } else { try Data(account.utf8).write(to: binding, options: .atomic) }
-    for report in try store.readAll().reports {
+    let preexisting = try preexistingReports()
+    for report in try store.readAll().reports where !preexisting.contains(report.id.uuidString) {
       do { try stage(report) }
       catch {
         logger("bug_delivery_pending", ["id": .string(report.id.uuidString), "transport": "cloudkit",

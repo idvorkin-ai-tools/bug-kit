@@ -1,7 +1,6 @@
 import BugKit
-import Foundation
-#if os(macOS)
 import CloudKit
+import Foundation
 import Security
 
 @main struct BugCloudKitCLI {
@@ -62,8 +61,3 @@ import Security
     }
   }
 }
-#else
-@main struct BugCloudKitCLI {
-  static func main() { print("bug-cloudkit requires macOS") }
-}
-#endif

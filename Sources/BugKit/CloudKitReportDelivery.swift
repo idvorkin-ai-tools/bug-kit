@@ -4,7 +4,7 @@ import CryptoKit
 import Foundation
 
 /// Opt-in delivery to the owner's private CloudKit database. The app must carry the container entitlement.
-/// Uses the locally saved report index as its outbox; reports/evidence are never deleted from BugStore.
+/// Delivers only reports saved after opt-in; reports/evidence are never deleted from BugStore.
 public actor CloudKitReportDelivery: BugReportDelivery {
   private let outbox: CloudReportOutbox
 
@@ -19,7 +19,8 @@ public actor CloudKitReportDelivery: BugReportDelivery {
     try await outbox.enqueue(report, documents: documents)
   }
 
-  /// Start automatic backoff retries and recover saved reports. Call at launch and foreground.
+  /// Record the opt-in boundary, start automatic backoff retries and recover reports saved since opt-in.
+  /// Call at launch and foreground.
   public func start() async { await outbox.start() }
   /// Stop app-level retry timers; an already submitted long-lived CloudKit operation can still finish.
   public func stop() async { await outbox.stop() }
@@ -28,7 +29,7 @@ public actor CloudKitReportDelivery: BugReportDelivery {
   @discardableResult public func flush() async throws -> Int { try await outbox.flush() }
 }
 
-private struct NativeCloudReportTransport: CloudReportTransport {
+struct NativeCloudReportTransport: CloudReportTransport {
   let containerIdentifier: String
   var container: CKContainer { CKContainer(identifier: containerIdentifier) }
 
@@ -38,10 +39,6 @@ private struct NativeCloudReportTransport: CloudReportTransport {
   }
 
   func upload(_ report: BugReport, payload: URL) async throws {
-    let record = CKRecord(recordType: "BugKitReport", recordID: CKRecord.ID(recordName: report.id.uuidString))
-    record["bundle"] = report.bundle as CKRecordValue
-    record["reportedAt"] = report.reportedAt as CKRecordValue
-    record["payload"] = CKAsset(fileURL: payload)
     // Persist the daemon operation ID beside immutable evidence; reattach callbacks after app restart.
     let operationFile = payload.deletingPathExtension().appendingPathExtension("operation")
     var restored: CKModifyRecordsOperation?
@@ -49,17 +46,8 @@ private struct NativeCloudReportTransport: CloudReportTransport {
       let id = try String(contentsOf: operationFile, encoding: .utf8)
       restored = try await container.longLivedOperation(for: id) as? CKModifyRecordsOperation
     }
-    let operation = restored ?? CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
-    if restored == nil {
-      operation.savePolicy = .allKeys
-      operation.isAtomic = false
-      operation.configuration.allowsCellularAccess = true
-      operation.configuration.isLongLived = true
-      operation.configuration.qualityOfService = .userInitiated
-      operation.configuration.timeoutIntervalForRequest = 60
-      operation.configuration.timeoutIntervalForResource = 120
-      try Data(operation.operationID.utf8).write(to: operationFile, options: .atomic)
-    }
+    let operation = restored ?? Self.uploadOperation(report, payload: payload)
+    if restored == nil { try Data(operation.operationID.utf8).write(to: operationFile, options: .atomic) }
     do {
       try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
         operation.modifyRecordsResultBlock = { result in continuation.resume(with: result) }
@@ -72,8 +60,24 @@ private struct NativeCloudReportTransport: CloudReportTransport {
     }
   }
 
+  /// Large evidence over a slow cellular uplink can take many minutes; only an idle request times out.
+  static func uploadOperation(_ report: BugReport, payload: URL) -> CKModifyRecordsOperation {
+    let record = CKRecord(recordType: "BugKitReport", recordID: CKRecord.ID(recordName: report.id.uuidString))
+    record["bundle"] = report.bundle as CKRecordValue
+    record["reportedAt"] = report.reportedAt as CKRecordValue
+    record["payload"] = CKAsset(fileURL: payload)
+    let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+    operation.savePolicy = .allKeys
+    operation.isAtomic = false
+    operation.configuration.allowsCellularAccess = true
+    operation.configuration.isLongLived = true
+    operation.configuration.qualityOfService = .userInitiated
+    operation.configuration.timeoutIntervalForRequest = 60
+    return operation
+  }
+
   func retryDelay(for error: any Error, attempt: Int) -> TimeInterval? {
-    if error as? CloudDeliveryError == .accountUnavailable { return 30 }
+    if error as? CloudDeliveryError == .accountUnavailable { return cloudRetryBackoff(attempt: attempt) }
     guard let error = error as? CKError else { return nil }
     if let delay = error.retryAfterSeconds { return max(1, delay) }
     if error.code == .partialFailure, let errors = error.partialErrorsByItemID {
@@ -83,7 +87,7 @@ private struct NativeCloudReportTransport: CloudReportTransport {
     switch error.code {
     case .networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited,
          .zoneBusy, .serverResponseLost, .accountTemporarilyUnavailable, .notAuthenticated:
-      return min(300, 5 * pow(2, Double(min(attempt, 6))))
+      return cloudRetryBackoff(attempt: attempt)
     default: return nil
     }
   }

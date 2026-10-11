@@ -13,11 +13,17 @@ test:
   instructions: |
     BugKit requires macOS with Xcode and Swift 6+, plus uv for Python tests.
     Only one simulator on this Mac at a time: before booting, check xcrun simctl list devices booted and wait until it's empty; shut yours down when done.
+    Only one build or simulator on this Mac at a time. The outer driver holds
+    ~/tmp/agent/locks/build.lock for this run: do not reacquire it in nested commands.
+    Standalone heavy commands outside such a run need an explicit build turn and
+    lockf -k -t 3600 ~/tmp/agent/locks/build.lock <command>.
     Signing builds must run sequentially under
     lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock xcodebuild ... -allowProvisioningUpdates.
     Select behavioral tests relevant to the change:
       swift test --filter <test-name>
       uv run --python 3.12 --with typer --with pytest pytest --import-mode=importlib listener/ Tests/ scripts/tests/ -k <case> -q
+    For CloudKit adoption snippets, compile Tests/Adoption/*.swift against BugKit as the
+    CI step "iOS and watchOS compilation with the documented adoption snippets" does.
     For UIKit or SwiftUI changes, also typecheck Sources/BugKit/*.swift with
     xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0
     -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" Sources/BugKit/*.swift

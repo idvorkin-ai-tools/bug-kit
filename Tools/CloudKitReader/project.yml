@@ -27,7 +27,7 @@ targets:
     type: application
     platform: macOS
     sources:
-      - ../../Sources/BugCloudKitCLI
+      - Sources
     dependencies:
       - package: BugKit
     attributes:

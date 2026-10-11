@@ -1,3 +1,6 @@
+#if canImport(CloudKit)
+import CloudKit
+#endif
 import Foundation
 import Testing
 @testable import BugKit
@@ -62,8 +65,9 @@ private struct CloudFixture {
 @Test func cloudDeliveryStopsWhenAccountChanges() async throws {
   let f = CloudFixture(); defer { f.clean() }
   let transport = FakeCloudTransport()
+  let queue = try await f.optedIn(transport)
   let report = try f.report(); try f.store.append(report)
-  _ = try await f.outbox(transport).flush()
+  _ = try await queue.flush()
   await transport.setAccount("different-owner")
   await #expect(throws: CloudDeliveryError.accountChanged) { try await f.outbox(transport).flush() }
   #expect(await transport.count() == 1)
@@ -102,10 +106,10 @@ private struct CloudFixture {
 @Test func cloudDeliveryRecoversSavedReportWhenOneAttachmentIsMissing() async throws {
   let f = CloudFixture(); defer { f.clean() }
   let transport = FakeCloudTransport()
+  let queue = try await f.optedIn(transport)
   var bad = try f.report(); bad.files = ["bugs/sample/not-yet.txt"]
   try f.store.append(bad)
   let good = try f.report(); try f.store.append(good)
-  let queue = f.outbox(transport)
   #expect(try await queue.flush() == 1)
   #expect(await transport.data(bad.id) == nil)
   try Data("arrived".utf8).write(to: f.documents.appendingPathComponent("bugs/sample/not-yet.txt"))
@@ -190,8 +194,9 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
   let f = CloudFixture(); defer { f.clean() }
   let cloud = LoopbackCloud(root: f.root.appendingPathComponent("server"))
   await cloud.connect()
+  let queue = try await f.optedIn(cloud)
   let report = try f.report(); try f.store.append(report)
-  _ = try await f.outboxRootQueue(cloud).flush()
+  _ = try await queue.flush()
   let serverFile = f.root.appendingPathComponent("server/" + report.id.uuidString)
   let bytes = try Data(contentsOf: serverFile)
   try Data("truncated".utf8).write(to: serverFile)
@@ -207,10 +212,11 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
 @Test func unstageableEvidenceStopsRetryingUntilStartOrNewReport() async throws {
   let f = CloudFixture(); defer { f.clean() }
   let transport = FakeCloudTransport()
-  var bad = try f.report(); bad.files = ["bugs/sample/not-yet.txt"]
-  try f.store.append(bad)
   let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: { _, _ in },
                                 sleep: { _ in await Task.yield() })
+  var bad = try f.report(); bad.files = ["bugs/sample/not-yet.txt"]
+  try f.store.append(bad)
+  await #expect(throws: (any Error).self) { try await queue.enqueue(bad, documents: f.documents) }
   await queue.start()
   try await Task.sleep(for: .milliseconds(200))
   #expect(await transport.checks() == 1)
@@ -237,8 +243,9 @@ private final class CloudEvents: @unchecked Sendable {
   let f = CloudFixture(); defer { f.clean() }
   let cloud = LoopbackCloud(root: f.root.appendingPathComponent("server"))
   await cloud.connect()
+  let queue = try await f.optedIn(cloud)
   let report = try f.report(); try f.store.append(report)
-  _ = try await f.outboxRootQueue(cloud).flush()
+  _ = try await queue.flush()
   let failed = UUID(), noBundle = UUID()
   await cloud.list([CloudReportRecord(name: failed.uuidString, bundle: nil, error: CloudDeliveryError.accountUnavailable),
                     CloudReportRecord(name: "console-test-record", bundle: "local.fixture"),
@@ -255,7 +262,60 @@ private final class CloudEvents: @unchecked Sendable {
 }
 
 private extension CloudFixture {
-  func outboxRootQueue(_ transport: any CloudReportTransport) -> CloudReportOutbox {
-    CloudReportOutbox(store: store, root: outboxRoot, transport: transport, logger: { _, _ in })
+  /// Opt in before any report exists, as an app does at launch; later saves are eligible.
+  func optedIn(_ transport: any CloudReportTransport) async throws -> CloudReportOutbox {
+    let queue = CloudReportOutbox(store: store, root: outboxRoot, transport: transport, logger: { _, _ in })
+    #expect(try await queue.flush() == 0)
+    return queue
   }
 }
+
+@Test func reportsSavedBeforeOptInStayLocalWhileLaterReportsRecoverAfterRestart() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let transport = FakeCloudTransport()
+  let history = try f.report(); try f.store.append(history)
+  #expect(try await f.outbox(transport).flush() == 0)
+  // Saved after opt-in, but the app died before enqueue; another has evidence that is not there yet.
+  let unannounced = try f.report(); try f.store.append(unannounced)
+  var late = try f.report(); late.files = ["bugs/sample/not-yet.txt"]
+  try f.store.append(late)
+  await #expect(throws: (any Error).self) { try await f.outbox(transport).enqueue(late, documents: f.documents) }
+  let restarted = f.outbox(transport)
+  #expect(try await restarted.flush() == 1)
+  #expect(await transport.data(unannounced.id) != nil)
+  try Data("arrived".utf8).write(to: f.documents.appendingPathComponent("bugs/sample/not-yet.txt"))
+  #expect(try await f.outbox(transport).flush() == 1)
+  #expect(try await f.outbox(transport).flush() == 0)
+  #expect(await transport.count() == 2)
+  #expect(await transport.data(history.id) == nil)
+  #expect(try f.store.readAll().reports.map(\.id) == [history.id, unannounced.id, late.id])
+}
+
+@Test func enqueuedReportIsDeliveredEvenIfTheOptInBoundaryAlreadyListedIt() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let transport = FakeCloudTransport()
+  let queue = f.outbox(transport)
+  // The writer appended this report just before the boundary was recorded, then enqueued it.
+  let report = try f.report(); try f.store.append(report)
+  #expect(try await queue.flush() == 0)
+  try await queue.enqueue(report, documents: f.documents)
+  for _ in 0..<100 where await transport.count() == 0 { try await Task.sleep(for: .milliseconds(10)) }
+  #expect(await transport.data(report.id) != nil)
+  #expect(try await f.outbox(transport).flush() == 0)
+  #expect(await transport.count() == 1)
+  await queue.stop()
+}
+
+#if canImport(CloudKit)
+@Test func nativeUploadHasNoShortResourceDeadlineAndAccountRetriesBackOff() throws {
+  let report = BugReport(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic",
+                         screen: "home", note: "fixture", folder: "bugs/sample")
+  let operation = NativeCloudReportTransport.uploadOperation(report, payload: URL(fileURLWithPath: "/dev/null"))
+  #expect(operation.configuration.timeoutIntervalForResource == CKOperation.Configuration().timeoutIntervalForResource)
+  #expect(operation.configuration.allowsCellularAccess && operation.configuration.isLongLived)
+  #expect(operation.recordsToSave?.first?.recordID.recordName == report.id.uuidString)
+  let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
+  let delays = (0..<8).map { transport.retryDelay(for: CloudDeliveryError.accountUnavailable, attempt: $0) }
+  #expect(delays == [5, 10, 20, 40, 80, 160, 300, 300])
+}
+#endif

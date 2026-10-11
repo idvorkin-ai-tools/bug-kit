@@ -150,7 +150,7 @@ Both commands return one JSON object with `schema_version: 1` and `ok`. Omit `--
 
 `doctor` checks configuration, a writable state directory, readable state files, availability of `devicectl`, device reachability/pairing, GitHub authentication and issue-read access, or the local beads repository. Missing devices and optional Herdr notifications produce warnings. It probes devices and reads trackers, but does not file issues, copy report evidence or send notifications. GitHub read access does not prove issue-create permission. Exit codes: 0 for no errors (warnings may remain), 1 for a failed check.
 
-`status` reads local state without contacting devices or trackers. Its output includes `last_poll_started`, `last_poll_completed`, `last_successful_poll`, `in_progress`, device results, the poll summary and `pending`. Pending items name the app, device, report key, first/last attempt and reason (`evidence`, `crash_logs`, `tracker_lookup` or `tracker`). A report clears from pending after successful delivery or a matching existing issue.
+`status` reads local state without contacting devices or trackers. Its output includes `last_poll_started`, `last_poll_completed`, `last_successful_poll`, `in_progress`, device results, the poll summary and `pending`. Pending items name the app, device, report key, first/last attempt and reason (`evidence`, `crash_logs`, `tracker_lookup`, `tracker`, `inbox` for a filed report whose inbox line is not yet written, or `cloudkit_evidence` for a CloudKit download whose files do not match its manifest). A report clears from pending after successful delivery or a matching existing issue.
 
 A status becomes stale after two polling intervals without a completed poll. The last actual interval is persisted, including `--interval` overrides. Exit codes: 0 for a recent healthy poll with a reachable device and no pending delivery, 1 for stale/never-run/failed/pending status, 2 for unreadable or invalid configuration/state. `in_progress` records an unfinished poll, including if a process dies mid-poll; it does not prove a process is still alive.
 
@@ -158,16 +158,18 @@ A status becomes stale after two polling intervals without a completed poll. The
 
 For end-to-end CloudKit delivery, set `cloudkit_config: "~/.config/bug-kit/cloudkit.json"` in apps.json and build
 its provisioned headless Mac reader. See [the per-app and Mac setup](../integration.md#private-cloudkit-delivery).
-`poll_devices` defaults to true; false disables all devicectl discovery/probes while keeping CloudKit polls.
-A poll runs the helper first, bounds it to 180 seconds, consumes complete downloads and then tries devices.
-Failed device discovery cannot prevent cloud intake. Failed cloud sync cannot prevent device fallback or
-consuming earlier complete downloads, but remains an error in health/status. `cloudkit_inbox` alone is offline
-intake, not evidence of live sync. Configure one listener per state/inbox and run it in the Mac's login session.
+A poll runs the helper first, bounds it to 180 seconds, consumes complete downloads from the config's `inbox`
+and then tries devices. No paired device and failed device discovery cannot prevent cloud intake; a discovery
+failure is counted as an error. Failed cloud sync cannot prevent device fallback or consuming earlier complete
+downloads, but remains an error in health/status. Configure one listener per state/inbox and run it in the
+Mac's login session.
 
-Cloud events: `cloudkit_poll`, `cloudkit_downloaded` (key/bundle), `cloudkit_sync` (ok/rc/ms),
-`cloudkit_report_error`/`cloudkit_inbox_unavailable`, then the existing `file` and new `inbox` event for each
-successful handoff. Sync output/error codes are sanitized; account/record contents are not logged. Downloads
-have no first-contact baseline: the configured apps' first reports are filed immediately. Unknown app bundles
+Cloud events: `cloudkit_poll`, `cloudkit_downloaded` (key/bundle), `cloudkit_report_pending` (key = the failed
+report UUID, or null when the record name is not a UUID; reason = `download or evidence validation failed`,
+`listing failed or record metadata is invalid` or `unknown`), `cloudkit_sync` (ok/rc/ms), `cloudkit_report_error`
+and `devices_error`, then the existing `file` and new `inbox` event for each successful handoff. Sync output/error codes are sanitized; account/record contents are not logged. Downloads
+have no first-contact baseline: apps upload only reports saved after opt-in, so the configured apps' first
+reports are filed immediately. Unknown app bundles
 are retained locally until configured. Delivery receipts are shared with device pulls by bundle + UUID; local
 inbox history recovers receipts after a lost seen-store write. A failed inbox append leaves an `inbox` pending
 reason and retries without filing another issue. Do not delete receipts, download folders or cloud records as
