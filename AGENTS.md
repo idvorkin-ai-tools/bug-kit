@@ -4,6 +4,6 @@ Use Beads for all repository task tracking. Run `bd prime` at the start of a ses
 
 All git worktrees share the main checkout's Beads database. Issue data lives in Dolt, outside code branches; `.beads/config.yaml` and `.beads/metadata.json` are tracked configuration. Use `bd dolt pull` and `bd dolt push` to sync issue data. JSONL exports are optional interchange files, not backups or the source of truth.
 
-Ship code through no-mistakes. Keep its pipeline fixes, follow its branch-sync instructions, and merge only after required checks pass and the user has authorized merging. Do not bypass it with a direct code push.
+Every change, including docs-only changes, goes through no-mistakes before merge. Keep its pipeline fixes, follow its branch-sync instructions, and merge only after required checks pass and the user has authorized merging. Do not bypass it with a direct push or by merging a PR that skipped the pipeline.
 
 Before starting any simulator or live test, run `xcrun simctl list devices booted`. If another agent has a device booted, wait. Use one disposable simulator, bound test commands, and shut it down when its test step ends. Avoid unbounded `tail -f` watchers. Use `/bin/ls` or `rg` instead of the inherited `ls` alias.

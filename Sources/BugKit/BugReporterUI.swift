@@ -417,8 +417,7 @@
         .onAppear {
           noteFocused = true
           if reporter.options.dictation {
-            let hostBusy = reporter.hooks.microphoneBusy()
-            Task { await dictation.refreshMicrophones(requestPermission: false, hostMicrophoneBusy: hostBusy) }
+            Task { await dictation.refreshMicrophones(requestPermission: false, hostMicrophoneBusy: reporter.hooks.microphoneBusy) }
           }
         }
         .onDisappear { dictation.stop(why: "closed") }  // a swipe down
@@ -455,7 +454,7 @@
           }
         }
         Button("Refresh microphones") {
-          Task { await dictation.refreshMicrophones(hostMicrophoneBusy: reporter.hooks.microphoneBusy()) }
+          Task { await dictation.refreshMicrophones(hostMicrophoneBusy: reporter.hooks.microphoneBusy) }
         }
       } label: {
         LabeledContent("Microphone", value: dictation.selectedMicrophoneName)

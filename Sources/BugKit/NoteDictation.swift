@@ -114,8 +114,10 @@ public struct DictationJoin: Equatable, Sendable {
 
     /// Refreshes iOS inputs without recording. Category/mode/options/preferred input are restored afterward.
     /// Skipped while the host records, because listing inputs reconfigures the shared audio session.
-    public func refreshMicrophones(requestPermission: Bool = true, hostMicrophoneBusy: Bool = false) async {
-      guard !busy, !hostMicrophoneBusy, requestPermission || permissions.hasMicrophonePermission() else { return }
+    /// `hostMicrophoneBusy` is checked live: again after the permission prompt, right before listing.
+    public func refreshMicrophones(requestPermission: Bool = true,
+                                   hostMicrophoneBusy: @MainActor () -> Bool = { false }) async {
+      guard !busy, !hostMicrophoneBusy(), requestPermission || permissions.hasMicrophonePermission() else { return }
       let generation = owner
       refreshingMicrophones = true
       defer { if owner == generation { refreshingMicrophones = false } }
@@ -123,6 +125,7 @@ public struct DictationJoin: Equatable, Sendable {
       guard owner == generation, !Task.isCancelled else { return }
       refreshingMicrophones = false
       guard granted else { fail("The microphone is off for this app (Settings)", ["mic": "denied"]); return }
+      guard !hostMicrophoneBusy() else { return }
       do {
         microphones = try capture.availableMicrophones()
         if let selectedMicrophoneID, !microphones.contains(where: { $0.id == selectedMicrophoneID }) {
