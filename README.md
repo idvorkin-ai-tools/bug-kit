@@ -48,6 +48,7 @@ Beyond the code, the repo holds:
 | A report `id` (UUID) and ms `reported_at` | – | – | – | always |
 | Locked index append (mmn-cfr) | – | – | ✓ | always |
 | Unique folders within one second | – | – | ✓ | always |
+| The app reports by itself when its own check fails (CG's gist, replaced) | – | ✓ gist | – | `BugReporter.autoReport`, `BugAutoReporter` |
 | Report names its log and the moment | ✓ | ✓ | ✓ (copies the log) | `log`, `session_t_ms`; `copySessionLog` |
 | Build and commit in the report | – | ✓ | ✓ | always (`BugKitCommit`) |
 | Typed context (numbers stay numbers) | – (strings) | – (strings) | ✓ (Codable) | `context: [String: JSONValue]` |
@@ -410,6 +411,31 @@ NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
 | `log`, `session_t_ms` | the session log's path and the moment in it |
 | `screenshot`, `folder`, `files` | the screenshot, the report's folder `bugs/<yyyyMMdd-HHmmss>[-n]`, and the app's extra files |
 | `context` | whatever the app attaches, as JSON values |
+| `source`, `reason` | only on an automatic report: `"auto"`, and why the app saved it |
+
+### Automatic reports
+
+When the app's own check decides something went wrong (a call that failed, a sync that stalled), it saves a report
+with no person and no dialog:
+
+```swift
+reporter.autoReport(reason: "call_failed", context: ["seconds": 412], files: [callLogURL])
+```
+
+- It is a normal report: its own folder, a locked line in `bugs.jsonl` with `source: "auto"` and `reason`, no
+  screenshot, and `files` copied into the folder. The log gets `bug_report_auto`.
+- **At most one per reason per window** (`options.auto.window`, 10 minutes by default). A skip is logged as
+  `bug_report_auto_skipped`, so a flapping trigger cannot flood the device or the tracker. The window is kept in
+  `Documents/bugs-auto.json`, so a relaunch loop is limited too.
+- **The copied files are capped** (`options.auto.maxBytes`, 5 MB by default). A file over the cap keeps its tail, from
+  a line start, and the cut is logged as `bug_report_auto_cut`.
+- The listener files it as "Automatic report: <reason>" with the `auto` label (beads: `from-app,auto`), deduped by
+  `id` like any other report.
+- Without the iOS UI, use `BugAutoReporter(writer:options:)` directly.
+
+**The trade-off, against CG's private gist upload:** a report waits on the device until the Mac can reach it (the
+listener's next poll, or `pull-reports.sh`). In exchange there is no token on the device, nothing is ever on a
+public URL, and there is nothing to clean up afterwards.
 
 ## The listener
 
