@@ -4,8 +4,8 @@ import Foundation
 /// shake, so a simulator check asserts on the log. With `simctl launch`, set them as `SIMCTL_CHILD_<PREFIX>_BUG=…`;
 /// simctl strips `SIMCTL_CHILD_`.
 ///
-/// - `<PREFIX>_BUG=note` saves a report with that note a couple of seconds after launch (after the first frame,
-///   so the screenshot has something on it); `a|b` saves two, as "Log it and another" would (EA `SWING_BUG`,
+/// - `<PREFIX>_BUG=note` saves a report with that note `<PREFIX>_BUG_AFTER` seconds after launch (after the first
+///   frame, so the screenshot has something on it); `a|b` saves two, as "Log it and another" would (EA `SWING_BUG`,
 ///   CG `GRABBER_BUG`).
 /// - `<PREFIX>_BUG_AFTER=<seconds>` delays automatic reports (default 2); use a longer delay for cold launches.
 /// - `<PREFIX>_SHAKE_AFTER=<seconds>` opens the dialog as a shake would, that long after launch (CG
