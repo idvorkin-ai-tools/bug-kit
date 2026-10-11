@@ -2,35 +2,35 @@
 
 [Back to BugKit](../README.md). The feature matrix is a historical snapshot from 2026-10-10; use each app’s current checkout when migrating.
 
-"✓" means the app had the feature on its origin/main of 2026-10-10; "–" means it does not. The BugKit column gives the option or type that provides the feature.
+"✓" means the app had the feature on its origin/main of 2026-10-10 (EA after PR #246 that evening); "–" means it does not. The BugKit column gives the option or type that provides the feature.
 
 | Feature | EA | CG | MM | BugKit |
 |---|---|---|---|---|
 | iOS shake gesture opens the report | ✓ | ✓ | – | `systemShake` (on) |
 | Gentle shake read from motion (CG story 146) | – | ✓ | – | `gentleShake` (on) |
 | A button | ✓ | ✓ | ✓ (iPad Settings) | `BugReportButton` |
-| ⌘I | – | – | ✓ | `commandI` (on) |
-| Return/Escape keys in the dialog | – | – | ✓ | `dialogKeys` (on) |
+| ⌘I | ✓ | – | ✓ | `commandI` (on) |
+| Return/Escape keys in the dialog | ✓ | – | ✓ | `dialogKeys` (on) |
 | Screenshot taken before the dialog | ✓ | ✓ | – (video instead) | always |
 | Opens over other sheets (topmost VC) | ✓ (#41) | ✓ (#182) | – | always |
 | "Log it and another" | ✓ keeps the moment | ✓ re-captures | ✓ | `another: .keepMoment` or `.recapture` |
 | Speak the note (CG #239) | – | ✓ | – | `dictation` (off: needs Info.plist strings) |
 | "Nothing leaves this iPad" | – | – | ✓ | `privacyNote` |
-| A report `id` (UUID) and ms `reported_at` | – | – | – | always |
-| Locked index append (mmn-cfr) | – | – | ✓ | always |
-| Unique folders within one second | – | – | ✓ | always |
+| A report `id` (UUID) and ms `reported_at` | ✓ | – | – | always |
+| Locked index append (mmn-cfr) | ✓ | – | ✓ | always |
+| Unique folders within one second | ✓ | – | ✓ | always |
 | Report names its log and the moment | ✓ | ✓ | ✓ (copies the log) | `log`, `session_t_ms`; `copySessionLog` |
-| Build and commit in the report | – | ✓ | ✓ | always (`BugKitCommit`) |
-| Typed context (numbers stay numbers) | – (strings) | – (strings) | ✓ (Codable) | `context: [String: JSONValue]` |
+| Build and commit in the report | ✓ | ✓ | ✓ | always (`BugKitCommit`) |
+| Typed context (numbers stay numbers) | ✓ | – (strings) | ✓ (Codable) | `context: [String: JSONValue]` |
 | Extra files: clip, recent segments, report.json | ✓ frame | – | ✓ | `extraFiles`, `RecentSegments`, `writeReportJSON` |
 | JSON Lines session log per launch | ✓ | ✓ | ✓ | `SessionLog` (optional) |
 | Periodic status line helper | ad hoc | ad hoc | ad hoc | `SessionLog.status(every:)` |
 | Logs pruned at 30 days, reported ones kept | ✓ | ✓ | – | `BugStore.pruneLogs` |
 | MetricKit, signal and exception files, announced once | ✓ | ✓ | – | `CrashReports` |
 | Simulator hooks for reports | ✓ `SWING_BUG` | ✓ `GRABBER_BUG` | selftest script | `launchHookPrefix` |
-| What's new from git and the stories (CG story 148) | – | ✓ | – | `WhatsNew`, `WhatsNewView`, `WhatsNewRow`, `scripts/whats-new.sh` |
-| Pull from the phone **and** the iPad | – (one device) | ✓ (PR #241) | – | `scripts/pull-reports.sh` |
-| File each report once | ✓ GitHub, gist images | ✓ GitHub, no images | ✓ beads | `listener/bug-listener` (GitHub, beads, none) |
+| What's new from git and the stories (CG story 148) | ✓ | ✓ | – | `WhatsNew`, `WhatsNewView`, `WhatsNewRow`, `scripts/whats-new.sh` |
+| Pull from the phone **and** the iPad | ✓ (`bugs-check` through `pull-reports.sh --check`; `pull-logs` is still per device) | ✓ (PR #241) | – | `scripts/pull-reports.sh` |
+| File each report once | ✓ GitHub, paths named | ✓ GitHub, no images | ✓ beads | `listener/bug-listener` (GitHub, beads, none) |
 | Always-on listener, inbox and notification | – | – | – | `listener/bug-listener` |
 | Deploy to every device under the signing lock | – | – | ✓ lock (iPad only) | `scripts/deploy-all.sh` |
 
@@ -38,7 +38,7 @@
 
 The order is EA first (CG's copy came from it), then CG, then MM. Each app keeps its own context, screen names and stories. One commit per step.
 
-**Exercise Analyzer**
+**Exercise Analyzer** (done 2026-10-10, EA PR #246: steps 1–6 as written, 7 left to the lock by hand; `gentleShake` off by choice, since a kettlebell phone travels between sets; EA keeps its own `SessionLog` behind a 12-line `JSONValue` → `Any` bridge)
 1. Add the package. Replace `ShakeDetector`, `BugReportSheet` and `BugReporter` in `BugReport.swift` with `BugReporter(hooks:options:)`, using `another: .keepMoment` (#212's behaviour). This fixes the unlocked `bugs.jsonl` append and the same-second folder overwrite that EA still has.
 2. Hooks:
    - `context`: today's `bugContext()`, with numbers as numbers (`reps`, `playhead`);
