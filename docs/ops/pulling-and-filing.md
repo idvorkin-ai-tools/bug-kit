@@ -62,6 +62,6 @@ Each issue body carries `<!-- bug:<reported_at> -->`. BugKit reports also carry 
 These steps come from EA and CG DEBUGGING.md and from MM AGENTS.md.
 
 1. Find or write the user story the report belongs to. A bug gets an `Issues:` line; a request becomes a story.
-2. Open the named log at the report's `session_t_ms`: `jq -c 'select(.t > N-5000 and .t < N+2000)' <log>`. Put what it shows on the issue as a comment.
+2. Open the named log at the report's `session_t_ms` with `scripts/log-tool.sh at <log> <session_t_ms> 5`. Use `around <log> 15:10:00 10` when someone names a wall time, `summary <log> --drop frame` to skip per-frame noise, and `errors` or `types` for an overview. Put what it shows on the issue as a comment.
 3. If the log cannot explain it, add the event that would, deploy, and wait for the next report. Never ship a guessed fix.
 4. Make one commit per issue, verified on the cheapest rung. Close the issue once the build is on the device, with a comment naming the rung and the log line that proves the fix.

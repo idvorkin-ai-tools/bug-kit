@@ -38,6 +38,9 @@ Part of the [BugKit stories](README.md).
 - **From:** CG story 141; EA DEBUGGING.md
 - **Status:** `SessionLog`, verified on the host by `sessionLogWritesOneLinePerEventWithTypeAndT` and `twoLogsInOneSecondGetTheirOwnFiles`.
   - It is optional: an app with its own log passes its logger.
+  - Wall and host-clock stamps (MM's special sauce): `SessionLog(clocks: [.wall, .mono])` and
+    `SessionLog.wall(ofMono:)`, verified on the host by `linesCarryWallAndMonoWhenAsked`, `noClocksByDefault`,
+    `wallStampsKeepTheLocalOffsetAndMilliseconds` and `aFramesHostTimeConvertsToWallTime`.
 
 #### Use Case:
 - **As a** developer asked "why did it do that"
@@ -53,6 +56,15 @@ Part of the [BugKit stories](README.md).
   - every later line has `type` and `t` (ms since launch), which a field cannot overwrite;
   - a NaN becomes null instead of losing the line.
 
+- **Scenario:** "It just happened at 15:10"
+- **Given:** the app opened its log with `clocks: [.wall, .mono]`
+- **When:** someone says when a problem happened, or a camera frame's host time is known
+- **Then:**
+  - every line also has `wall` (local time with milliseconds and the zone offset) and `mono` (host-clock seconds),
+    neither of which a field can overwrite;
+  - `SessionLog.wall(ofMono:)` turns a frame's or a segment's host time into the wall time a person would name;
+  - `scripts/log-tool.sh around 15:10:00 10` slices the log to that moment.
+
 ---
 
 ### User Story 012:
@@ -60,6 +72,8 @@ Part of the [BugKit stories](README.md).
 - **Summary:** A status line every few seconds (technical)
 - **From:** device-debug-loop; EA `clock` (#23), `sync_status` (#231); CG `call_out_level` (#186)
 - **Status:** `SessionLog.status(every:)`, verified on the host by `theStatusLineRepeats`.
+  - `memory: true` adds `rss_mb` (MM's special sauce), verified on the host by `residentMemoryIsReadable` and
+    `theStatusLineCarriesRSSWhenAsked`.
 
 #### Use Case:
 - **As a** developer reading a report about something that went quiet
@@ -70,6 +84,10 @@ Part of the [BugKit stories](README.md).
 - **Scenario:** A stuck pass
 - **Given:** `log.status(every: 5) { [...] }`
 - **Then:** the log has a `status` line every 5 s with those fields, until the app ends
+
+- **Scenario:** A leak, or the memory limit
+- **Given:** `log.status(every: 5, memory: true) { [...] }`
+- **Then:** each status line also has `rss_mb`, so a climb before a kill with no crash file is in the log
 
 ---
 
