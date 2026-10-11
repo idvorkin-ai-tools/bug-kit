@@ -11,6 +11,11 @@ Each story uses the apps' format:
 
 There is no story without a test or a named rung. Where the only check is a device, the Status line says so.
 
+The Status line is a running log, not a checkbox (CG `docs/stories/README.md`):
+- Each change adds a bullet with what changed, its commit or PR, and the rung it was verified on.
+- It names what is not checked yet, such as "a device check, still to do" or "verified by build only: the first real crash will verify it".
+- A later session then reads what is left to verify, without checking everything again.
+
 The rungs are described in [../ops/test-ladder.md](../ops/test-ladder.md):
 - **host** means `swift test` or the listener's pytest;
 - **typecheck** means the iOS UI compiled against the iOS SDK;
