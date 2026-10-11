@@ -123,6 +123,14 @@ public enum CloudDeliveryError: Error, Equatable, Sendable {
 protocol CloudReportTransport: Sendable {
   func accountID() async throws -> String
   func upload(_ report: BugReport, payload: URL) async throws
+  func retryDelay(for error: any Error, attempt: Int) -> TimeInterval?
+}
+
+extension CloudReportTransport {
+  func retryDelay(for error: any Error, attempt: Int) -> TimeInterval? {
+    guard error as? CloudDeliveryError == .accountUnavailable else { return nil }
+    return min(300, 5 * pow(2, Double(min(attempt, 6))))
+  }
 }
 
 /// Durable outbox shared by the native adapter and fake-backed host tests.
@@ -132,9 +140,15 @@ actor CloudReportOutbox: BugReportDelivery {
   let transport: any CloudReportTransport
   let logger: BugLogger
   private var flushing: Task<Int, Error>?
+  private var retrying: Task<Void, Never>?
+  private let sleep: @Sendable (TimeInterval) async throws -> Void
 
-  init(store: BugStore, root: URL, transport: any CloudReportTransport, logger: @escaping BugLogger) {
+  init(store: BugStore, root: URL, transport: any CloudReportTransport, logger: @escaping BugLogger,
+       sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
+         try await Task.sleep(for: .seconds(seconds))
+       }) {
     self.store = store; self.root = root; self.transport = transport; self.logger = logger
+    self.sleep = sleep
   }
 
   func enqueue(_ report: BugReport, documents: URL) async throws {
@@ -142,7 +156,44 @@ actor CloudReportOutbox: BugReportDelivery {
       throw CloudDeliveryError.wrongStore
     }
     try stage(report)
-    Task { _ = try? await self.flush() }
+    logger("bug_delivery_queued", ["id": .string(report.id.uuidString), "transport": "cloudkit"])
+    start()
+  }
+
+  /// Retain one outbox per store. Start at launch/foreground to recover after suspension or termination.
+  func start() {
+    guard retrying == nil else { return }
+    retrying = Task { await self.retryUntilIdle() }
+  }
+
+  func stop() { retrying?.cancel() }
+
+  private func retryUntilIdle() async {
+    defer { retrying = nil }
+    var attempt = 0
+    while !Task.isCancelled {
+      do {
+        let count = try await flush()
+        let unsent = try store.readAll().reports.contains { report in
+          !FileManager.default.fileExists(atPath: sent.appendingPathComponent(report.id.uuidString + ".json").path)
+        }
+        let queued = (try? FileManager.default.contentsOfDirectory(at: pending, includingPropertiesForKeys: nil))?
+          .contains { $0.pathExtension == "json" } ?? false
+        if !unsent && !queued { return }
+        if count > 0 { attempt = 0; continue }
+        // Unstageable evidence remains local and visible rather than spinning or suppressing other reports.
+        try await sleep(30)
+      } catch {
+        if Task.isCancelled { return }
+        guard let delay = transport.retryDelay(for: error, attempt: attempt) else {
+          logger("bug_delivery_stopped", ["transport": "cloudkit", "reason": "configuration, account or evidence requires attention"])
+          return
+        }
+        logger("bug_delivery_retry", ["transport": "cloudkit", "after_seconds": .double(delay), "attempt": .int(attempt + 1)])
+        attempt += 1
+        do { try await sleep(delay) } catch { return }
+      }
+    }
   }
 
   private var pending: URL { root.appendingPathComponent("pending") }
@@ -184,23 +235,95 @@ actor CloudReportOutbox: BugReportDelivery {
       }
     }
     var count = 0
-    while count < 100 {
-      let urls = (try? FileManager.default.contentsOfDirectory(at: pending, includingPropertiesForKeys: nil)) ?? []
-      guard let url = urls.filter({ $0.pathExtension == "json" }).sorted(by: { $0.path < $1.path }).first else { break }
-      let payload = try CloudReportPayload.read(url)
+    var evidenceError: (any Error)?
+    let urls = (try? FileManager.default.contentsOfDirectory(at: pending, includingPropertiesForKeys: nil)) ?? []
+    for url in urls.filter({ $0.pathExtension == "json" }).sorted(by: { $0.path < $1.path }).prefix(100) {
+      if FileManager.default.fileExists(atPath: sent.appendingPathComponent(url.lastPathComponent).path) {
+        try FileManager.default.removeItem(at: url)
+        continue
+      }
+      let payload: CloudReportPayload
+      do { payload = try CloudReportPayload.read(url) }
+      catch {
+        evidenceError = error
+        logger("bug_delivery_pending", ["id": .string(url.deletingPathExtension().lastPathComponent),
+                                        "transport": "cloudkit", "reason": "invalid queued evidence"])
+        continue
+      }
+      guard url.lastPathComponent == payload.report.id.uuidString + ".json" else {
+        evidenceError = CloudDeliveryError.invalidPayload
+        continue
+      }
       guard try await transport.accountID() == account else { throw CloudDeliveryError.accountChanged }
+      logger("bug_delivery_uploading", ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"])
       do { try await transport.upload(payload.report, payload: url) }
       catch {
         logger("bug_delivery_pending", ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"])
         throw error
       }
       try FileManager.default.createDirectory(at: sent, withIntermediateDirectories: true)
-      // Receipt first: a crash before removing the payload cannot lose a pending report.
       try Data().write(to: sent.appendingPathComponent(url.lastPathComponent), options: .atomic)
       try FileManager.default.removeItem(at: url)
       logger("bug_delivery_uploaded", ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"])
       count += 1
     }
+    if let evidenceError { throw evidenceError }
+    return count
+  }
+}
+
+struct CloudReportReference: Sendable {
+  let id: UUID
+  let bundle: String
+}
+
+struct CloudReportAsset: Sendable {
+  let bundle: String
+  let file: URL
+}
+
+protocol CloudReportSource: Sendable {
+  func accountID() async throws -> String
+  func reports() async throws -> [CloudReportReference]
+  func asset(for id: UUID) async throws -> CloudReportAsset
+}
+
+/// Shared receiver engine; a successful query alone is not delivery. Complete evidence must reach disk.
+actor CloudReportInbox {
+  let source: any CloudReportSource
+  let logger: BugLogger
+  init(source: any CloudReportSource, logger: @escaping BugLogger) { self.source = source; self.logger = logger }
+
+  func download(to inbox: URL) async throws -> Int {
+    let account = try await source.accountID()
+    try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+    let binding = inbox.appendingPathComponent("account.txt")
+    if FileManager.default.fileExists(atPath: binding.path) {
+      guard try String(contentsOf: binding, encoding: .utf8) == account else { throw CloudDeliveryError.accountChanged }
+    } else { try Data(account.utf8).write(to: binding, options: .atomic) }
+    var count = 0
+    var failure: (any Error)?
+    for report in try await source.reports() {
+      if CloudReportPayload.isComplete(inbox.appendingPathComponent(report.id.uuidString)) { continue }
+      guard try await source.accountID() == account else { throw CloudDeliveryError.accountChanged }
+      do {
+        let asset = try await source.asset(for: report.id)
+        let payload = try CloudReportPayload.read(asset.file)
+        guard payload.report.id == report.id, payload.report.bundle == report.bundle,
+              asset.bundle == report.bundle else { throw CloudDeliveryError.invalidPayload }
+        // Recheck after the asset request too; account may change during a network wait.
+        guard try await source.accountID() == account else { throw CloudDeliveryError.accountChanged }
+        _ = try payload.install(in: inbox)
+        logger("cloudkit_downloaded", ["id": .string(report.id.uuidString), "bundle": .string(report.bundle)])
+        count += 1
+      } catch {
+        if error as? CloudDeliveryError == .accountChanged { throw error }
+        failure = error
+        logger("cloudkit_report_pending", ["id": .string(report.id.uuidString), "reason": "download or evidence validation failed"])
+      }
+    }
+    // Valid reports still arrive in the same poll even when another report is malformed/unavailable.
+    if let failure { throw failure }
     return count
   }
 }

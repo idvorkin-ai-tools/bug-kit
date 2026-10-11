@@ -43,3 +43,12 @@ jobs:
         run: |
           xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0 \
             -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" Sources/BugKit/*.swift
+      - name: watchOS sender compilation
+        run: |
+          xcrun --sdk watchos swiftc -typecheck -swift-version 6 -target arm64_32-apple-watchos10.0 \
+            -sdk "$(xcrun --sdk watchos --show-sdk-path)" Sources/BugKit/*.swift
+      - name: Headless CloudKit reader compilation
+        run: |
+          command -v xcodegen >/dev/null || brew install xcodegen
+          python3 scripts/build-cloudkit-reader.py --unsigned
+          DerivedData/CloudKitReader/Build/Products/Debug/BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader --help

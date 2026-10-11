@@ -128,3 +128,78 @@ private actor RejectingDelivery: BugReportDelivery {
   #expect(await delivery.wasCalled())
   #expect(try f.store.readAll().reports == [report])
 }
+
+private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
+  let root: URL
+  var available = false
+  var saved: [UUID: CloudReportReference] = [:]
+  var uploadAttempts = 0
+  init(root: URL) { self.root = root }
+  func accountID() -> String { "synthetic-owner" }
+  nonisolated func retryDelay(for error: any Error, attempt: Int) -> TimeInterval? { 0.01 }
+  func upload(_ report: BugReport, payload: URL) throws {
+    uploadAttempts += 1
+    guard available else { throw CloudDeliveryError.accountUnavailable }
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    try Data(contentsOf: payload).write(to: root.appendingPathComponent(report.id.uuidString), options: .atomic)
+    saved[report.id] = CloudReportReference(id: report.id, bundle: report.bundle)
+  }
+  func reports() -> [CloudReportReference] { Array(saved.values) }
+  func asset(for id: UUID) throws -> CloudReportAsset {
+    guard let report = saved[id] else { throw CloudDeliveryError.invalidPayload }
+    return CloudReportAsset(bundle: report.bundle, file: root.appendingPathComponent(id.uuidString))
+  }
+  func connect() { available = true }
+  func attempts() -> Int { uploadAttempts }
+  func count() -> Int { saved.count }
+}
+
+@Test func cloudReportEventuallyReachesMacAfterOfflineSaveWithoutAnotherEnqueue() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let cloud = LoopbackCloud(root: f.root.appendingPathComponent("server"))
+  let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: cloud, logger: { _, _ in })
+  let writer = BugReportWriter(store: f.store,
+    info: BugAppInfo(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic"),
+    logger: { _, _ in }, delivery: queue)
+  let report = await writer.save(note: "cellular fixture", screen: "home", context: [:],
+                                 screenshotPNG: Data("evidence".utf8), log: nil, extraFiles: nil)
+  for _ in 0..<100 where await cloud.attempts() == 0 { try await Task.sleep(for: .milliseconds(10)) }
+  #expect(await cloud.attempts() > 0)
+  #expect(await cloud.count() == 0)
+  await cloud.connect()
+  for _ in 0..<100 where await cloud.count() == 0 { try await Task.sleep(for: .milliseconds(10)) }
+  #expect(await cloud.count() == 1)
+  let mac = f.root.appendingPathComponent("mac")
+  let receiver = CloudReportInbox(source: cloud, logger: { _, _ in })
+  #expect(try await receiver.download(to: mac) == 1)
+  let destination = mac.appendingPathComponent(report.id.uuidString)
+  #expect(CloudReportPayload.isComplete(destination))
+  #expect(try Data(contentsOf: destination.appendingPathComponent("Documents/" + report.screenshot!)) == Data("evidence".utf8))
+  #expect(try await receiver.download(to: mac) == 0)
+  #expect(try f.store.readAll().reports == [report])
+  await queue.stop()
+}
+
+@Test func cloudReceiverFailureIsNotMistakenForMacDeliveryAndRetries() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let cloud = LoopbackCloud(root: f.root.appendingPathComponent("server"))
+  await cloud.connect()
+  let report = try f.report(); try f.store.append(report)
+  _ = try await f.outboxRootQueue(cloud).flush()
+  let serverFile = f.root.appendingPathComponent("server/" + report.id.uuidString)
+  let bytes = try Data(contentsOf: serverFile)
+  try Data("truncated".utf8).write(to: serverFile)
+  let mac = f.root.appendingPathComponent("mac")
+  let receiver = CloudReportInbox(source: cloud, logger: { _, _ in })
+  await #expect(throws: (any Error).self) { try await receiver.download(to: mac) }
+  #expect(!CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+  try bytes.write(to: serverFile)
+  #expect(try await receiver.download(to: mac) == 1)
+  #expect(CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+}
+
+private extension CloudFixture {
+  func outboxRootQueue(_ transport: any CloudReportTransport) -> CloudReportOutbox {
+    CloudReportOutbox(store: store, root: outboxRoot, transport: transport, logger: { _, _ in })
+  }
+}

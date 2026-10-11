@@ -1,11 +1,11 @@
 # BugKit
 
-Bug reports, session logs and crash evidence for iOS apps, plus a Mac listener that pulls reports from paired iPhones and iPads and files them in GitHub, beads or a local inbox.
+Bug reports, session logs and crash evidence for iOS apps, plus opt-in private CloudKit delivery and a Mac listener that pulls reports from CloudKit or paired iPhones and iPads and files them in GitHub, beads or a local inbox.
 
 BugKit requires **iOS 17+**. Its report model, storage and flow also support **macOS 14+**; the reporting UI is iOS only. Building the package’s tests requires **Swift 6+** because they use Swift Testing.
 
 - Shake, tap a button or press ⌘I to report a problem. The dialog captures a screenshot before opening and supports “Log it and another.”
-- Each report carries a UUID, build, typed context, session log path and timestamp. Files stay in the app’s Documents directory until pulled.
+- Each report carries a UUID, build, typed context, session log path and timestamp. Files stay in the app’s Documents directory; optional CloudKit delivery uploads an immutable evidence copy.
 - The listener polls every reachable paired iPhone and iPad, files reports once and names local screenshot paths without uploading images.
 - An optional What's new feed connects git commits to user stories and shows recent changes on iOS and macOS.
 
@@ -135,6 +135,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Wall and host-clock timestamps | Create `SessionLog(prefix: "app", clocks: [.wall, .mono])`. Both are off by default. |
 | Memory on status lines | Use `log.status(every: 5, memory: true) { ... }` to include `rss_mb`. Default: off. |
 | Bridge an existing logger | Convert fields with `fields.mapValues(\.foundation)` when the app's logger accepts `[String: Any]`. |
+| Private CloudKit delivery | Add the shared container entitlement, retain `CloudKitReportDelivery`, pass `delivery:` to the reporter/writer, and call `start()` at launch/foreground. Configure the listener with `cloudkit_config`. Default: off. See [CloudKit adoption](docs/integration.md#private-cloudkit-delivery). |
 | Shake and keyboard reporting | Enabled by `.bugReporting(reporter)`. `systemShake`, `gentleShake`, `commandI` and `dialogKeys` default to `true`. |
 | Report button | Add `BugReportButton(reporter: reporter)` to your view or toolbar. |
 | Session log association | Create `SessionLog`, then supply `sessionLog: { log.position }`, `logger: log.logger` and `flushLog: { log.flush() }` hooks as in the quick start. |

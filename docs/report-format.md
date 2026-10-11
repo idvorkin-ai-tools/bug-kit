@@ -28,3 +28,13 @@
 | `context` | whatever the app attaches, as JSON values |
 
 Optional UI diagnostics add `interactions.jsonl` and `accessibility.json` to the report folder and `files` array. Automatic listener crash records use a stable `crash:<sha256>` ID, `kind: crash`, and a local diagnostic-file path; they do not modify the device’s `bugs.jsonl`. See [listener operations](ops/listener.md#automatic-crash-discovery).
+
+## Optional CloudKit envelope
+
+The private `BugKitReport` record ID is the report UUID. Fields: `bundle` (String), `reportedAt` (Date), and
+`payload` (CKAsset). Asset JSON has `version: 1`, the existing Codable `report`, and `files`, a mapping of
+Documents-relative paths to base64 file data. Declared files, screenshot and log must match the envelope's
+paths; absolute/traversing/symlink-escaping paths are rejected. Limits are 100 files, 20 MB raw evidence and
+30 MB encoded asset. Local reports and evidence remain unchanged. Mac imports publish `<UUID>/report.json`,
+`<UUID>/files.json` (path → byte length) and `<UUID>/Documents/<path>` atomically; incomplete or mismatched
+imports stay pending. Container/account bindings and upload receipts are local state, never report fields.

@@ -263,3 +263,158 @@ let reporter = BugReporter(hooks: hooks, options: options, store: store)
 ```
 
 `captureScreenshots` defaults to `true`. Turning it off skips the renderer for the sheet, “Log it and another” recapture, and launch-hook reports. No screenshot is displayed or written by those paths. Automatic reports already have no screenshot. The other three capture features default to `false`; set them explicitly here so this privacy configuration is easy to audit. These options do not redact the user's note, app-provided context, session logs or `extraFiles`: the app must keep dictated text out of those hooks and logs. Apps calling `BugReportWriter.save` directly own their `screenshotPNG` argument.
+
+## Private CloudKit delivery
+
+This path is opt-in and intended for your devices on the same iCloud account. A phone on cellular can upload a
+report while away from the Mac; the Mac's login-session listener downloads it on its next poll, files it in the
+configured tracker and appends the agent's inbox line. Keep the Mac awake/online and the listener running.
+Neither Bluetooth pairing nor `devicectl` reachability is required for CloudKit. `bugs.jsonl` and local evidence
+remain available for the existing device pull. No runtime package dependencies are added.
+
+### Each app's agent
+
+1. Add **Signing & Capabilities → iCloud → CloudKit** to the host app target. Add the shared container, for
+   example `iCloud.com.example.BugKitReports`, alongside any existing iCloud Documents containers. All sending
+   apps and the Mac reader must have this same container authorized in their provisioning profiles. Do not
+   reuse a Documents container without enabling CloudKit for it. Keep team/account/device identifiers in local
+   configuration, not committed project files or docs.
+2. Sign in to the same **iCloud user account** on the phone/watch and Mac. The developer signing account is a
+   different requirement. Sender and reader must use the same **Development or Production** database
+   environment. TestFlight and App Store apps use Production: deploy the schema before using them.
+3. Retain **one delivery actor per store** for the app's lifetime and pass it to the reporter (or directly to
+   `BugReportWriter`). Use the exact same store, including its App Group Documents path when applicable:
+
+```swift
+let delivery = CloudKitReportDelivery(
+  containerIdentifier: "iCloud.com.example.BugKitReports", store: store, logger: log.logger)
+let reporter = BugReporter(
+  store: store, info: info,
+  hooks: BugReporterHooks(sessionLog: { log.position }, logger: log.logger, flushLog: { log.flush() }),
+  options: options, delivery: delivery)
+Task { await delivery.start() } // launch; repeat on foreground
+```
+
+For a watch or Foundation-only caller:
+
+```swift
+let writer = BugReportWriter(store: store, info: info, logger: log.logger, delivery: delivery)
+let report = await writer.save(note: note, screen: "watch", context: [:], screenshotPNG: nil,
+                               log: log.position, extraFiles: nil)
+```
+
+The relevant entitlements are `com.apple.developer.icloud-services = ["CloudKit"]` and
+`com.apple.developer.icloud-container-identifiers = ["iCloud.com.example.BugKitReports"]`; Xcode/provisioning
+also supplies the container environment. Do not copy a signature's generated team-prefixed entitlements into
+source control. The app owns the opt-in preference: construct/pass delivery only when enabled. `stop()` stops
+app-level retry timers; an already submitted CloudKit daemon operation may still finish.
+
+Saving completes locally before a network request. The immutable outbox lives below
+`Documents/bug-delivery/cloudkit-<container-hash>/`. Uploads explicitly allow cellular, use user-initiated QoS,
+and are long-lived CloudKit operations so the system can continue an already submitted operation after the app
+exits. Its operation ID is persisted and callbacks reattach after restart. Stable report UUID record IDs make
+uncertain acknowledgements safe to retry. Transient network/account errors retry automatically with backoff
+(up to five minutes), respecting CloudKit's retry-after delay. Call `start()` at launch/foreground to resume
+work after termination; `flush()` runs one pass and returns the uploaded count. Timers cannot run while iOS
+suspends an app, and new retries still need a later app execution opportunity. A failed save that never
+submitted an operation is not guaranteed to reach the Mac while the app remains suspended. Test that case on
+the device; do not infer it from a local success message.
+
+The initial `start()` also queues existing reports in this store. Missing/oversized evidence stays local and
+logs `bug_delivery_pending`; a corrupt queued payload or permanent configuration error logs
+`bug_delivery_stopped` and needs attention. Limits: 100 attachments, 20 MB total unencoded evidence, 30 MB
+encoded asset. Large video reports use the local/device fallback; trim evidence before saving if cloud delivery
+is required. Account bindings prevent silently delivering an old outbox into a different iCloud account.
+Do not erase them casually; finish the original account's queue or explicitly archive its store first.
+
+### Mac reader and listener
+
+A bare SwiftPM CLI cannot carry the profile required for CloudKit's restricted entitlement. The supported
+reader is a tiny headless `BugKitCloudReader.app`, built by XcodeGen/Xcode, with
+`Contents/embedded.provisionprofile`. Its executable can be invoked directly by the listener; it checks its
+bundle, signature, embedded profile, container entitlement and configured environment before touching CloudKit. Apple documents this
+[app wrapper requirement](https://developer.apple.com/documentation/technotes/tn3125-inside-code-signing-provisioning-profiles).
+The SwiftPM `bug-cloudkit` executable remains useful for `--help`; it fails cleanly for live access outside a
+provisioned app.
+
+Keep signing/runtime values in **`~/.config/bug-kit/cloudkit.json`**, never in this repo:
+
+```json
+{
+  "team": "YOURTEAMID",
+  "bundle": "com.example.BugKitCloudReader",
+  "container": "iCloud.com.example.BugKitReports",
+  "environment": "Development",
+  "app": "~/Applications/BugKitCloudReader.app",
+  "inbox": "~/tmp/agent/bugs/cloudkit"
+}
+```
+
+```sh
+chmod 600 ~/.config/bug-kit/cloudkit.json
+python3 scripts/build-cloudkit-reader.py
+# Compile without provisioning when setting up CI/development (cannot access CloudKit):
+python3 scripts/build-cloudkit-reader.py --unsigned
+```
+
+The signed build runs one job under
+`lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock xcodebuild ... -allowProvisioningUpdates`, uses two compiler
+workers, verifies the signature/profile and installs to the local config's `app` path. Generated signing
+settings and raw logs are ignored under `DerivedData/`; they can contain private identifiers. Do not commit
+or publish those logs. Do not overlap signing builds or simulator tests from other agents.
+
+Add to **`~/.config/bug-kit/apps.json`**, retaining its existing app/tracker entries:
+
+```json
+{
+  "poll_seconds": 60,
+  "poll_devices": true,
+  "cloudkit_config": "~/.config/bug-kit/cloudkit.json",
+  "apps": [
+    { "name": "example", "bundle": "com.example.app", "tracker": { "kind": "github", "repo": "owner/app" } }
+  ]
+}
+```
+
+The listener invokes the helper **first on every poll**, even if paired-device discovery fails. Set
+`poll_devices: false` for a Mac that only reads CloudKit. It still consumes complete previously downloaded
+folders after a failed sync, but the failure makes status unhealthy. A `cloudkit_inbox` alone consumes an
+existing offline inbox without running a reader; use `cloudkit_config` for end-to-end delivery. Dry runs skip
+CloudKit downloads and consume only existing local folders.
+
+Reports use private `BugKitReport` records keyed by UUID, with `bundle` (String), `reportedAt` (Date), `payload`
+(Asset). In CloudKit Console, add the **Queryable recordName index** for the all-records query, then deploy the
+schema/index to Production before using production apps. The reader paginates, skips complete local folders,
+and atomically installs report/evidence/length manifests. Cloud records are retained. Download folders and
+local receipt files are retained too; do not delete them as routine cleanup or old reports will download again.
+The same seen-store delivery ledger deduplicates CloudKit and device pulls by app bundle + report UUID;
+existing inbox history also recovers receipts after a lost seen-store write. An inbox-write failure retries
+that handoff without creating another tracker issue. CloudKit first contact files new reports immediately;
+the device lane retains its existing first-contact baseline behavior.
+
+### Igor's setup and real acceptance check
+
+Igor must supply/authorize the shared container and app IDs if automatic provisioning cannot do it, sign in
+under Xcode → Settings → Accounts, and ensure the phone/watch and Mac share an iCloud user account. Enable
+CloudKit on every adopting app's App ID and select the shared container in its signing capability. Deploy the
+schema/index for the environment used by the installed apps. App agents can then make the per-app code and
+entitlement changes above; no report routing secrets are embedded in the library.
+
+Use a synthetic report UUID to follow each hop: app `bug_report` → `bug_delivery_queued` →
+`bug_delivery_uploading` / `bug_delivery_retry` → `bug_delivery_uploaded` → Mac `cloudkit_downloaded` →
+`file` → `inbox`. Query the Mac's `listener.log` and `inbox.jsonl` for that UUID and require exactly one issue
+and one inbox line. A phone-local report or CloudKit upload acknowledgement alone is **not** the delivery test.
+Disable Wi-Fi, make the phone unreachable to `devicectl`, save over cellular and require the Mac inbox line
+within one poll after upload. Repeat after offline save/reconnection and app restart; verify pending retries
+rather than silent loss, then return home and pull the device to prove deduplication. `doctor --json` checks
+signing without querying iCloud; `status --json` reports the last sync result. Missing entitlements, wrong
+environment/index, expired profiles, disabled cellular/iCloud or a sleeping/offline Mac must be treated as
+failed delivery, not hidden by an old download folder. The live device/cellular test requires Igor.
+
+### watchOS and #25
+
+The package declares watchOS 10 support. The model, local store, writer, logger and CloudKit sender typecheck
+with the watchOS SDK, allowing think-a-card's watch target to submit directly to the private container without
+waiting for its paired iPhone. Give that watch target its own authorized App ID/profile and the same shared
+container. This does not add a watch report dialog, shake handling, dictation UI, screenshots, or a
+WatchConnectivity relay, so #25 remains open for those integration choices and real watch/cellular validation.
