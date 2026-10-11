@@ -6,7 +6,8 @@ private actor FakeCloudTransport: CloudReportTransport {
   var account = "owner"
   var failing = false
   var uploads: [UUID: Data] = [:]
-  func accountID() -> String { account }
+  var accountChecks = 0
+  func accountID() -> String { accountChecks += 1; return account }
   func upload(_ report: BugReport, payload: URL) throws {
     if failing { throw CloudDeliveryError.accountUnavailable }
     uploads[report.id] = try Data(contentsOf: payload)
@@ -15,6 +16,7 @@ private actor FakeCloudTransport: CloudReportTransport {
   func setAccount(_ value: String) { account = value }
   func count() -> Int { uploads.count }
   func data(_ id: UUID) -> Data? { uploads[id] }
+  func checks() -> Int { accountChecks }
 }
 
 private struct CloudFixture {
@@ -132,7 +134,8 @@ private actor RejectingDelivery: BugReportDelivery {
 private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
   let root: URL
   var available = false
-  var saved: [UUID: CloudReportReference] = [:]
+  var saved: [UUID: String] = [:]
+  var listed: [CloudReportRecord] = []
   var uploadAttempts = 0
   init(root: URL) { self.root = root }
   func accountID() -> String { "synthetic-owner" }
@@ -142,13 +145,16 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
     guard available else { throw CloudDeliveryError.accountUnavailable }
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     try Data(contentsOf: payload).write(to: root.appendingPathComponent(report.id.uuidString), options: .atomic)
-    saved[report.id] = CloudReportReference(id: report.id, bundle: report.bundle)
+    saved[report.id] = report.bundle
   }
-  func reports() -> [CloudReportReference] { Array(saved.values) }
+  func reports() -> [CloudReportRecord] {
+    listed + saved.map { CloudReportRecord(name: $0.key.uuidString, bundle: $0.value) }
+  }
   func asset(for id: UUID) throws -> CloudReportAsset {
-    guard let report = saved[id] else { throw CloudDeliveryError.invalidPayload }
-    return CloudReportAsset(bundle: report.bundle, file: root.appendingPathComponent(id.uuidString))
+    guard let bundle = saved[id] else { throw CloudDeliveryError.invalidPayload }
+    return CloudReportAsset(bundle: bundle, file: root.appendingPathComponent(id.uuidString))
   }
+  func list(_ records: [CloudReportRecord]) { listed = records }
   func connect() { available = true }
   func attempts() -> Int { uploadAttempts }
   func count() -> Int { saved.count }
@@ -196,6 +202,56 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
   try bytes.write(to: serverFile)
   #expect(try await receiver.download(to: mac) == 1)
   #expect(CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+}
+
+@Test func unstageableEvidenceStopsRetryingUntilStartOrNewReport() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let transport = FakeCloudTransport()
+  var bad = try f.report(); bad.files = ["bugs/sample/not-yet.txt"]
+  try f.store.append(bad)
+  let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: { _, _ in },
+                                sleep: { _ in await Task.yield() })
+  await queue.start()
+  try await Task.sleep(for: .milliseconds(200))
+  #expect(await transport.checks() == 1)
+  #expect(await transport.count() == 0)
+  try Data("arrived".utf8).write(to: f.documents.appendingPathComponent("bugs/sample/not-yet.txt"))
+  await queue.start()
+  for _ in 0..<100 where await transport.count() == 0 { try await Task.sleep(for: .milliseconds(10)) }
+  #expect(await transport.data(bad.id) != nil)
+  let next = try f.report(); try f.store.append(next)
+  try await queue.enqueue(next, documents: f.documents)
+  for _ in 0..<100 where await transport.count() < 2 { try await Task.sleep(for: .milliseconds(10)) }
+  #expect(await transport.data(next.id) != nil)
+  await queue.stop()
+}
+
+private final class CloudEvents: @unchecked Sendable {
+  private let lock = NSLock()
+  private var items: [(String, [String: JSONValue])] = []
+  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var all: [(String, [String: JSONValue])] { lock.lock(); defer { lock.unlock() }; return items }
+}
+
+@Test func badListedRecordsAreReportedWhileValidReportsStillDownload() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let cloud = LoopbackCloud(root: f.root.appendingPathComponent("server"))
+  await cloud.connect()
+  let report = try f.report(); try f.store.append(report)
+  _ = try await f.outboxRootQueue(cloud).flush()
+  let failed = UUID(), noBundle = UUID()
+  await cloud.list([CloudReportRecord(name: failed.uuidString, bundle: nil, error: CloudDeliveryError.accountUnavailable),
+                    CloudReportRecord(name: "console-test-record", bundle: "local.fixture"),
+                    CloudReportRecord(name: noBundle.uuidString, bundle: nil)])
+  let events = CloudEvents()
+  let mac = f.root.appendingPathComponent("mac")
+  let receiver = CloudReportInbox(source: cloud, logger: events.logger)
+  await #expect(throws: (any Error).self) { try await receiver.download(to: mac) }
+  #expect(CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+  let pending = events.all.filter { $0.0 == "cloudkit_report_pending" }.map { $0.1["id"] }
+  #expect(pending.count == 3)
+  #expect(Set(pending.compactMap { $0 }) == [.string(failed.uuidString), .string(noBundle.uuidString)])
+  #expect(events.all.contains { $0.0 == "cloudkit_downloaded" && $0.1["id"] == .string(report.id.uuidString) })
 }
 
 private extension CloudFixture {

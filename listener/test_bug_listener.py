@@ -638,6 +638,25 @@ def test_cloud_sync_failure_never_reports_healthy_even_with_existing_downloads(l
     assert "private details" not in bl.LOG.read_text()
 
 
+def test_cloud_sync_relays_failed_report_uuid_without_untrusted_text(listener_state, monkeypatch):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    configure_live_cloud(cfg)
+    failed = "a1b2c3d4-0000-4000-8000-000000000001"
+    output = "\n".join(json.dumps(e) for e in (
+        {"event": "cloudkit_report_pending", "id": failed, "reason": "private details"},
+        {"event": "cloudkit_report_pending", "reason": "listing failed"},
+        {"event": "cloudkit_report_pending", "id": "console-test-record\nprivate details"},
+        {"event": "cloudkit_sync", "ok": False, "code": 2}))
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (1, output, ""))
+    health = {}
+    bl.sync_cloudkit(cfg, cloud_summary(), health)
+    events = [json.loads(line) for line in bl.LOG.read_text().splitlines()]
+    pending = [e for e in events if e["event"] == "cloudkit_report_pending"]
+    assert [e["key"] for e in pending] == [failed.upper(), None, None]
+    assert "private details" not in bl.LOG.read_text()
+    assert health["cloudkit"]["ok"] is False
+
+
 def test_cloudkit_config_resolves_private_file_and_dry_run_does_not_launch_it(listener_state, monkeypatch):
     cloud = listener_state / "cloudkit.json"
     cloud.write_text(json.dumps({"container": "iCloud.com.example.BugKitReports", "environment": "Development",

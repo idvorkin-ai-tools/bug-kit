@@ -786,6 +786,11 @@ def sync_cloudkit(cfg: dict, summary: dict, health: dict) -> None:
             event = json.loads(line)
             if event.get("event") == "cloudkit_downloaded" and isinstance(event.get("id"), str):
                 log("cloudkit_downloaded", key=event["id"], bundle=event.get("bundle"))
+            elif event.get("event") == "cloudkit_report_pending":
+                key = None
+                with contextlib.suppress(ValueError, TypeError, AttributeError):
+                    key = str(uuid.UUID(event.get("id"))).upper()
+                log("cloudkit_report_pending", key=key, reason="download or evidence validation failed")
             elif event.get("event") == "cloudkit_sync" and event.get("ok") is True:
                 completed = True
         except (ValueError, AttributeError, TypeError):

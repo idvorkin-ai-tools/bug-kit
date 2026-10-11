@@ -173,16 +173,12 @@ actor CloudReportOutbox: BugReportDelivery {
     var attempt = 0
     while !Task.isCancelled {
       do {
-        let count = try await flush()
-        let unsent = try store.readAll().reports.contains { report in
-          !FileManager.default.fileExists(atPath: sent.appendingPathComponent(report.id.uuidString + ".json").path)
-        }
+        _ = try await flush()
+        // Unstageable evidence stays local and logged; enqueue or the next start() stages it again.
         let queued = (try? FileManager.default.contentsOfDirectory(at: pending, includingPropertiesForKeys: nil))?
           .contains { $0.pathExtension == "json" } ?? false
-        if !unsent && !queued { return }
-        if count > 0 { attempt = 0; continue }
-        // Unstageable evidence remains local and visible rather than spinning or suppressing other reports.
-        try await sleep(30)
+        if !queued { return }
+        attempt = 0
       } catch {
         if Task.isCancelled { return }
         guard let delay = transport.retryDelay(for: error, attempt: attempt) else {
@@ -272,9 +268,11 @@ actor CloudReportOutbox: BugReportDelivery {
   }
 }
 
-struct CloudReportReference: Sendable {
-  let id: UUID
-  let bundle: String
+/// One listed CloudKit record before validation; a per-record query error or bad metadata stays per-record.
+struct CloudReportRecord: Sendable {
+  let name: String
+  let bundle: String?
+  var error: (any Error)? = nil
 }
 
 struct CloudReportAsset: Sendable {
@@ -284,7 +282,7 @@ struct CloudReportAsset: Sendable {
 
 protocol CloudReportSource: Sendable {
   func accountID() async throws -> String
-  func reports() async throws -> [CloudReportReference]
+  func reports() async throws -> [CloudReportRecord]
   func asset(for id: UUID) async throws -> CloudReportAsset
 }
 
@@ -303,23 +301,30 @@ actor CloudReportInbox {
     } else { try Data(account.utf8).write(to: binding, options: .atomic) }
     var count = 0
     var failure: (any Error)?
-    for report in try await source.reports() {
-      if CloudReportPayload.isComplete(inbox.appendingPathComponent(report.id.uuidString)) { continue }
+    for record in try await source.reports() {
+      guard record.error == nil, let id = UUID(uuidString: record.name), let bundle = record.bundle else {
+        failure = record.error ?? CloudDeliveryError.invalidPayload
+        var fields: [String: JSONValue] = ["reason": "listing failed or record metadata is invalid"]
+        if let id = UUID(uuidString: record.name) { fields["id"] = .string(id.uuidString) }
+        logger("cloudkit_report_pending", fields)
+        continue
+      }
+      if CloudReportPayload.isComplete(inbox.appendingPathComponent(id.uuidString)) { continue }
       guard try await source.accountID() == account else { throw CloudDeliveryError.accountChanged }
       do {
-        let asset = try await source.asset(for: report.id)
+        let asset = try await source.asset(for: id)
         let payload = try CloudReportPayload.read(asset.file)
-        guard payload.report.id == report.id, payload.report.bundle == report.bundle,
-              asset.bundle == report.bundle else { throw CloudDeliveryError.invalidPayload }
+        guard payload.report.id == id, payload.report.bundle == bundle,
+              asset.bundle == bundle else { throw CloudDeliveryError.invalidPayload }
         // Recheck after the asset request too; account may change during a network wait.
         guard try await source.accountID() == account else { throw CloudDeliveryError.accountChanged }
         _ = try payload.install(in: inbox)
-        logger("cloudkit_downloaded", ["id": .string(report.id.uuidString), "bundle": .string(report.bundle)])
+        logger("cloudkit_downloaded", ["id": .string(id.uuidString), "bundle": .string(bundle)])
         count += 1
       } catch {
         if error as? CloudDeliveryError == .accountChanged { throw error }
         failure = error
-        logger("cloudkit_report_pending", ["id": .string(report.id.uuidString), "reason": "download or evidence validation failed"])
+        logger("cloudkit_report_pending", ["id": .string(id.uuidString), "reason": "download or evidence validation failed"])
       }
     }
     // Valid reports still arrive in the same poll even when another report is malformed/unavailable.

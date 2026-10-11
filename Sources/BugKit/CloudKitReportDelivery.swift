@@ -110,18 +110,19 @@ private struct NativeCloudReportSource: CloudReportSource {
     return try await container.userRecordID().recordName
   }
 
-  func reports() async throws -> [CloudReportReference] {
+  func reports() async throws -> [CloudReportRecord] {
     let database = container.privateCloudDatabase
     let query = CKQuery(recordType: "BugKitReport", predicate: NSPredicate(value: true))
     var page = try await database.records(matching: query, desiredKeys: ["bundle"], resultsLimit: 100)
-    var reports: [CloudReportReference] = []
+    var reports: [CloudReportRecord] = []
     while true {
       for (id, result) in page.matchResults {
-        let record = try result.get()
-        guard let uuid = UUID(uuidString: id.recordName), let bundle = record["bundle"] as? String else {
-          throw CloudDeliveryError.invalidPayload
+        switch result {
+        case .success(let record):
+          reports.append(CloudReportRecord(name: id.recordName, bundle: record["bundle"] as? String))
+        case .failure(let error):
+          reports.append(CloudReportRecord(name: id.recordName, bundle: nil, error: error))
         }
-        reports.append(CloudReportReference(id: uuid, bundle: bundle))
       }
       guard let cursor = page.queryCursor else { break }
       page = try await database.records(continuingMatchFrom: cursor, desiredKeys: ["bundle"], resultsLimit: 100)
