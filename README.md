@@ -96,7 +96,7 @@ The order is EA first (CG's copy came from it), then CG, then MM. Each app keeps
    - `copySessionLog: true` and `writeReportJSON: true`;
    - `extraFiles` copying `RecentSegments.covering(…, seconds: 90)`.
    Note that BugKit's keys differ from MM's: ⌘Return logs and ⇧⌘Return logs another, because the note field is multi-line.
-3. The Mac app is not iOS. Keep its SwiftUI sheet, and use `BugReportFlow` and `BugReportWriter`, which build on macOS.
+3. The Mac app is not iOS. Keep its SwiftUI sheet, and use `BugReportFlow` and `BugReportWriter`, which build on macOS. `WhatsNewRow` and `WhatsNewView` build on macOS too.
 4. Add `CrashReports` and `pruneLogs(keepNewest: 20)`. MM has no crash capture, and its own cap of 20 logs can delete a log a report names; its logs are a few MB a launch, so it keeps the cap as well as the 30 days.
 5. Set the tracker to `beads` in the listener's config, and keep `just file-bugs` for the Mac's own reports.
 
@@ -536,7 +536,8 @@ The host tests cover:
 - What's new: subjects, stories, links, the log text, this repo's own stories, the seen store;
 - the listener's index reader (broken lines, U+2028), issue body, titles and keys.
 
-The UI (shake, sheet, presenter, dictation, What's new views) is iOS only. Without a simulator, the most you can
+The UI (shake, sheet, presenter, dictation) is iOS only; the What's new views are plain SwiftUI and build on macOS
+too, so `swift build` on the host compiles them. Without a simulator, the most you can
 do is typecheck it against the iOS SDK:
 
 ```sh

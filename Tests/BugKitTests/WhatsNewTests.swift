@@ -9,6 +9,13 @@ final class WhatsNewTests: XCTestCase {
 
   private func at(_ iso: String) -> Date { ISO8601DateFormatter().date(from: iso)! }
 
+  /// MM's Mac app shows What's new with the same views: they build and construct on the host (macOS).
+  func testTheViewsBuildOnTheHost() {
+    let feed = WhatsNewFeed(generated: "2026-10-10", days: [])
+    _ = WhatsNewView(feed: feed, logger: { _, _ in })
+    _ = WhatsNewRow(feed: feed, logger: { _, _ in }, open: {})
+  }
+
   func testSubjectsThatStartWithTheirStory() {
     XCTAssertEqual(
       WhatsNew.parse(subject: "Story 203: the Cockpit's usage left, as a strip on the native home screen"),
