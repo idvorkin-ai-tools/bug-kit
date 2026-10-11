@@ -189,6 +189,6 @@ Apps using `BugReportSheet` get the screenshot ✕ automatically after updating 
 
 ### Delay automatic launch reports until the target screen is ready
 
-`<PREFIX>_BUG_AFTER=<seconds>` controls when `<PREFIX>_BUG` captures and saves its reports. The default remains 2 seconds. Values must be finite and nonnegative; invalid, negative and non-finite values fall back to 2. Zero is allowed. Setting the delay alone does not create a report, and it does not change `_SHAKE_AFTER`. The `bug_hook` event includes `bug_after`.
+`<PREFIX>_BUG_AFTER=<seconds>` controls when `<PREFIX>_BUG` captures and saves its reports. The default remains 2 seconds. Values must be between 0 and 86400 seconds (one day); invalid, negative, non-finite and larger values fall back to 2. Zero is allowed. Setting the delay alone does not create a report, and it does not change `_SHAKE_AFTER`, which accepts the same range and is ignored outside it. The `bug_hook` event includes `bug_after`.
 
 For EA's cold-launch `bug_again` smoke check, set `SIMCTL_CHILD_SWING_BUG_AFTER=10` alongside `SIMCTL_CHILD_SWING_BUG="first of two|second of two"` when calling `simctl launch`. Tune the delay to that app's cold startup and assert that the clip/load event precedes each report. For XCUITest, set `SWING_BUG_AFTER` in `launchEnvironment`. This is a fixed delay, not a readiness signal, so a slow launch can still exceed it. Other apps substitute their own prefix.

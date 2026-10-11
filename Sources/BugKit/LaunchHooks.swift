@@ -34,6 +34,7 @@ public struct BugLaunchHooks: Equatable, Sendable {
     return hooks
   }
 
+  /// Accepts 0...86400 seconds: `Duration.seconds(Double)` traps on huge finite values, so they must not reach it.
   private static func delay(_ value: String?) -> Double? {
     value.flatMap(Double.init).flatMap { (0...86_400).contains($0) ? $0 : nil }
   }

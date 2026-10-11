@@ -270,4 +270,4 @@ The screenshot thumbnail has an accessible “Remove screenshot” button. Remov
 
 **Issues:** #19
 
-Given `<PREFIX>_BUG` notes and `<PREFIX>_BUG_AFTER=10`, reports capture evidence after ten seconds instead of the default two. Invalid, negative and non-finite values retain the default; zero is accepted. A delay without notes does not save reports. Host coverage: `automaticReportDelayDefaultsToTwoSeconds`, `automaticReportDelayAcceptsOnlyFiniteNonnegativeValues`. EA's cold-launch smoke check can set `SWING_BUG_AFTER` and verify that the clip's load event precedes the report.
+Given `<PREFIX>_BUG` notes and `<PREFIX>_BUG_AFTER=10`, reports capture evidence after ten seconds instead of the default two. Invalid, negative, non-finite and over-one-day values retain the default; zero is accepted. A delay without notes does not save reports. Host coverage: `automaticReportDelayDefaultsToTwoSeconds`, `automaticReportDelayAcceptsOnlyFiniteNonnegativeValues`, `shakeDelayAcceptsOnlyBoundedNonnegativeValues`. EA's cold-launch smoke check can set `SWING_BUG_AFTER` and verify that the clip's load event precedes the report.
