@@ -13,9 +13,10 @@
        dependencies: [{ package: BugKit }]
    ```
 
-2. Optionally, bake the commit into Info.plist as `BugKitCommit`, for example
-   `BugKitCommit: $(GIT_COMMIT)` set from `git rev-parse --short HEAD` in a build script. Without it, reports say
-   "unknown".
+2. Set Info.plist `BugKitCommit: $(BUGKIT_COMMIT)` and pass the app's commit on the build command:
+   `xcodebuild ... BUGKIT_COMMIT="$(git describe --always --dirty --exclude='*')" build`.
+   This marks uncommitted builds `-dirty`. `deploy-all.sh` supports `"BUGKIT_COMMIT={describe}"` in
+   `build.settings`. Without a supplied value, reports say "unknown".
 
 3. At launch:
    - open the session log, if the app has none of its own;
@@ -55,7 +56,9 @@ struct MyApp: App {
       logger: log.logger,                                        // bug_report lands in the session log
       extraFiles: { folder in                                    // optional: e.g. the clip at the playhead
         try await model.exportClip(to: folder.appendingPathComponent("clip.mov"))
-        return ["clip.mov"]
+        // Window snapshots can omit video layers; render the playhead frame from the clip.
+        try await model.writeFrame(to: folder.appendingPathComponent("frame.jpg"))
+        return ["clip.mov", "frame.jpg"]
       },
       microphoneBusy: { model.inCall },
       flushLog: { log.flush() }), options: options))
@@ -82,6 +85,10 @@ NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
   story 037).
 - `reporter.lastStatus` says "Problem logged. Thanks." after a save, for a status line.
 - `log.status(every: 5) { [...] }` writes a periodic status line.
+- Add `memory: true` to include resident memory (`rss_mb`); create the logger with `clocks: [.wall, .mono]`
+  to include wall-clock and host-uptime timestamps. See [logging conventions](ops/logging.md).
+- For an app-owned `[String: Any]` logger, use `{ type, fields in log.event(type, fields.mapValues(\.foundation)) }`.
+- `WhatsNewRow` and `WhatsNewView` also build on macOS. The UIKit reporter remains iOS-only.
 - `RecentSegments.covering(segments, now:, seconds: 90, start:, end:)` picks the recorded segments for `extraFiles`.
 
 For dictation, add `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` to Info.plist before setting `dictation = true`.
@@ -100,6 +107,35 @@ For dictation, add `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageD
    - A commit counts when its subject starts with "Story NNN:", ends with "(story NNN)", names the story in its
      message, or names an issue that a story's Issues line lists.
    - Without git history it writes an empty feed and never fails the build.
+   - The phase reads `.git` and writes into the bundle; the existing recipe sets
+     `ENABLE_USER_SCRIPT_SANDBOXING: NO` on the app target.
+
+## Automatic reports
+
+Keep one reporter and invoke the failure hook only when the app's own check identifies a problem:
+
+```swift
+var options = BugReporterOptions()
+options.auto.window = 600
+options.auto.maxBytes = 5_000_000
+// Pass options and flushLog to BugReporter at construction, then at a failure:
+reporter.autoReport(reason: "call_failed", context: ["stage": .string("transcribe")], files: [callLog])
+```
+
+`autoReport` flushes the app's log hook, captures screen/log position, and schedules a save without a dialog or
+screenshot. It does not await delivery. The saved report carries `source: "auto"` and `reason`; manual reports
+omit both keys. A persistent per-reason window limits repeat triggers across relaunches. Use stable reason codes
+so unique call IDs do not defeat the limit. Attachments share the configured byte budget; oversized text logs
+keep their tail. A Mac or Foundation-only caller can retain `BugAutoReporter(writer:options:)` and await
+`report(reason:context:files:)`; provide its own logger flush before calling.
+
+The updated Mac listener files an automatic report with a reason-based title and `bug,auto` labels (beads:
+`from-app,auto`), deduplicated by report ID. If GitHub labels do not exist, filing retries without labels.
+Delivery waits for a reachable device. Automatic reports do not implicitly capture the manual report's
+interaction/accessibility snapshot; the manual diagnostic options below remain independent.
+
+See [per-app adoption](migration.md#adopting-the-merged-features) before replacing a diagnostics gist or removing
+an app's existing delivery path.
 
 ## Interaction and accessibility diagnostics
 

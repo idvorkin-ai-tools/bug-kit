@@ -34,11 +34,11 @@ jobs:
           git diff --check
           for script in scripts/*.sh; do bash -n "$script"; done
           python3 -m py_compile listener/bug-listener
-          python3 -m compileall -q listener Tests
+          python3 -m compileall -q listener Tests scripts/tests
       - name: Swift host tests
         run: swift test
       - name: Listener and deployment tests
-        run: uv run --python 3.12 --with typer --with pytest pytest listener/ Tests/ -q
+        run: uv run --python 3.12 --with typer --with pytest pytest --import-mode=importlib listener/ Tests/ scripts/tests/ -q
       - name: iOS compilation
         run: |
           xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0 \

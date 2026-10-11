@@ -437,3 +437,10 @@ def test_auto_reports_dedupe_by_id_not_by_their_shared_note(monkeypatch):
     second = {**AUTO, "id": "AUTO2", "reason": "call_failed_while_dialing",
               "note": "Automatic report: call_failed_while_dialing"}
     assert filer.check(app, second) is None  # the same note as an earlier auto issue is not a duplicate
+
+
+def test_auto_report_does_not_match_a_manual_legacy_timestamp(listener_state, monkeypatch):
+    body = f"<!-- bug:{AUTO['reported_at']} -->"
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (0, json.dumps([{"body": body}]), ""))
+    app = {"name": "app", "tracker": {"kind": "github", "repo": "owner/app"}}
+    assert bl.Filer().check(app, AUTO) is None

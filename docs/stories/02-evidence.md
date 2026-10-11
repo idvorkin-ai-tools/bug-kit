@@ -268,4 +268,3 @@ Part of the [BugKit stories](README.md).
 - **Given:** the call log is larger than `maxBytes`
 - **Then:** the report keeps the log's tail, starting at a whole line, and the log has `bug_report_auto_cut` with the
   bytes kept and dropped.
-

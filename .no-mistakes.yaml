@@ -6,7 +6,7 @@ commands:
     git diff --check
     for script in scripts/*.sh; do bash -n "$script"; done
     python3 -m py_compile listener/bug-listener
-    python3 -m compileall -q listener Tests
+    python3 -m compileall -q listener Tests scripts/tests
 
 # Keep Test focused on the change. The complete regression suite runs in CI.
 test:
@@ -14,7 +14,7 @@ test:
     BugKit requires macOS with Xcode and Swift 6+, plus uv for Python tests.
     Select behavioral tests relevant to the change:
       swift test --filter <test-name>
-      uv run --python 3.12 --with typer --with pytest pytest listener/ Tests/ -k <case> -q
+      uv run --python 3.12 --with typer --with pytest pytest --import-mode=importlib listener/ Tests/ scripts/tests/ -k <case> -q
     For UIKit or SwiftUI changes, also typecheck Sources/BugKit/*.swift with
     xcrun --sdk iphoneos swiftc -typecheck -swift-version 6 -target arm64-apple-ios17.0
     -sdk "$(xcrun --sdk iphoneos --show-sdk-path)" Sources/BugKit/*.swift

@@ -17,6 +17,7 @@
 
 | Field | Meaning |
 |---|---|
+| `source`, `reason` | Optional automatic-report fields: `source: "auto"` and a stable app-defined reason. Omitted from manual reports. Automatic reports have no screenshot by default. |
 | `id` | UUID; the key for the seen-store, the issue marker and the inbox |
 | `reported_at` | ISO 8601 UTC with milliseconds |
 | `app`, `bundle`, `build`, `commit` | which build; `commit` is from `BugKitCommit`, else "unknown" |
