@@ -59,8 +59,11 @@ Beyond the code, the repo holds:
 | Simulator hooks for reports | ✓ `SWING_BUG` | ✓ `GRABBER_BUG` | selftest script | `launchHookPrefix` |
 | What's new from git and the stories (CG story 148) | – | ✓ | – | `WhatsNew`, `WhatsNewView`, `WhatsNewRow`, `scripts/whats-new.sh` |
 | Pull from the phone **and** the iPad | – (one device) | ✓ (PR #241) | – | `scripts/pull-reports.sh` |
+| Pull the app's extra folders, e.g. the watch inbox (EA #197) | – | – | – | `pull_extra` in the config |
 | File each report once | ✓ GitHub, gist images | ✓ GitHub, no images | ✓ beads | `listener/bug-listener` (GitHub, beads, none) |
 | Always-on listener, inbox and notification | – | – | – | `listener/bug-listener` |
+| A Monitor's stream of new reports, each once | ✓ | ✓ | – | `scripts/bugs-monitor.sh` |
+| Symbolicate a MetricKit payload by binary UUID | ✓ | ✓ | – | `scripts/symbolicate.sh` |
 | Deploy to every device under the signing lock | – | – | ✓ lock (iPad only) | `scripts/deploy-all.sh` |
 
 ### Migration checklists
