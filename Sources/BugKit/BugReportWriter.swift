@@ -92,12 +92,13 @@ public struct BugReportWriter: Sendable {
   public func save(
     note: String, screen: String, context: [String: JSONValue], screenshotPNG: Data?,
     log: (path: String, tMs: Int)?, extraFiles: BugExtraFiles?, date: Date = Date(),
-    diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot()
+    diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot(), source: String? = nil,
+    reason: String? = nil, event: String = "bug_report"
   ) async -> BugReport {
     var report = BugReport(
       reportedAt: date, app: info.app, bundle: info.bundle, build: info.build, commit: info.commit,
       device: info.device, screen: screen, note: note, log: log?.path, sessionTMs: log?.tMs, folder: "",
-      context: context)
+      context: context, source: source, reason: reason)
     var folderURL: URL?
     do {
       let made = try store.makeFolder(for: date)
@@ -163,7 +164,9 @@ public struct BugReportWriter: Sendable {
       "files": .array(report.files.map(JSONValue.string)), "index_written": .bool(indexWritten),
     ]
     fields["context"] = .object(context)
-    logger("bug_report", fields)
+    if let source { fields["source"] = .string(source) }
+    if let reason { fields["reason"] = .string(reason) }
+    logger(event, fields)
     return report
   }
 }

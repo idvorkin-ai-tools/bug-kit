@@ -399,3 +399,41 @@ def test_status_corrupt_state_exits_two(cli_config, listener_state):
     result = invoke(["status", "--config", str(cli_config), "--json"])
     assert result.exit_code == 2
     assert not json.loads(result.output)["ok"]
+
+
+AUTO = {"id": "AUTO1", "reported_at": "2026-10-10T12:00:00.000Z", "source": "auto", "reason": "call_failed",
+        "note": "Automatic report: call_failed", "screen": "call", "files": ["bugs/x/call.jsonl"],
+        "context": {"calls": 3}}
+DEV = {"type": "iPhone", "model": "iPhone 17 Pro", "dir": "iphone-17-pro"}
+
+
+def test_auto_reports_get_their_own_title_body_and_label(tmp_path):
+    assert bl.title_of(AUTO) == "Automatic report: call_failed"
+    assert bl.labels_of(AUTO) == ["bug", "auto"]
+    assert bl.labels_of({"note": "x"}) == ["bug"]
+    body = bl.issue_body(AUTO, "AUTO1", DEV, {"name": "app"}, tmp_path)
+    assert body.startswith("**Automatic report from the iPhone**")
+    assert "| Reason | call_failed |" in body and "<!-- bug-id:AUTO1 -->" in body
+    assert "| source |" not in body  # source and reason are fixed fields, not context
+
+
+def test_auto_reports_are_filed_with_the_auto_label(tmp_path, monkeypatch, listener_state):
+    monkeypatch.setattr(bl, "DRY", False)
+    calls = []
+    monkeypatch.setattr(bl, "run", lambda cmd, **kw: (calls.append(cmd), (0, "https://example.invalid/1\n", ""))[1])
+    app = {"name": "app", "tracker": {"kind": "github", "repo": "owner/app"}}
+    assert bl.Filer().file(app, AUTO, "AUTO1", DEV, tmp_path) == ("filed", "https://example.invalid/1")
+    cmd = calls[0]
+    assert cmd[cmd.index("--title") + 1] == "Automatic report: call_failed"
+    assert [cmd[i + 1] for i, a in enumerate(cmd) if a == "--label"] == ["bug", "auto"]
+
+
+def test_auto_reports_dedupe_by_id_not_by_their_shared_note(monkeypatch):
+    filer = bl.Filer()
+    filer.filed_markers["owner/app"] = {"<!-- bug-id:AUTO1 -->"}
+    filer.bodies["owner/app"] = ["Automatic report: call_failed_while_dialing at the start"]
+    app = {"name": "app", "tracker": {"kind": "github", "repo": "owner/app"}}
+    assert filer.check(app, AUTO) == ("already_filed", "owner/app")
+    second = {**AUTO, "id": "AUTO2", "reason": "call_failed_while_dialing",
+              "note": "Automatic report: call_failed_while_dialing"}
+    assert filer.check(app, second) is None  # the same note as an earlier auto issue is not a duplicate

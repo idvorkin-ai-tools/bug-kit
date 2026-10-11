@@ -41,7 +41,7 @@ SEEN = STATE / "seen.json"
 INBOX = STATE / "inbox.jsonl"
 FIXED = {
     "id", "reported_at", "app", "bundle", "build", "commit", "device", "screen", "note", "log", "screenshot",
-    "context", "session_t_ms", "folder", "files",
+    "context", "session_t_ms", "folder", "files", "source", "reason",
 }
 
 app = typer.Typer(add_completion=False, help=__doc__)
@@ -255,7 +255,22 @@ def folder_of(rec: dict) -> Optional[str]:
     return str(Path(shot).parent) if shot else None
 
 
+def is_auto(rec: dict) -> bool:
+    """Saved by the app itself (BugKit's BugAutoReporter), not by a person."""
+    return rec.get("source") == "auto"
+
+
+def labels_of(rec: dict) -> list[str]:
+    return ["bug", "auto"] if is_auto(rec) else ["bug"]
+
+
+def beads_title(rec: dict) -> str:
+    return title_of(rec) if is_auto(rec) else f"Bug: {title_of(rec)}"
+
+
 def title_of(rec: dict) -> str:
+    if is_auto(rec):
+        return f"Automatic report: {rec.get('reason') or 'unknown'}"[:80]
     for line in (rec.get("note") or "").splitlines():
         line = re.sub(r"^[-* ]+", "", line).strip()
         if line:
@@ -277,7 +292,7 @@ def issue_body(rec: dict, key: str, dev: dict, a: dict, local: Path) -> str:
     """The issue text. The screenshot is named by its path on the Mac and never uploaded: the repos are public
     and a screenshot can show health, places or a journal (CG story 143)."""
     note = (rec.get("note") or "").replace("\n", "\n> ")
-    rows = [("Screen", rec.get("screen")), ("Build", rec.get("build")), ("Commit", rec.get("commit")),
+    rows = [("Reason", rec.get("reason") if is_auto(rec) else None), ("Screen", rec.get("screen")), ("Build", rec.get("build")), ("Commit", rec.get("commit")),
             ("Device", rec.get("device") or dev["model"])]
     log_name = rec.get("log")
     if log_name:
@@ -295,7 +310,8 @@ def issue_body(rec: dict, key: str, dev: dict, a: dict, local: Path) -> str:
     markers = "" if rec.get("kind") == "crash" else f"<!-- bug:{rec.get('reported_at', '')} -->"
     if rec.get("id"):
         markers += f"\n<!-- bug-id:{rec['id']} -->"
-    return (f"**Report from the {dev['type']}** ({a['name']}, pulled by bug-listener), {rec.get('reported_at', '?')}\n\n"
+    kind = "Automatic report" if is_auto(rec) else "Report"
+    return (f"**{kind} from the {dev['type']}** ({a['name']}, pulled by bug-listener), {rec.get('reported_at', '?')}\n\n"
             f"> {note}\n\n| | |\n|---|---|\n{table}\n\n{markers}")
 
 
@@ -352,13 +368,13 @@ class Filer:
         at = rec.get("reported_at")
         # UUID reports can share a timestamp. Only use a timestamp to match an old issue without a UUID.
         timestamp_markers = self.legacy_markers.get(repo, set()) if rec.get("id") else markers
-        if rec.get("kind") == "crash":
+        if rec.get("kind") == "crash" or is_auto(rec):
             timestamp_markers = set()  # a manual report at this second is a different event
         if (rec.get("id") and f"<!-- bug-id:{rec['id']} -->" in markers) or (at and f"<!-- bug:{at} -->" in timestamp_markers):
             return "already_filed", repo
         # Some issues were filed without the marker (by hand, or by an older script), so the apps' own dedupe
         # missed them: a note whose first 60 characters already appear in a marker-free issue is taken as filed.
-        note = re.sub(r"\s+", " ", rec.get("note") or "").strip()
+        note = "" if is_auto(rec) else re.sub(r"\s+", " ", rec.get("note") or "").strip()
         if rec.get("kind") != "crash" and len(note) >= 30 and any(note[:60] in body for body in self.bodies.get(repo, [])):
             log("possible_duplicate", repo=repo, reported_at=at, note=note[:60])
             return "already_filed", repo
@@ -376,9 +392,11 @@ class Filer:
                 return "would_file", f"github {repo}: {title}"
             body = issue_body(rec, key, dev, a, local)
             cmd = ["gh", "issue", "create", "-R", repo, "--title", title, "--body", body]
-            rc, out, err = run(cmd + ["--label", "bug"], timeout=90)
+            labels = labels_of(rec)
+            rc, out, err = run(cmd + [arg for label in labels for arg in ("--label", label)], timeout=90)
             if rc != 0 and "label" in err.lower():
-                log("tracker_retry", tracker="github", repo=repo, reason="no bug label", stderr=tail(err))
+                log("tracker_retry", tracker="github", repo=repo, reason=f"no {','.join(labels)} label",
+                    stderr=tail(err))
                 rc, out, err = run(cmd, timeout=90)
             if rc != 0:
                 log("tracker_error", tracker="github", repo=repo, step="create", rc=rc, stderr=tail(err))
@@ -395,12 +413,13 @@ class Filer:
             return "filed", url
         if kind == "beads":
             if DRY:
-                return "would_file", f"beads in {a.get('repo')}: Bug: {title}"
+                return "would_file", f"beads in {a.get('repo')}: {beads_title(rec)}"
             if not a.get("repo"):
                 log("tracker_error", tracker="beads", step="config", message="beads needs the app's repo path")
                 return "error", None
             desc = issue_body(rec, key, dev, a, local)
-            rc, out, err = run(["bd", "create", f"Bug: {title}", "-t", "bug", "-p", "2", "-l", "from-app",
+            rc, out, err = run(["bd", "create", beads_title(rec), "-t", "bug", "-p", "2",
+                                "-l", ",".join(["from-app"] + labels_of(rec)[1:]),
                                 "-d", desc, "--json"], timeout=90, cwd=Path(a["repo"]))
             if rc != 0:
                 log("tracker_error", tracker="beads", repo=a["repo"], step="create", rc=rc, stderr=tail(err))
