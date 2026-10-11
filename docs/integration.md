@@ -125,8 +125,11 @@ reporter.autoReport(reason: "call_failed", context: ["stage": .string("transcrib
 `autoReport` flushes the app's log hook, captures screen/log position, and schedules a save without a dialog or
 screenshot. It does not await delivery. The saved report carries `source: "auto"` and `reason`; manual reports
 omit both keys. A persistent per-reason window limits repeat triggers across relaunches. Use stable reason codes
-so unique call IDs do not defeat the limit. Attachments share the configured byte budget; oversized text logs
-keep their tail. A Mac or Foundation-only caller can retain `BugAutoReporter(writer:options:)` and await
+so unique call IDs do not defeat the limit. Attachments share the configured byte budget, including
+`session.jsonl` when `copySessionLog` is on (copied once, even if also passed in `files`); `report.json` and the
+bugs.jsonl line are outside it. Oversized text logs keep their tail from a line start (`bug_report_auto_cut`); a
+file that fails is logged as an `error` (`bug_auto_file`) and the rest are still attached; files with the same name
+are kept as `call.jsonl`, `call-2.jsonl`. Manual reports still copy the whole session log. A Mac or Foundation-only caller can retain `BugAutoReporter(writer:options:)` and await
 `report(reason:context:files:)`; provide its own logger flush before calling.
 
 The updated Mac listener files an automatic report with a reason-based title and `bug,auto` labels (beads:

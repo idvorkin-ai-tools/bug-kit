@@ -89,11 +89,12 @@ public struct BugReportWriter: Sendable {
   }
 
   /// `log`: the session log's path under Documents and the milliseconds since it began, from the app.
+  /// `copySessionLog`: overrides the writer's own setting for this report; nil keeps it.
   public func save(
     note: String, screen: String, context: [String: JSONValue], screenshotPNG: Data?,
     log: (path: String, tMs: Int)?, extraFiles: BugExtraFiles?, date: Date = Date(),
     diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot(), source: String? = nil,
-    reason: String? = nil, event: String = "bug_report"
+    reason: String? = nil, event: String = "bug_report", copySessionLog: Bool? = nil
   ) async -> BugReport {
     var report = BugReport(
       reportedAt: date, app: info.app, bundle: info.bundle, build: info.build, commit: info.commit,
@@ -132,7 +133,7 @@ public struct BugReportWriter: Sendable {
         }
       }
     }
-    if let folderURL, copySessionLog, let path = log?.path {
+    if let folderURL, copySessionLog ?? self.copySessionLog, let path = log?.path {
       do {
         try FileManager.default.copyItem(
           at: store.documents.appendingPathComponent(path), to: folderURL.appendingPathComponent("session.jsonl"))

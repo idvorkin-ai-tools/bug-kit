@@ -22,11 +22,12 @@ private struct Setup {
   let docs: URL
   let log = Log()
   let clock = Clock()
+  var copySessionLog = false
   var writer: BugReportWriter {
     BugReportWriter(
       store: BugStore(documents: docs),
       info: BugAppInfo(app: "Demo", bundle: "com.example.demo", build: "1.0 (1)", commit: "abc1234", device: "Mac16,12"),
-      logger: log.logger)
+      logger: log.logger, copySessionLog: copySessionLog)
   }
   func reporter(_ options: BugAutoReportOptions = BugAutoReportOptions()) -> BugAutoReporter {
     let clock = clock
@@ -122,5 +123,74 @@ private struct Setup {
     #expect(cuts[0]["dropped_bytes"] == .int(lines.utf8.count - kept.utf8.count))
     #expect(cuts[1]["file"] == "src-z.txt")
     #expect(cuts[1]["kept_bytes"] == 0)
+  }
+
+  @Test func filesWithTheSameNameAreAllKept() async throws {
+    let s = try Setup()
+    let a = s.docs.appendingPathComponent("a"), b = s.docs.appendingPathComponent("b")
+    for dir in [a, b] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+    try "first\n".write(to: a.appendingPathComponent("call.jsonl"), atomically: true, encoding: .utf8)
+    try "second\n".write(to: b.appendingPathComponent("call.jsonl"), atomically: true, encoding: .utf8)
+    let report = try #require(
+      await s.reporter().report(
+        reason: "r", files: [a.appendingPathComponent("call.jsonl"), b.appendingPathComponent("call.jsonl")]))
+
+    #expect(report.files.map { ($0 as NSString).lastPathComponent } == ["call.jsonl", "call-2.jsonl"])
+    let texts = try report.files.map { try String(contentsOf: s.docs.appendingPathComponent($0), encoding: .utf8) }
+    #expect(texts == ["first\n", "second\n"])
+    #expect(s.log.fields("error").isEmpty)
+  }
+
+  @Test func aFileThatFailsLeavesTheOthersInTheReport() async throws {
+    let s = try Setup()
+    let first = try s.file("a.txt", "one")
+    let broken = s.docs.appendingPathComponent("src-dir.jsonl")
+    try FileManager.default.createDirectory(at: broken, withIntermediateDirectories: true)
+    let last = try s.file("z.txt", "two")
+    let report = try #require(await s.reporter().report(reason: "r", files: [first, broken, last]))
+
+    #expect(report.files.map { ($0 as NSString).lastPathComponent } == ["src-a.txt", "src-z.txt"])
+    #expect(try BugStore(documents: s.docs).readAll().reports.first?.files == report.files)
+    let errors = s.log.fields("error")
+    #expect(errors.count == 1)
+    #expect(errors.first?["where"] == "bug_auto_file")
+    #expect(errors.first?["file"] == "src-dir.jsonl")
+  }
+
+  @Test func theCopiedSessionLogIsInsideTheCapAndCopiedOnce() async throws {
+    var s = try Setup()
+    s.copySessionLog = true
+    try FileManager.default.createDirectory(
+      at: s.docs.appendingPathComponent("logs"), withIntermediateDirectories: true)
+    let lines = (1...100).map { "{\"n\":\($0)}" }.joined(separator: "\n") + "\n"
+    let session = s.docs.appendingPathComponent("logs/app.jsonl")
+    try lines.write(to: session, atomically: true, encoding: .utf8)
+    let small = try s.file("a.txt", "12345")
+    let auto = s.reporter(BugAutoReportOptions(window: 0, maxBytes: 105))
+
+    let report = try #require(await auto.report(reason: "r", files: [small], log: ("logs/app.jsonl", 10)))
+    #expect(report.files.map { ($0 as NSString).lastPathComponent } == ["src-a.txt", "session.jsonl"])
+    let kept = try String(contentsOf: s.docs.appendingPathComponent(report.files[1]), encoding: .utf8)
+    #expect(kept.utf8.count <= 100)
+    #expect(kept.hasSuffix("{\"n\":100}\n"))
+    #expect(s.log.fields("bug_report_auto_cut").map { $0["file"] } == ["session.jsonl"])
+
+    s.clock.advance(1)
+    let again = try #require(await auto.report(reason: "r", files: [session], log: ("logs/app.jsonl", 20)))
+    #expect(again.files.map { ($0 as NSString).lastPathComponent } == ["app.jsonl"])
+  }
+
+  @Test func aPersonsReportStillCopiesTheWholeSessionLog() async throws {
+    var s = try Setup()
+    s.copySessionLog = true
+    try FileManager.default.createDirectory(
+      at: s.docs.appendingPathComponent("logs"), withIntermediateDirectories: true)
+    let lines = (1...100).map { "{\"n\":\($0)}" }.joined(separator: "\n") + "\n"
+    try lines.write(to: s.docs.appendingPathComponent("logs/app.jsonl"), atomically: true, encoding: .utf8)
+
+    let report = await s.writer.save(
+      note: "n", screen: "s", context: [:], screenshotPNG: nil, log: ("logs/app.jsonl", 10), extraFiles: nil)
+    #expect(report.files == ["\(report.folder)/session.jsonl"])
+    #expect(try String(contentsOf: s.docs.appendingPathComponent(report.files[0]), encoding: .utf8) == lines)
   }
 }

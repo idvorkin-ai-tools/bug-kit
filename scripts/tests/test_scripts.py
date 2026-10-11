@@ -40,6 +40,35 @@ def test_summary_drops_noise_and_counts_it(tmp_path):
     assert "not JSON" in r.stderr  # the broken line is named, not fatal
 
 
+def test_summary_without_drop_succeeds_and_names_a_bad_line_once(tmp_path):
+    r = run("summary", str(log_file(tmp_path)))
+    assert r.returncode == 0
+    assert types(r.stdout) == ["session_start", "frame", "frame", "bug_report", "error", "status"]
+    assert r.stderr.count("not JSON") == 1
+    assert "# 1 line(s) skipped" in r.stderr
+
+
+def test_summary_with_drop_names_a_bad_line_once(tmp_path):
+    r = run("summary", str(log_file(tmp_path)), "--drop", "frame,status")
+    assert r.returncode == 0
+    assert r.stderr.count("not JSON") == 1
+    assert "# dropped frame: 2" in r.stdout and "# dropped status: 1" in r.stdout
+
+
+def test_a_large_log_is_read_in_one_pass(tmp_path):
+    p = tmp_path / "big.jsonl"
+    p.write_text("".join(json.dumps({"type": "frame" if i % 2 else "tick", "t": i}) + "\n" for i in range(50_000)))
+    r = subprocess.run([str(TOOL), "summary", str(p), "--drop", "frame"], capture_output=True, text=True,
+                       timeout=30)
+    assert r.returncode == 0
+    assert r.stdout.splitlines()[-1] == "# dropped frame: 25000"
+    assert len(r.stdout.splitlines()) == 25_001
+
+
+def test_a_bad_argument_still_fails(tmp_path):
+    assert run("at", str(log_file(tmp_path)), "soon").returncode != 0
+
+
 def test_around_a_wall_time(tmp_path):
     r = run("around", str(log_file(tmp_path)), "15:10:01", "10")
     assert types(r.stdout) == ["bug_report", "error"]
