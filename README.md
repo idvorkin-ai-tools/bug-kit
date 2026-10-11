@@ -221,7 +221,9 @@ their public repos. MM ids (`mmn-…`) and story numbers refer to its own repo. 
     - Every fix is one commit, or one PR, that names its issue (`Fixes #N`). Never bundle fixes.
     - Close the issue once the build is on the device, with a comment that says what was verified where.
     - A bug reported by voice gets an issue too, so the trail is complete.
-    - Before fixing, find or write the user story the report belongs to.
+    - Before fixing, find or write the user story the report belongs to. A request becomes a new story; a bug
+      becomes an entry on its story's `**Issues:**` line, before the fix. What's new maps an issue to its story
+      through that line, so a fix with no Issues entry shows up without its story (EA AGENTS.md).
     - If looking up the existing issues fails, stop filing rather than file everything again (CG 6fed157).
     - **The marker dedupe has holes.** An issue filed by hand, or by an older script, without the marker is
       invisible to it. CG's report of 2026-10-08T04:00:59Z still shows as unfiled although an issue was said to
@@ -351,7 +353,10 @@ struct MyApp: App {
       logger: log.logger,                                        // bug_report lands in the session log
       extraFiles: { folder in                                    // optional: e.g. the clip at the playhead
         try await model.exportClip(to: folder.appendingPathComponent("clip.mov"))
-        return ["clip.mov"]
+        // A video on screen is black in the screenshot (the window snapshot skips the video layer), so add the
+        // frame at the playhead, rendered from the clip itself: the report's picture of record (EA story 026).
+        try await model.writeFrame(to: folder.appendingPathComponent("frame.jpg"))
+        return ["clip.mov", "frame.jpg"]
       },
       microphoneBusy: { model.inCall }), options: options))
   }

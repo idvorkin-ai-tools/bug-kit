@@ -8,6 +8,7 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** One report format in every app (technical)
 - **From:** the bug-kit proposal; EA and CG `bugs.jsonl`; MM `report.json`
+- **Issues:** #6
 - **Status:** `BugReport` and `BugStore`, verified on the host by:
   - `reportRoundTripsThroughItsLine`;
   - `lineUsesTheFixedSnakeCaseKeys`, which also checks that a note with a newline stays one line;

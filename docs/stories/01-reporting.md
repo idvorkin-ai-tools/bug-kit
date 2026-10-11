@@ -173,6 +173,7 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Speak the note
 - **From:** CG #239 (story 142, "Speaking the note")
+- **Issues:** #7
 - **Status:**
   - `NoteDictation`, behind `options.dictation` (off by default: it needs the speech and microphone usage strings). Verified by typecheck.
   - `DictationText.merge` is verified on the host by `dictatedWordsGoAfterTheTypedNote`.
