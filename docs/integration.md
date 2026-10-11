@@ -279,11 +279,13 @@ UDIDs, emails or account identifiers.
 
 ### Each app's agent
 
-1. **Pin BugKit 0.3.0 exactly**, so every app and the Mac reader use the same sender/receiver format:
+1. **Pin BugKit 0.3.1 exactly for new adoption and the Mac fixes**. Existing apps on 0.3.0 can stay there:
+   their CloudKit report format remains compatible with the updated reader. lcd-timer and Magic Monitor's
+   Mac side need 0.3.1 for the Mac storage, CLT and listener fixes.
    - Xcode: **File › Add Package Dependencies** → `https://github.com/idvorkin/bug-kit` → **Dependency Rule:
-     Exact Version** → `0.3.0`. For an existing dependency, use the project's **Package Dependencies** tab.
-   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.0 } }`.
-   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.0")`.
+     Exact Version** → `0.3.1`. For an existing dependency, use the project's **Package Dependencies** tab.
+   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.1 } }`.
+   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.1")`.
 2. Add **Signing & Capabilities → + Capability → iCloud**, check **CloudKit**, and select the shared container
    from the local config alongside any existing iCloud Documents containers. All sending apps and the Mac reader
    must have this same container authorized in their provisioning profiles. Do not reuse a Documents container
