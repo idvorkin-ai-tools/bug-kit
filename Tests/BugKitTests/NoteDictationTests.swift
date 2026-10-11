@@ -1,4 +1,5 @@
 #if canImport(UIKit) && os(iOS)
+import AVFoundation
 import Foundation
 import Testing
 @testable import BugKit
@@ -97,6 +98,18 @@ import Testing
   #expect(fixture.capture.lists == 0)
   #expect(fixture.dictation.microphones.isEmpty)
   #expect(!fixture.dictation.refreshingMicrophones)
+}
+
+@MainActor
+@Test func discoveryKeepsActivationOnlyForPlainMixingHosts() {
+  #expect(AVDictationCapture.keepsDiscoveryActivation(category: .playback, options: .mixWithOthers))
+  #expect(AVDictationCapture.keepsDiscoveryActivation(category: .ambient, options: []))
+  #expect(!AVDictationCapture.keepsDiscoveryActivation(category: .playback, options: [.mixWithOthers, .duckOthers]))
+  #expect(!AVDictationCapture.keepsDiscoveryActivation(
+    category: .playback, options: .interruptSpokenAudioAndMixWithOthers))
+  #expect(!AVDictationCapture.keepsDiscoveryActivation(category: .ambient, options: .duckOthers))
+  #expect(!AVDictationCapture.keepsDiscoveryActivation(category: .soloAmbient, options: []))
+  #expect(!AVDictationCapture.keepsDiscoveryActivation(category: .playback, options: []))
 }
 
 @Test func appleNoSpeechEndsQuietlyOnlyAfterFinish() {
