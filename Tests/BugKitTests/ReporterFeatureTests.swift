@@ -146,3 +146,35 @@ private func run(_ g: Double, hz: Double, seconds: Double, start: Double = 0, on
   #expect(try BugStore(documents: docs).readAll().reports.count == 1)
 }
 
+// CG #249: a pause in speaking adds to the note; it never replaces what was said or typed.
+@Test func dictationRevisionsOfOneStretchReplaceEachOther() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "the timer", firstStart: 0.4, lastEnd: 1.0)
+  join.update(text: "the time is skipped the rest", firstStart: 0.4, lastEnd: 2.2)
+  #expect(join.note == "the time is skipped the rest")
+}
+
+@Test func dictationAFreshTranscriptionAfterAPauseIsAdded() {
+  var join = DictationJoin(typed: "Cockpit:")
+  join.update(text: "when I stop", firstStart: 0.5, lastEnd: 1.5)
+  let fresh = join.update(text: "it gets reset", firstStart: 4.0, lastEnd: 5.0)
+  #expect(fresh)
+  #expect(join.note == "Cockpit: when I stop it gets reset")
+  join.update(text: "it gets reset again", firstStart: 4.0, lastEnd: 5.6)
+  #expect(join.note == "Cockpit: when I stop it gets reset again")
+}
+
+@Test func dictationAFreshTranscriptionWhoseClockStartsOverIsAdded() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "when I stop talking", firstStart: 0.5, lastEnd: 2.0)
+  let fresh = join.update(text: "the input", firstStart: 0.2, lastEnd: 0.8)
+  #expect(fresh)
+  #expect(join.note == "when I stop talking the input")
+}
+
+@Test func dictationKeepsWhatWasTyped() {
+  var join = DictationJoin(typed: "  typed first ")
+  #expect(join.note == "typed first")
+  join.update(text: "then said", firstStart: 0.3, lastEnd: 0.9)
+  #expect(join.note == "typed first then said")
+}
