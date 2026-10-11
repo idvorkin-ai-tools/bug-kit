@@ -187,7 +187,7 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Agents can check listener setup and health as structured data
 - **From:** BugKit agent workflow, 2026-10-10
-- **Status:** Host CLI tests cover old polling flags, doctor JSON, authentication checks, invalid configuration, stale/healthy/never-run status, pending evidence and corrupt state.
+- **Status:** Host CLI tests cover old polling flags, doctor JSON, authentication checks, invalid configuration, stale/healthy/never-run status, offline paired devices with and without a reachable device, pending evidence and corrupt state.
 
 #### Acceptance Criteria:
 - `doctor --json` checks setup and read access without filing or notifying.
