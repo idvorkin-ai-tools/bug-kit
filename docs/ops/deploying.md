@@ -30,6 +30,16 @@ echo "$out" | grep -q "BUILD SUCCEEDED"     # this line's status is the recipe's
 
 - **`xcodebuild … | grep BUILD` alone exits 0 on "BUILD FAILED".** The next step then installed the previous bundle (EA #43). The same holds for `swift test | tail`: use `pipefail` (EA #51).
 - **A failed install must not go on to launch the copy already on the device** (MM).
+- **The same holds for a Mac tool built with `swift build` and then run.** A failed build leaves the last good
+  binary in `.build/`, and the recipe runs it on the new input as if nothing had happened (EA #51). Capture and
+  require "Build complete":
+
+  ```bash
+  out=$(swift build -c release --product tool 2>&1)
+  echo "$out" | grep -E "error:|Build complete" || true
+  echo "$out" | grep -q "Build complete" || exit 1
+  .build/release/tool …
+  ```
 
 ## One signing build at a time
 
