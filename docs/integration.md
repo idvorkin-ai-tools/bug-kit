@@ -318,8 +318,10 @@ them identical when editing either.
 
 The relevant entitlements are `com.apple.developer.icloud-services = ["CloudKit"]` and
 `com.apple.developer.icloud-container-identifiers = ["iCloud.com.example.BugKitReports"]`; Xcode/provisioning
-also supplies the container environment. Do not copy a signature's generated team-prefixed entitlements into
-source control. The app owns the opt-in preference: construct/pass delivery only when enabled. `stop()` stops
+also supplies the container environment for iOS/watchOS apps. Enable the iCloud capability and select the
+authorized container; do not manually add the Mac distribution reader's environment entitlement to their
+entitlements files. Do not copy a signature's generated team-prefixed entitlements into source control.
+The app owns the opt-in preference: construct/pass delivery only when enabled. `stop()` stops
 app-level retry timers; an already submitted CloudKit daemon operation may still finish.
 
 **Only reports saved after opt-in are delivered.** The first `start()` or `enqueue` records the IDs already in
@@ -376,6 +378,13 @@ Keep signing/runtime values in **`~/.config/bug-kit/cloudkit.json`** (mode 600),
   "inbox": "~/tmp/agent/bugs/cloudkit"
 }
 ```
+
+**The generated Xcode project shows `com.example` placeholders unless locally overridden.** The build script
+passes the real values from this JSON through ignored `DerivedData/CloudKitReader/signing.xcconfig` to its
+command-line build; opening the generated project in Xcode does not apply that override. Before using
+**Signing & Capabilities** in the GUI, set the generated project's bundle ID and container to the actual
+`bundle` and `container` from the local config. Do not register the example app IDs or containers, or use
+**Fix Issue** while placeholders are selected. Keep these GUI overrides local; regeneration replaces them.
 
 Building is heavy work: only one build or simulator runs on this Mac at a time. Wait for an explicit build turn,
 then run a standalone build under the shared build lock:
