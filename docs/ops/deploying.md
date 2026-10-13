@@ -4,15 +4,28 @@
 
 Every app's device recipe has this shape: EA `build-device` and `run-device`, CG `native-build-device`, MM `just ipad`.
 
+The whole run, from generation to launch, holds the signing lock; the guard wraps only the build, and the
+install starts only after the guarded build succeeded:
+
 ```sh
-set -e
 mkdir -p ~/tmp/agent/locks
-xcodegen generate                      # if the project is generated: after any project.yml change, or the build uses the old one
-lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock "$BUG_KIT/scripts/signing-guard.sh" \
+lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock scripts/device.sh   # the app's recipe body, below
+```
+
+```bash
+#!/usr/bin/env bash
+# scripts/device.sh: runs under xcode-signing.lock; never takes it again
+set -uo pipefail
+xcodegen generate || exit 1            # if the project is generated: after any project.yml change, or the build uses the old one
+out=$("$BUG_KIT/scripts/signing-guard.sh" \
   xcodebuild -project App.xcodeproj -scheme App -derivedDataPath Build \
   -destination "platform=iOS,id=<udid>" \
-  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
-xcrun devicectl device install app --device <id> Build/Build/Products/Debug-iphoneos/App.app
+  -allowProvisioningUpdates -allowProvisioningDeviceRegistration build)   # the guard's own messages stay on stderr
+build_status=$?
+echo "$out" | grep -E "error:|BUILD (SUCCEEDED|FAILED)"
+[ "$build_status" -eq 0 ] || exit "$build_status"   # including 78, account loss: never install or retry
+echo "$out" | grep -q "BUILD SUCCEEDED" || exit 1
+xcrun devicectl device install app --device <id> Build/Build/Products/Debug-iphoneos/App.app || exit 1
 xcrun devicectl device process launch --device <id> <bundle-id>
 ```
 
@@ -24,14 +37,9 @@ xcrun devicectl device process launch --device <id> <bundle-id>
 
 ## A failed build must not install the old one
 
-```bash
-set -uo pipefail
-out=$("$BUG_KIT/scripts/signing-guard.sh" xcodebuild … build 2>&1)
-build_status=$?
-[ "$build_status" -eq 0 ] || exit "$build_status"  # including account-loss guard failures
-echo "$out" | grep -E "error:|BUILD (SUCCEEDED|FAILED)"
-echo "$out" | grep -q "BUILD SUCCEEDED"     # this line's status is the recipe's
-```
+The recipe above captures the guarded build's output, which the guard merges with the build's stderr, and
+requires both a zero status and "BUILD SUCCEEDED" before the install. Don't add `2>&1` to the capture: it would
+also swallow the guard's own "Mac is locked; waiting" and "build not started" messages.
 
 - **`xcodebuild … | grep BUILD` alone exits 0 on "BUILD FAILED".** The next step then installed the previous bundle (EA #43). The same holds for `swift test | tail`: use `pipefail` (EA #51).
 - **A failed install must not go on to launch the copy already on the device** (MM).
@@ -67,11 +75,13 @@ Never run two `-allowProvisioningUpdates` builds at the same time on one Mac, ac
 - **The cause of the repeated account losses:** [BugKit #53](https://github.com/idvorkin/bug-kit/issues/53)
   traced them to provisioning builds while the Mac was locked: keychain reads fail and Xcode discards the
   account. Keep serialization, and also use the [screen-lock guard](signing.md#no-provisioning-builds-while-the-mac-is-locked).
-- **The lock:** wrap the whole run, from project generation to launch, in a kernel lock:
+- **The lock:** wrap the whole run, from project generation to launch, in a kernel lock. Inside it, the guard
+  wraps the build only, so its account-loss check finishes before anything installs (see
+  [the device build](#the-device-build)):
 
   ```sh
   mkdir -p ~/tmp/agent/locks
-  lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock "$BUG_KIT/scripts/signing-guard.sh" <the build and install>
+  lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock <the device recipe: generate, guarded build, install, launch>
   ```
 
   - `lockf(1)` holds the lock for the life of the command, so no lock goes stale.
