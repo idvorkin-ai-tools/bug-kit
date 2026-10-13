@@ -166,7 +166,7 @@ Mac's login session.
 
 Cloud events: `cloudkit_poll`, `cloudkit_downloaded` (key/bundle), `cloudkit_report_pending` (key = the failed
 report UUID, or null when the record name is not a UUID; reason = `download or evidence validation failed`,
-`listing failed or record metadata is invalid` or `unknown`), `cloudkit_sync` (ok/rc/ms), `cloudkit_report_error`
+`listing failed or record metadata is invalid` or `unknown`), `cloudkit_sync` (ok/rc/ms, plus safe code/reason/action on failure), `cloudkit_report_error`
 and `devices_error`, then the existing `file` and new `inbox` event for each successful handoff. Sync output/error codes are sanitized; account/record contents are not logged. Downloads
 have no first-contact baseline: apps upload only reports saved after opt-in, so the configured apps' first
 reports are filed immediately. Unknown app bundles
@@ -180,3 +180,18 @@ network, schema/index or cellular delivery. `status.json.cloudkit` contains the 
 `--once` returns non-zero on failed sync even if earlier downloaded reports are filed. Dry runs do not launch
 the CloudKit helper. For a live check, require a phone report's UUID in both the tracker and Mac inbox within
 one poll after a cellular upload; a local report that never reaches the Mac is failure.
+
+
+### CloudKit query-index failures
+
+After the first Development upload creates `BugKitReport`, a missing Queryable index on `recordName` causes
+CloudKit error 12. `cloudkit_sync` logs and health retain the safe error code, `missing_query_index` reason
+and fixed operator action. Polling stays unhealthy until the schema is corrected; already downloaded reports
+still reach filing and the inbox. Add the index as described in
+[CloudKit integration](../integration.md#private-cloudkit-delivery), then let the next poll retry. No reader
+deployment is needed just to add an index.
+
+Run the signed reader manually with its usual arguments plus `--diagnostics` to see the full server error
+on stderr. This flag is for local investigation, and can expose private server/account identifiers. The
+listener does not request it or copy arbitrary helper messages/hints into logs. See
+[CloudKit integration](../integration.md#private-cloudkit-delivery) for signing and acceptance steps.

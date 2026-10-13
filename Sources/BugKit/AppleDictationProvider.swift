@@ -14,6 +14,7 @@ final class AppleDictationProvider: BugDictationProvider {
   private var join = DictationJoin(typed: "")
   private var owner = UUID()
   private var finishing = false
+  private var submittedAudioSeconds: Double = 0
 
   init(logger: @escaping BugLogger) { self.logger = logger }
 
@@ -27,7 +28,7 @@ final class AppleDictationProvider: BugDictationProvider {
     request.shouldReportPartialResults = true
     request.requiresOnDeviceRecognition = recognizer.supportsOnDeviceRecognition
     self.request = request
-    join = DictationJoin(typed: ""); finishing = false
+    join = DictationJoin(typed: ""); finishing = false; submittedAudioSeconds = 0
     let (stream, continuation) = AsyncThrowingStream<String, Error>.makeStream(bufferingPolicy: .bufferingNewest(32))
     self.continuation = continuation
     task = recognizer.recognitionTask(with: request) { [weak self] result, error in
@@ -40,9 +41,10 @@ final class AppleDictationProvider: BugDictationProvider {
         guard let self, self.owner == generation else { return }
         if let text {
           let previous = self.join.current, previousEnd = self.join.currentEnd
-          if self.join.update(text: text, firstStart: first, lastEnd: end) {
+          if self.join.update(text: text, firstStart: first, lastEnd: end, isFinal: final,
+                              observedAudioEnd: self.submittedAudioSeconds) {
             self.logger("dictation_pause", ["kept_chars": .int(previous.count), "new_chars": .int(text.count),
-              "prev_end_s": .double(previousEnd), "new_start_s": .double(first)])
+              "prev_end_s": .double(previousEnd), "new_start_s": .double(first), "is_final": .bool(final)])
           }
           self.continuation?.yield(self.join.note)
         }
@@ -64,6 +66,7 @@ final class AppleDictationProvider: BugDictationProvider {
     buffer.frameLength = buffer.frameCapacity
     pcm16.copyBytes(to: UnsafeMutableRawBufferPointer(start: samples[0], count: pcm16.count))
     request.append(buffer)
+    submittedAudioSeconds += Double(buffer.frameLength) / format.sampleRate
   }
 
   func finish() async throws {

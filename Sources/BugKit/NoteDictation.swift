@@ -14,36 +14,81 @@ public enum DictationText {
 /// the one being heard. Whether a restart after a pause is the cause is what `dictation_pause` is there to show.
 public struct DictationJoin: Equatable, Sendable {
   /// What was typed when listening began, then every finished stretch of speech.
-  public private(set) var kept: String
+  public var kept: String { completed.reduce(typed) { Self.join($0, $1.text) } }
   /// The stretch being heard now, as the recogniser last gave it.
   public private(set) var current = ""
   private var currentStart: Double?
+  private var currentObservedAudioEnd: Double?
+  private let typed: String
+  /// Finished stretches with their clock range; an untimed stretch ends at the audio submitted before it.
+  private var completed: [Stretch] = []
   /// When the stretch being heard last ended, in seconds from the start of listening.
   public private(set) var currentEnd: Double = 0
 
-  public init(typed: String) { kept = typed.trimmingCharacters(in: .whitespacesAndNewlines) }
+  public init(typed: String) {
+    self.typed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
 
   /// The whole note so far.
   public var note: String { Self.join(kept, current) }
 
   /// One result from the recogniser: its text and when its first and last words were spoken, in seconds from the
-  /// start of listening. Returns true when it began a new stretch (the one before it was kept).
+  /// start of listening. Pass isFinal for the recognizer's final result so text corrections do not look
+  /// like a restarted partial. observedAudioEnd is the duration of audio already submitted when this
+  /// result is observed; it bounds an untimed transcript. Without either word timing or this bound,
+  /// results are treated as revisions. Returns true when a new stretch begins.
   @discardableResult
-  public mutating func update(text: String, firstStart: Double, lastEnd: Double) -> Bool {
+  public mutating func update(text: String, firstStart: Double, lastEnd: Double, isFinal: Bool = false, observedAudioEnd: Double? = nil) -> Bool {
     let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    // Empty terminal results carry no replacement words.
+    guard !text.isEmpty else { return false }
     var fresh = false
+    var after = false
     if let start = currentStart, !current.isEmpty, !text.isEmpty {
-      // A result that starts after the last one ended is new speech; so is a shorter one that no longer begins
-      // with the same word (the recogniser revises a stretch's words, it does not drop its start).
-      let after = firstStart >= currentEnd - 0.05 && firstStart > start
-      let restarted = text.count < current.count && Self.firstWord(text) != Self.firstWord(current)
+      // A result outside the prior timed interval is new speech. A shorter non-final result on a
+      // reset clock preserves the existing on-device pause/restart behavior.
+      // On-device partials can report zero-duration segments until their timing is revised. A later
+      // timestamp alone cannot prove new speech if the earlier stretch never had a valid duration.
+      let timed = currentEnd > start
+      if timed {
+        after = firstStart >= currentEnd - 0.05 && firstStart > start
+      } else if let bound = currentObservedAudioEnd, bound > start {
+        // All previously recognized words must lie within the submitted audio. A revised start
+        // inside that audio is not evidence of a new stretch, even if the first word changes.
+        after = firstStart >= bound && firstStart > start
+      }
+      let restarted = !isFinal && timed
+        && text.count < current.count && Self.firstWord(text) != Self.firstWord(current)
       fresh = after || restarted
     }
-    if fresh { kept = Self.join(kept, current) }
+    // A final transcript may revise the completed stretches as well as the current one. When it reaches
+    // the current end from before the current start, and every stretch so far lies in order on one clock,
+    // it replaces the stretches it overlaps; earlier untouched ones stay. After a clock reset or without
+    // ranges the overlap is ambiguous, so completed speech is kept and the final revises the current stretch.
+    if isFinal, !after, let start = currentStart, firstStart < start, lastEnd >= currentEnd - 0.05,
+       Self.ordered(completed + [Stretch(text: current, start: start, end: max(currentEnd, start))]),
+       let covered = completed.firstIndex(where: { $0.end > firstStart }) {
+      completed.removeSubrange(covered...)
+    }
+    if fresh, let start = currentStart {
+      completed.append(Stretch(text: current, start: start,
+        end: currentEnd > start ? currentEnd : currentObservedAudioEnd ?? start))
+    }
     current = text
     currentStart = firstStart
     currentEnd = lastEnd
+    currentObservedAudioEnd = observedAudioEnd
     return fresh
+  }
+
+  private struct Stretch: Equatable, Sendable {
+    let text: String
+    let start: Double
+    let end: Double
+  }
+
+  private static func ordered(_ stretches: [Stretch]) -> Bool {
+    zip(stretches, stretches.dropFirst()).allSatisfy { $0.end > $0.start && $1.start >= $0.end - 0.05 }
   }
 
   private static func join(_ a: String, _ b: String) -> String {

@@ -225,6 +225,8 @@ To use your own server/library, conform an actor or a Sendable type to `BugDicta
 
 “Log it” and “Log it and another” wait for the provider's final words. A finish failure keeps the sheet and current note open. Cancel/dismiss invalidates permission, audio and provider callbacks so they cannot write into a later report. The UI shows startup/finish progress and disables duplicate operations.
 
+Apple dictation treats zero-duration partial timing as unavailable, so a later timing revision does not append that partial again. It uses the duration of submitted PCM audio to recognize a genuinely later stretch, and final corrections replace the current stretch. A cumulative final that starts before the current stretch replaces only the earlier stretches its clock overlaps, even when it revises their words; untouched earlier stretches stay. After a clock reset, or without ranges for earlier stretches, which stretches a final covers is ambiguous, so completed speech is kept and the final revises only the current stretch. `DictationJoin` callers can pass `observedAudioEnd:` (the submitted audio duration when observing a result); without timing evidence it favors a revision over guessing that speech restarted. This avoids text-based deduplication and retains deliberate repeated timed utterances.
+
 `voice-keyboard/ios/Host/AudioCapture.swift` and `DeepgramEngine.swift` were the design reference for input selection and streaming segment finalization. Its private `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.
 
 ## macOS storage and Command Line Tools
@@ -298,13 +300,14 @@ UDIDs, emails or account identifiers.
 
 ### Each app's agent
 
-1. **Pin BugKit 0.3.1 exactly for new adoption and the Mac fixes**. Existing apps on 0.3.0 can stay there:
-   their CloudKit report format remains compatible with the updated reader. lcd-timer and Magic Monitor's
-   Mac side need 0.3.1 for the Mac storage, CLT and listener fixes.
+1. **Pin BugKit 0.3.2 exactly for new adoption, the Mac fixes and the dictation fix**. Existing apps on 0.3.0
+   can stay there: their CloudKit report format remains compatible with the updated reader. lcd-timer and Magic
+   Monitor's Mac side need 0.3.1 or later for the Mac storage, CLT and listener fixes; 0.3.2 also stops dictated
+   notes from repeating their words and adds the CloudKit reader's missing query index diagnostics.
    - Xcode: **File › Add Package Dependencies** → `https://github.com/idvorkin/bug-kit` → **Dependency Rule:
-     Exact Version** → `0.3.1`. For an existing dependency, use the project's **Package Dependencies** tab.
-   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.1 } }`.
-   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.1")`.
+     Exact Version** → `0.3.2`. For an existing dependency, use the project's **Package Dependencies** tab.
+   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.2 } }`.
+   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.2")`.
 2. Add **Signing & Capabilities → + Capability → iCloud**, check **CloudKit**, and select the shared container
    from the local config alongside any existing iCloud Documents containers. All sending apps and the Mac reader
    must have this same container authorized in their provisioning profiles. Do not reuse a Documents container
@@ -459,6 +462,29 @@ query with `unknownItem` (code 11). The reader treats that initial query as an e
 `cloudkit_sync` has `ok: true` and `downloaded: 0`, and later polls still query for newly uploaded reports.
 Missing assets, pagination failures, authorization/network failures and missing query indexes still fail
 the sync. An empty success is bootstrap health, not evidence that a saved report reached the Mac.
+
+After the first upload, code 12 (`invalidArguments`) with **“Field 'recordName' is not marked queryable”**
+means the Development schema is missing the index required to list records. This is a failed sync, not an
+empty inbox. Add **Development → Schema → Indexes → BugKitReport → Add Basic Index → recordName → Queryable
+→ Save** in the [CloudKit Console](https://icloud.developer.apple.com/), wait for the index to be ready, and
+retry. No Sortable index is needed: the reader does not sort the query. The reader cannot create this index.
+The listener's `cloudkit_sync` log and health expose `code: 12`, `reason: missing_query_index`, and a fixed
+index action without copying raw server/account details.
+
+For a local investigation, add **`--diagnostics`** after the reader arguments to print the full CKError,
+server message and user info to stderr. Normal operation keeps raw errors out of logs. Diagnostic output can
+contain private identifiers; keep it local when reporting a problem:
+
+```sh
+~/Applications/BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader \
+  --container iCloud.com.example.BugKitReports --inbox ~/tmp/agent/bugs/cloudkit \
+  --environment Development --diagnostics
+```
+
+Substitute the container from your local config. Run the signed app outside an agent filesystem sandbox;
+sandboxed execution can hide Xcode accounts or iCloud access. Retrying after an index fix should return
+`ok: true` and download eligible records; confirm each report reaches filing and the agent inbox separately.
+
 
 ### Igor's setup and real acceptance check
 

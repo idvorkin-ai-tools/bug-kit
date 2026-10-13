@@ -185,6 +185,22 @@ import Testing
 }
 
 @MainActor
+@Test func dictationFinalRevisionReplacesPartialBeforeFinishReturns() async throws {
+  let fixture = try DictationFixture()
+  defer { fixture.cleanup() }
+  fixture.dictation.toggle(note: "Typed:") { fixture.note.value = $0 }
+  try await fixture.until { fixture.dictation.listening }
+  let words = "I guess settings can be a button now"
+  await fixture.provider.emitRecognition(words, firstStart: 0, lastEnd: 0)
+  try await fixture.until { fixture.note.value == "Typed: " + words }
+  await fixture.provider.setFinalRecognition(words, firstStart: 0.96, lastEnd: 4.1)
+  let saved = await fixture.dictation.finish(why: "log_it")
+  #expect(saved)
+  #expect(fixture.note.value == "Typed: " + words)
+  #expect(!fixture.dictation.busy)
+}
+
+@MainActor
 private final class DictationFixture {
   let capture = TestDictationCapture()
   let provider = TestNoteProvider()
@@ -251,6 +267,8 @@ private actor TestNoteProvider: BugDictationProvider {
   private(set) var starts = 0
   private(set) var cancellations = 0
   private var startGate: (@Sendable () async -> Void)?
+  private var join = DictationJoin(typed: "")
+  private var finalRecognition: (String, Double, Double)?
   func holdStart(_ gate: @escaping @Sendable () async -> Void) { startGate = gate }
   func start() async throws -> AsyncThrowingStream<String, Error> {
     starts += 1
@@ -260,8 +278,21 @@ private actor TestNoteProvider: BugDictationProvider {
   }
   func appendAudio(_ pcm16: Data) async throws {}
   func emit(_ text: String) { results?.yield(text) }
+  func emitRecognition(_ text: String, firstStart: Double, lastEnd: Double) {
+    join.update(text: text, firstStart: firstStart, lastEnd: lastEnd)
+    results?.yield(join.note)
+  }
+  func setFinalRecognition(_ text: String, firstStart: Double, lastEnd: Double) {
+    finalRecognition = (text, firstStart, lastEnd)
+  }
   func fail() { results?.finish(throwing: TestNoteError.failed); results = nil }
-  func finish() async throws { results?.yield("spoken final"); results?.finish(); results = nil }
+  func finish() async throws {
+    if let (text, start, end) = finalRecognition {
+      join.update(text: text, firstStart: start, lastEnd: end, isFinal: true)
+      results?.yield(join.note)
+    } else { results?.yield("spoken final") }
+    results?.finish(); results = nil
+  }
   func cancel() async { cancellations += 1; results?.finish(); results = nil }
 }
 #endif

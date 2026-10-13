@@ -135,7 +135,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Wall and host-clock timestamps | Create `SessionLog(prefix: "app", clocks: [.wall, .mono])`. Both are off by default. |
 | Memory on status lines | Use `log.status(every: 5, memory: true) { ... }` to include `rss_mb`. Default: off. |
 | Bridge an existing logger | Convert fields with `fields.mapValues(\.foundation)` when the app's logger accepts `[String: Any]`. |
-| Private CloudKit delivery | Add the shared container entitlement, retain `CloudKitReportDelivery`, pass `delivery:` to the reporter/writer, and call `start()` at launch/foreground. Only reports saved after opt-in upload. New adopters and Mac apps pin `exact: "0.3.1"`; existing 0.3.0 senders remain compatible. Configure the listener with `cloudkit_config`. Default: off. See [CloudKit adoption](docs/integration.md#private-cloudkit-delivery). |
+| Private CloudKit delivery | Add the shared container entitlement, retain `CloudKitReportDelivery`, pass `delivery:` to the reporter/writer, and call `start()` at launch/foreground. Only reports saved after opt-in upload. New adopters and Mac apps pin `exact: "0.3.2"`; existing 0.3.0 senders remain compatible. Configure the listener with `cloudkit_config`. Default: off. See [CloudKit adoption](docs/integration.md#private-cloudkit-delivery). |
 | Shake and keyboard reporting | Enabled by `.bugReporting(reporter)`. `systemShake`, `gentleShake`, `commandI` and `dialogKeys` default to `true`. |
 | Report button | Add `BugReportButton(reporter: reporter)` to your view or toolbar. |
 | Session log association | Create `SessionLog`, then supply `sessionLog: { log.position }`, `logger: log.logger` and `flushLog: { log.flush() }` hooks as in the quick start. |
@@ -153,6 +153,11 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Reset What's new for UI tests | Construct `WhatsNewSeen(launchHookPrefix: "APP", logger: logger)` once in app initialization and pass it to the row. Launch with `SIMCTL_CHILD_APP_WHATS_NEW_RESET=1`. This clears dismissal before the first home render. |
 | What's new | Add the `scripts/whats-new.sh` build phase, load `WhatsNewSeen.bundledFeed()`, then display `WhatsNewRow` / `WhatsNewView`; see the [complete setup](docs/integration.md). |
 | Log retention | Call `BugStore().pruneLogs(logger: log.logger)` at launch. Add `keepNewest: 20` for a count cap; logs named by reports remain protected. |
+
+For CloudKit troubleshooting, add `--diagnostics` to the signed Mac reader for local full-error inspection.
+The Development schema needs a `BugKitReport.recordName` Queryable index; see [setup](docs/integration.md#private-cloudkit-delivery).
+Apps using dictation should adopt v0.3.2 to receive the fix for doubled partial/final transcripts.
+
 
 For package updates, workarounds to remove, per-app options and downstream verification, see [adopting the merged features](docs/migration.md#adopting-the-merged-features). It covers Exercise Analyzer, Context Grabber and Magic Monitor separately.
 
