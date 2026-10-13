@@ -23,7 +23,7 @@ BugKit code. They live here because this is the global repo, not because they de
 | Fixing a shared bug once, here, not in each app | [Where a bug gets fixed](#where-a-bug-gets-fixed) |
 | The app checklist: report a problem, What's new, version and commit, session logs, crash capture, CloudKit opt-in | [#46](https://github.com/idvorkin/bug-kit/issues/46) |
 
-Each app's AGENTS.md links to this section. When work in one app turns up a bug or a practice that applies to every app,
+Link to this section from each app's AGENTS.md. When work in one app turns up a bug or a practice that applies to every app,
 file it here and link the app's issue to it.
 
 ## Quick start
