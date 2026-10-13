@@ -70,3 +70,52 @@ def test_development_build_refuses_production_config_before_running_xcode(tmp_pa
     assert "this build uses Apple Development signing" in result.stderr
     assert "Production requires a separately provisioned distribution reader" in result.stderr
     assert not (tmp_path / "Reader.app").exists()
+
+
+@pytest.fixture(scope="module")
+def reader_failure_check(tmp_path_factory):
+    folder = tmp_path_factory.mktemp("reader-failure")
+    main = folder / "main.swift"
+    main.write_text('''import CloudKit
+import Foundation
+let code = Int(CommandLine.arguments[1])!
+let error = NSError(domain: CommandLine.arguments[2], code: code,
+                    userInfo: [NSLocalizedDescriptionKey: CommandLine.arguments[3]])
+let failure = CloudKitSyncFailure(error)
+var result: [String: Any] = ["code": failure.code, "reason": failure.reason]
+if let hint = failure.hint { result["hint"] = hint }
+if CommandLine.arguments.last == "diagnostics" { result["details"] = cloudKitErrorDetails(error) }
+print(String(data: try JSONSerialization.data(withJSONObject: result), encoding: .utf8)!)
+''')
+    executable = folder / "reader-failure"
+    subprocess.run(["swiftc", "-swift-version", "6",
+                    str(ROOT / "Tools/CloudKitReader/Sources/CloudKitDiagnostics.swift"), str(main),
+                    "-o", str(executable)], check=True, capture_output=True, text=True)
+    return executable
+
+
+@pytest.mark.parametrize("domain,code,message,index", [
+    ("CKErrorDomain", 12, "Field 'recordName' is not marked queryable", True),
+    ("CKErrorDomain", 12, "Invalid request with private account information", False),
+    ("CKErrorDomain", 12, "Field 'bundle' is not marked queryable", False),
+    ("CKErrorDomain", 11, "Record type not found", False),
+    ("unrelated.domain", 12, "Field 'recordName' is not marked queryable", False),
+])
+def test_reader_failure_diagnostics_are_actionable_and_sanitized(reader_failure_check, domain, code, message, index):
+    result = subprocess.run([str(reader_failure_check), str(code), domain, message],
+                            check=True, capture_output=True, text=True)
+    failure = json.loads(result.stdout)
+    assert failure["code"] == code
+    assert failure["reason"] == ("missing_query_index" if index else "sync_failed")
+    assert ("hint" in failure) == index
+    if index:
+        assert "recordName > Queryable > Save" in failure["hint"]
+    assert "details" not in failure and "private account" not in result.stdout
+
+
+def test_full_reader_diagnostics_preserve_server_message_only_when_explicit(reader_failure_check):
+    message = "Field 'recordName' is not marked queryable; private fixture context"
+    result = subprocess.run([str(reader_failure_check), "12", "CKErrorDomain", message, "diagnostics"],
+                            check=True, capture_output=True, text=True)
+    details = json.loads(result.stdout)["details"]
+    assert message in details and "CKErrorDomain" in details and "code=12" in details

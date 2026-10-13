@@ -178,3 +178,63 @@ private func run(_ g: Double, hz: Double, seconds: Double, start: Double = 0, on
   join.update(text: "then said", firstStart: 0.3, lastEnd: 0.9)
   #expect(join.note == "typed first then said")
 }
+
+// #43: on-device partial results can have zero timing until the final transcript.
+@Test(arguments: [false, true])
+func dictationZeroTimedPartialIsRevisedWithoutDuplicatingItsWords(_ final: Bool) {
+  let words = "I guess settings can be a button now"
+  var join = DictationJoin(typed: "Typed:")
+  join.update(text: words, firstStart: 0, lastEnd: 0)
+  let fresh = join.update(text: words, firstStart: 0.96, lastEnd: 4.1, isFinal: final)
+  #expect(!fresh)
+  #expect(join.note == "Typed: " + words)
+}
+
+@Test func dictationShorterFinalCorrectionReplacesZeroTimedPartial() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "I think that settings can be a button now", firstStart: 0, lastEnd: 0)
+  let fresh = join.update(text: "Settings can be a button now", firstStart: 0.54, lastEnd: 3.9, isFinal: true)
+  #expect(!fresh)
+  #expect(join.note == "Settings can be a button now")
+}
+
+@Test func dictationRepeatedSpeechWithRealTimingIsPreserved() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "yes", firstStart: 0.2, lastEnd: 1)
+  let fresh = join.update(text: "yes", firstStart: 3, lastEnd: 3.6)
+  #expect(fresh)
+  join.update(text: "yes", firstStart: 3, lastEnd: 3.6, isFinal: true)
+  #expect(join.note == "yes yes")
+  var oneStretch = DictationJoin(typed: "")
+  oneStretch.update(text: "yes", firstStart: 0, lastEnd: 0)
+  oneStretch.update(text: "yes yes", firstStart: 0.2, lastEnd: 1.2, isFinal: true)
+  #expect(oneStretch.note == "yes yes")
+}
+
+@Test func dictationCumulativeFinalAfterPauseIncludesEarlierSpeechOnce() {
+  var join = DictationJoin(typed: "Typed:")
+  join.update(text: "first phrase", firstStart: 0.5, lastEnd: 1.5)
+  join.update(text: "second phrase", firstStart: 4, lastEnd: 5)
+  join.update(text: "first phrase second phrase", firstStart: 0.6, lastEnd: 5, isFinal: true)
+  #expect(join.note == "Typed: first phrase second phrase")
+}
+
+@Test func dictationEmptyFinalPreservesTheLastPartial() {
+  var join = DictationJoin(typed: "Typed:")
+  join.update(text: "keep these words", firstStart: 0, lastEnd: 0)
+  join.update(text: "", firstStart: 0, lastEnd: 0, isFinal: true)
+  #expect(join.note == "Typed: keep these words")
+}
+
+@Test func dictatedNoteSavedAfterFinalContainsEachUtteranceOnce() async throws {
+  let docs = try tempDir()
+  defer { try? FileManager.default.removeItem(at: docs) }
+  let writer = BugReportWriter(store: BugStore(documents: docs),
+    info: BugAppInfo(app: "Fixture", bundle: "fixture.app", build: "1", commit: "c", device: "fixture"),
+    logger: { _, _ in })
+  var join = DictationJoin(typed: "Typed:")
+  join.update(text: "settings can be a button", firstStart: 0, lastEnd: 0)
+  join.update(text: "settings can be a button", firstStart: 0.96, lastEnd: 4.1, isFinal: true)
+  _ = await writer.save(note: join.note, screen: "fixture", context: [:], screenshotPNG: nil, log: nil, extraFiles: nil)
+  #expect(try BugStore(documents: docs).readAll().reports.first?.note == "Typed: settings can be a button")
+}

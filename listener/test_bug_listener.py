@@ -709,3 +709,69 @@ def test_cloud_issue_body_names_actual_nested_log_path(listener_state):
     documents = Path(cfg["cloudkit"]["inbox"]) / rec["id"] / "Documents"
     body = bl.issue_body(rec, rec["id"], {"type": "CloudKit"}, cfg["apps"][0], documents)
     assert str(documents / rec["log"]) in body
+
+
+def test_cloud_sync_exposes_index_action_without_raw_server_details(listener_state, monkeypatch):
+    cfg, _, _ = cloud_fixture(listener_state)
+    output = json.dumps({"event": "cloudkit_sync", "ok": False, "code": 12,
+                         "reason": "missing_query_index", "hint": "private container details",
+                         "message": "private account details"})
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (1, output, "raw private CKError"))
+    health, summary = {}, cloud_summary()
+    bl.sync_cloudkit(cfg, summary, health)
+    assert health["cloudkit"]["ok"] is False
+    assert health["cloudkit"]["code"] == 12
+    assert health["cloudkit"]["reason"] == "missing_query_index"
+    assert "recordName Queryable" in health["cloudkit"]["action"]
+    assert summary["errors"] == 1
+    events = [json.loads(line) for line in bl.LOG.read_text().splitlines()]
+    assert events[-1]["code"] == 12 and events[-1]["reason"] == "missing_query_index"
+    assert "private" not in bl.LOG.read_text()
+
+
+@pytest.mark.parametrize("code, reason", [(True, "missing_query_index"), ("12", ["private"]),
+                                          (999999999, {"private": "data"}), (12, "private reason")])
+def test_cloud_sync_drops_untrusted_diagnostics(listener_state, monkeypatch, code, reason):
+    cfg, _, _ = cloud_fixture(listener_state)
+    output = json.dumps({"event": "cloudkit_sync", "ok": False, "code": code, "reason": reason})
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (1, output, "private stderr"))
+    health = {}
+    bl.sync_cloudkit(cfg, cloud_summary(), health)
+    assert health["cloudkit"]["ok"] is False
+    assert "action" not in health["cloudkit"]
+    assert "private" not in bl.LOG.read_text()
+
+
+def test_cloud_sync_success_does_not_keep_failure_diagnostics(listener_state, monkeypatch):
+    cfg, _, _ = cloud_fixture(listener_state)
+    output = '\n'.join(json.dumps(e) for e in (
+        {"event": "cloudkit_sync", "ok": False, "code": 12, "reason": "missing_query_index"},
+        {"event": "cloudkit_sync", "ok": True, "downloaded": 0}))
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (0, output, ""))
+    health = {}
+    bl.sync_cloudkit(cfg, cloud_summary(), health)
+    assert health["cloudkit"]["ok"] is True
+    assert "code" not in health["cloudkit"] and "action" not in health["cloudkit"]
+
+
+@pytest.mark.parametrize("lose_seen_store", [False, True])
+def test_device_first_then_cloudkit_keeps_one_tracker_and_one_inbox_line(listener_state, lose_seen_store):
+    cfg, rec, _ = cloud_fixture(listener_state)
+    filer = CloudFakeFiler()
+    seen, summary = {}, cloud_summary()
+    device_entry = {"keys": []}
+    # Exercise the actual device delivery/receipt write rather than seed a claimed success.
+    assert bl.deliver(filer, cfg["apps"][0], rec, {"dir": "phone", "type": "iPhone"},
+                      listener_state, device_entry, "keys", seen, summary)
+    assert len(filer.calls) == 1
+    assert len(bl.INBOX.read_text().splitlines()) == 1
+    if lose_seen_store:
+        bl.SEEN.unlink()
+    seen = bl.load_seen()
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert len(filer.calls) == 1
+    lines = [json.loads(line) for line in bl.INBOX.read_text().splitlines()]
+    assert len(lines) == 1 and lines[0]["key"] == rec["id"]
+    assert lines[0]["ref"] == "synthetic-ref"
+    assert summary["filed"] == 1 and summary["errors"] == 0

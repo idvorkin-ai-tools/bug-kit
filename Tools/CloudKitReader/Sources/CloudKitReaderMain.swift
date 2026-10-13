@@ -28,10 +28,12 @@ import Security
   }
 
   static func main() async {
-    let args = Array(CommandLine.arguments.dropFirst())
+    var args = Array(CommandLine.arguments.dropFirst())
+    let diagnostics = args.last == "--diagnostics"
+    if diagnostics { args.removeLast() }
     if args == ["--help"] || args.isEmpty {
       print("Usage: BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader --container iCloud.com.example.BugKitReports --inbox /absolute/path")
-      print("Downloads private reports once. Requires an entitled app with an embedded provisioning profile and iCloud login.")
+      print("Downloads private reports once. Requires an entitled app with an embedded provisioning profile and iCloud login. Add --diagnostics to print full CloudKit errors to stderr.")
       print("Signing check only: --check-signing --container iCloud.com.example.BugKitReports")
       return
     }
@@ -55,8 +57,11 @@ import Security
       let count = try await receiver.download(to: URL(fileURLWithPath: args[3], isDirectory: true))
       emit("cloudkit_sync", ["downloaded": .int(count), "ok": true])
     } catch {
-      let code = (error as? CKError)?.errorCode ?? (error as NSError).code
-      emit("cloudkit_sync", ["ok": false, "code": .int(code)])
+      let failure = CloudKitSyncFailure(error)
+      var fields: [String: JSONValue] = ["ok": false, "code": .int(failure.code), "reason": .string(failure.reason)]
+      if let hint = failure.hint { fields["hint"] = .string(hint) }
+      emit("cloudkit_sync", fields)
+      if diagnostics { FileHandle.standardError.write(Data((cloudKitErrorDetails(error) + "\n").utf8)) }
       exit(1)
     }
   }

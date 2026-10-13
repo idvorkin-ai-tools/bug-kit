@@ -40,9 +40,9 @@ final class AppleDictationProvider: BugDictationProvider {
         guard let self, self.owner == generation else { return }
         if let text {
           let previous = self.join.current, previousEnd = self.join.currentEnd
-          if self.join.update(text: text, firstStart: first, lastEnd: end) {
+          if self.join.update(text: text, firstStart: first, lastEnd: end, isFinal: final) {
             self.logger("dictation_pause", ["kept_chars": .int(previous.count), "new_chars": .int(text.count),
-              "prev_end_s": .double(previousEnd), "new_start_s": .double(first)])
+              "prev_end_s": .double(previousEnd), "new_start_s": .double(first), "is_final": .bool(final)])
           }
           self.continuation?.yield(self.join.note)
         }

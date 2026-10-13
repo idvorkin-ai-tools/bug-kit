@@ -304,7 +304,7 @@ UDIDs, emails or account identifiers.
    - Xcode: **File › Add Package Dependencies** → `https://github.com/idvorkin/bug-kit` → **Dependency Rule:
      Exact Version** → `0.3.1`. For an existing dependency, use the project's **Package Dependencies** tab.
    - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.1 } }`.
-   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.1")`.
+   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.2")`.
 2. Add **Signing & Capabilities → + Capability → iCloud**, check **CloudKit**, and select the shared container
    from the local config alongside any existing iCloud Documents containers. All sending apps and the Mac reader
    must have this same container authorized in their provisioning profiles. Do not reuse a Documents container
@@ -459,6 +459,29 @@ query with `unknownItem` (code 11). The reader treats that initial query as an e
 `cloudkit_sync` has `ok: true` and `downloaded: 0`, and later polls still query for newly uploaded reports.
 Missing assets, pagination failures, authorization/network failures and missing query indexes still fail
 the sync. An empty success is bootstrap health, not evidence that a saved report reached the Mac.
+
+After the first upload, code 12 (`invalidArguments`) with **“Field 'recordName' is not marked queryable”**
+means the Development schema is missing the index required to list records. This is a failed sync, not an
+empty inbox. Add **Development → Schema → Indexes → BugKitReport → Add Basic Index → recordName → Queryable
+→ Save** in the [CloudKit Console](https://icloud.developer.apple.com/), wait for the index to be ready, and
+retry. No Sortable index is needed: the reader does not sort the query. The reader cannot create this index.
+The listener's `cloudkit_sync` log and health expose `code: 12`, `reason: missing_query_index`, and a fixed
+index action without copying raw server/account details.
+
+For a local investigation, add **`--diagnostics`** after the reader arguments to print the full CKError,
+server message and user info to stderr. Normal operation keeps raw errors out of logs. Diagnostic output can
+contain private identifiers; keep it local when reporting a problem:
+
+```sh
+~/Applications/BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader \
+  --container iCloud.com.example.BugKitReports --inbox ~/tmp/agent/bugs/cloudkit \
+  --environment Development --diagnostics
+```
+
+Substitute the container from your local config. Run the signed app outside an agent filesystem sandbox;
+sandboxed execution can hide Xcode accounts or iCloud access. Retrying after an index fix should return
+`ok: true` and download eligible records; confirm each report reaches filing and the agent inbox separately.
+
 
 ### Igor's setup and real acceptance check
 
