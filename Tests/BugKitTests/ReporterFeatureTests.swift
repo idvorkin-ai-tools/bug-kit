@@ -211,6 +211,23 @@ func dictationZeroTimedPartialIsRevisedWithoutDuplicatingItsWords(_ final: Bool)
   #expect(oneStretch.note == "yes yes")
 }
 
+@Test func dictationRepeatedOpeningWordsAfterAPauseArePreserved() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "go", firstStart: 0, lastEnd: 0.5)
+  let fresh = join.update(text: "go home", firstStart: 3, lastEnd: 4)
+  #expect(fresh)
+  join.update(text: "go home", firstStart: 3, lastEnd: 4, isFinal: true)
+  #expect(join.note == "go go home")
+}
+
+@Test func dictationTimedNewStretchAfterUntimedStretchIsAdded() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "hello there", firstStart: 0, lastEnd: 0)
+  let fresh = join.update(text: "and then something more", firstStart: 5, lastEnd: 6.2)
+  #expect(fresh)
+  #expect(join.note == "hello there and then something more")
+}
+
 @Test func dictationCumulativeFinalAfterPauseIncludesEarlierSpeechOnce() {
   var join = DictationJoin(typed: "Typed:")
   join.update(text: "first phrase", firstStart: 0.5, lastEnd: 1.5)

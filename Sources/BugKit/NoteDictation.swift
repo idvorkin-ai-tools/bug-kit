@@ -46,14 +46,17 @@ public struct DictationJoin: Equatable, Sendable {
       // with the same word (the recogniser revises a stretch's words, it does not drop its start).
       // On-device partials can report zero-duration segments until their timing is revised. A later
       // timestamp alone cannot prove new speech if the earlier stretch never had a valid duration.
-      after = currentEnd > start && firstStart >= currentEnd - 0.05 && firstStart > start
-      let restarted = !isFinal && text.count < current.count && Self.firstWord(text) != Self.firstWord(current)
+      let untimed = currentEnd <= start
+      after = !untimed && firstStart >= currentEnd - 0.05 && firstStart > start
+      let restarted = !isFinal && Self.firstWord(text) != Self.firstWord(current)
+        && (text.count < current.count || untimed && lastEnd > firstStart && firstStart > start)
       fresh = after || restarted
     }
     // A final transcript may include the completed stretches as well as the current one. When its
     // clock overlaps the current stretch, it replaces the session's speech instead of appending it.
     // Disjoint timed speech is still new speech, even when the words are deliberately repeated.
-    if isFinal, !after, !completedSpeech.isEmpty,
+    if isFinal, !after, !completedSpeech.isEmpty, let start = currentStart,
+       currentEnd <= start || firstStart < start,
        text.lowercased().hasPrefix(completedSpeech.lowercased() + " ") {
       kept = typed
       completedSpeech = ""
