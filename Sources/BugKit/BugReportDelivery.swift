@@ -160,7 +160,7 @@ actor CloudReportOutbox: BugReportDelivery {
     self.sleep = sleep
   }
 
-  func prepare(documents: URL) throws {
+  func prepare(documents: URL) async throws {
     guard documents.standardizedFileURL == store.documents.standardizedFileURL else {
       throw CloudDeliveryError.wrongStore
     }
