@@ -430,8 +430,8 @@ lockf -k -t 3600 ~/tmp/agent/locks/build.lock python3 scripts/build-cloudkit-rea
 ```
 
 Do not take `build.lock` again inside a command whose caller already holds it and says so;
-the nested `lockf` would wait for itself. The signed build additionally takes
-`lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock xcodebuild ... -allowProvisioningUpdates`, uses two compiler
+the nested `lockf` would wait for itself. The signed build additionally runs
+`lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock scripts/signing-guard.sh xcodebuild ... -allowProvisioningUpdates`, uses two compiler
 workers, verifies the signature/profile and installs to the local config's `app` path. Generated signing
 settings and raw logs are ignored under `DerivedData/`; they can contain private identifiers. Do not commit
 or publish those logs.
