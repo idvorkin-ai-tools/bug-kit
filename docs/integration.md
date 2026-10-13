@@ -530,7 +530,9 @@ integration choices and real watch/cellular validation.
 
 Apple dictation treats zero-duration partial timing as unavailable, so a later timing revision does not append
 that partial again. It uses the duration of submitted PCM audio to recognize a genuinely later stretch, and
-final corrections replace the current stretch. Cumulative finals replace earlier stretches only when their
-clock actually starts before the current stretch. `DictationJoin` callers can pass `observedAudioEnd:` (the
+final corrections replace the current stretch. A cumulative final that starts before the current stretch
+replaces only the earlier stretches its clock overlaps, even when it revises their words; untouched earlier
+stretches stay. After a clock reset, or without ranges for earlier stretches, which stretches a final covers
+is ambiguous, so completed speech is kept and the final revises only the current stretch. `DictationJoin` callers can pass `observedAudioEnd:` (the
 submitted audio duration when observing a result); without timing evidence it favors a revision over guessing
 that speech restarted. This avoids text-based deduplication and retains deliberate repeated timed utterances.

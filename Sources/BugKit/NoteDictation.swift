@@ -14,19 +14,19 @@ public enum DictationText {
 /// the one being heard. Whether a restart after a pause is the cause is what `dictation_pause` is there to show.
 public struct DictationJoin: Equatable, Sendable {
   /// What was typed when listening began, then every finished stretch of speech.
-  public private(set) var kept: String
+  public var kept: String { completed.reduce(typed) { Self.join($0, $1.text) } }
   /// The stretch being heard now, as the recogniser last gave it.
   public private(set) var current = ""
   private var currentStart: Double?
   private var currentObservedAudioEnd: Double?
   private let typed: String
-  private var completedSpeech = ""
+  /// Finished stretches with their clock range; an untimed stretch ends at the audio submitted before it.
+  private var completed: [Stretch] = []
   /// When the stretch being heard last ended, in seconds from the start of listening.
   public private(set) var currentEnd: Double = 0
 
   public init(typed: String) {
     self.typed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
-    kept = self.typed
   }
 
   /// The whole note so far.
@@ -57,29 +57,38 @@ public struct DictationJoin: Equatable, Sendable {
         // inside that audio is not evidence of a new stretch, even if the first word changes.
         after = firstStart >= bound && firstStart > start
       }
-      let restarted = !isFinal && timed && firstStart < start
+      let restarted = !isFinal && timed
         && text.count < current.count && Self.firstWord(text) != Self.firstWord(current)
       fresh = after || restarted
     }
-    // A final transcript may include the completed stretches as well as the current one. When its
-    // clock overlaps the current stretch, it replaces the session's speech instead of appending it.
-    // Disjoint timed speech is still new speech, even when the words are deliberately repeated.
-    if isFinal, !after, !completedSpeech.isEmpty, let start = currentStart,
-       firstStart < start,
-       text.lowercased().hasPrefix(completedSpeech.lowercased() + " ") {
-      kept = typed
-      completedSpeech = ""
-      fresh = false
+    // A final transcript may revise the completed stretches as well as the current one. When it reaches
+    // the current end from before the current start, and every stretch so far lies in order on one clock,
+    // it replaces the stretches it overlaps; earlier untouched ones stay. After a clock reset or without
+    // ranges the overlap is ambiguous, so completed speech is kept and the final revises the current stretch.
+    if isFinal, !after, let start = currentStart, firstStart < start, lastEnd >= currentEnd - 0.05,
+       Self.ordered(completed + [Stretch(text: current, start: start, end: max(currentEnd, start))]),
+       let covered = completed.firstIndex(where: { $0.end > firstStart }) {
+      completed.removeSubrange(covered...)
     }
-    if fresh {
-      kept = Self.join(kept, current)
-      completedSpeech = Self.join(completedSpeech, current)
+    if fresh, let start = currentStart {
+      completed.append(Stretch(text: current, start: start,
+        end: currentEnd > start ? currentEnd : currentObservedAudioEnd ?? start))
     }
     current = text
     currentStart = firstStart
     currentEnd = lastEnd
     currentObservedAudioEnd = observedAudioEnd
     return fresh
+  }
+
+  private struct Stretch: Equatable, Sendable {
+    let text: String
+    let start: Double
+    let end: Double
+  }
+
+  private static func ordered(_ stretches: [Stretch]) -> Bool {
+    zip(stretches, stretches.dropFirst()).allSatisfy { $0.end > $0.start && $1.start >= $0.end - 0.05 }
   }
 
   private static func join(_ a: String, _ b: String) -> String {

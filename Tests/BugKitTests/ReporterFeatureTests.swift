@@ -172,6 +172,20 @@ private func run(_ g: Double, hz: Double, seconds: Double, start: Double = 0, on
   #expect(join.note == "when I stop talking the input")
 }
 
+@Test func dictationConsecutiveClockResetsAreEachAdded() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "when I stop talking", firstStart: 0.5, lastEnd: 2.0)
+  let firstReset = join.update(text: "the input", firstStart: 0.2, lastEnd: 0.8)
+  let secondReset = join.update(text: "is gone", firstStart: 0.4, lastEnd: 1.0)
+  #expect(firstReset && secondReset)
+  #expect(join.note == "when I stop talking the input is gone")
+  var later = DictationJoin(typed: "")
+  later.update(text: "when I stop talking", firstStart: 0.3, lastEnd: 2.0)
+  let laterReset = later.update(text: "the input", firstStart: 0.6, lastEnd: 1.2)
+  #expect(laterReset)
+  #expect(later.note == "when I stop talking the input")
+}
+
 @Test func dictationKeepsWhatWasTyped() {
   var join = DictationJoin(typed: "  typed first ")
   #expect(join.note == "typed first")
@@ -234,6 +248,32 @@ func dictationZeroTimedPartialIsRevisedWithoutDuplicatingItsWords(_ final: Bool)
   join.update(text: "second phrase", firstStart: 4, lastEnd: 5)
   join.update(text: "first phrase second phrase", firstStart: 0.6, lastEnd: 5, isFinal: true)
   #expect(join.note == "Typed: first phrase second phrase")
+}
+
+@Test func dictationCumulativeFinalMayReviseEarlierStretches() {
+  var join = DictationJoin(typed: "Typed:")
+  join.update(text: "first phase", firstStart: 0.5, lastEnd: 1.5)
+  join.update(text: "second phrase", firstStart: 4, lastEnd: 5)
+  let fresh = join.update(text: "first phrase second phrase", firstStart: 0.6, lastEnd: 5, isFinal: true)
+  #expect(!fresh)
+  #expect(join.note == "Typed: first phrase second phrase")
+}
+
+@Test func dictationFinalCoveringLaterStretchesKeepsTheEarliestUntouched() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "open settings", firstStart: 0.5, lastEnd: 1.5)
+  join.update(text: "tap the button", firstStart: 4, lastEnd: 5)
+  join.update(text: "nothing happens", firstStart: 8, lastEnd: 9)
+  join.update(text: "tap the buttons nothing happens", firstStart: 4.1, lastEnd: 9, isFinal: true)
+  #expect(join.note == "open settings tap the buttons nothing happens")
+}
+
+@Test func dictationFinalAfterAClockResetKeepsCompletedSpeech() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "when I stop talking", firstStart: 0.5, lastEnd: 2.0)
+  join.update(text: "the input", firstStart: 0.6, lastEnd: 1.2)
+  join.update(text: "the inputs", firstStart: 0.3, lastEnd: 1.2, isFinal: true)
+  #expect(join.note == "when I stop talking the inputs")
 }
 
 @Test func dictationEmptyFinalPreservesTheLastPartial() {
