@@ -526,3 +526,11 @@ waiting for its paired iPhone. Give that watch target its own authorized App ID/
 container, and call `start()` when the watch app launches or becomes active. This does not add a watch report
 dialog, shake handling, dictation UI, screenshots, or a WatchConnectivity relay, so #25 remains open for those
 integration choices and real watch/cellular validation.
+
+
+Apple dictation treats zero-duration partial timing as unavailable, so a later timing revision does not append
+that partial again. It uses the duration of submitted PCM audio to recognize a genuinely later stretch, and
+final corrections replace the current stretch. Cumulative finals replace earlier stretches only when their
+clock actually starts before the current stretch. `DictationJoin` callers can pass `observedAudioEnd:` (the
+submitted audio duration when observing a result); without timing evidence it favors a revision over guessing
+that speech restarted. This avoids text-based deduplication and retains deliberate repeated timed utterances.

@@ -18,6 +18,7 @@ public struct DictationJoin: Equatable, Sendable {
   /// The stretch being heard now, as the recogniser last gave it.
   public private(set) var current = ""
   private var currentStart: Double?
+  private var currentObservedAudioEnd: Double?
   private let typed: String
   private var completedSpeech = ""
   /// When the stretch being heard last ended, in seconds from the start of listening.
@@ -33,30 +34,38 @@ public struct DictationJoin: Equatable, Sendable {
 
   /// One result from the recogniser: its text and when its first and last words were spoken, in seconds from the
   /// start of listening. Pass isFinal for the recognizer's final result so text corrections do not look
-  /// like a restarted partial. Returns true when a new stretch begins (the one before it was kept).
+  /// like a restarted partial. observedAudioEnd is the duration of audio already submitted when this
+  /// result is observed; it bounds an untimed transcript. Without either word timing or this bound,
+  /// results are treated as revisions. Returns true when a new stretch begins.
   @discardableResult
-  public mutating func update(text: String, firstStart: Double, lastEnd: Double, isFinal: Bool = false) -> Bool {
+  public mutating func update(text: String, firstStart: Double, lastEnd: Double, isFinal: Bool = false, observedAudioEnd: Double? = nil) -> Bool {
     let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
     // Empty terminal results carry no replacement words.
     guard !text.isEmpty else { return false }
     var fresh = false
     var after = false
     if let start = currentStart, !current.isEmpty, !text.isEmpty {
-      // A result that starts after the last one ended is new speech; so is a shorter one that no longer begins
-      // with the same word (the recogniser revises a stretch's words, it does not drop its start).
+      // A result outside the prior timed interval is new speech. A shorter non-final result on a
+      // reset clock preserves the existing on-device pause/restart behavior.
       // On-device partials can report zero-duration segments until their timing is revised. A later
       // timestamp alone cannot prove new speech if the earlier stretch never had a valid duration.
-      let untimed = currentEnd <= start
-      after = !untimed && firstStart >= currentEnd - 0.05 && firstStart > start
-      let restarted = !isFinal && Self.firstWord(text) != Self.firstWord(current)
-        && (text.count < current.count || untimed && lastEnd > firstStart && firstStart > start)
+      let timed = currentEnd > start
+      if timed {
+        after = firstStart >= currentEnd - 0.05 && firstStart > start
+      } else if let bound = currentObservedAudioEnd, bound > start {
+        // All previously recognized words must lie within the submitted audio. A revised start
+        // inside that audio is not evidence of a new stretch, even if the first word changes.
+        after = firstStart >= bound && firstStart > start
+      }
+      let restarted = !isFinal && timed && firstStart < start
+        && text.count < current.count && Self.firstWord(text) != Self.firstWord(current)
       fresh = after || restarted
     }
     // A final transcript may include the completed stretches as well as the current one. When its
     // clock overlaps the current stretch, it replaces the session's speech instead of appending it.
     // Disjoint timed speech is still new speech, even when the words are deliberately repeated.
     if isFinal, !after, !completedSpeech.isEmpty, let start = currentStart,
-       currentEnd <= start || firstStart < start,
+       firstStart < start,
        text.lowercased().hasPrefix(completedSpeech.lowercased() + " ") {
       kept = typed
       completedSpeech = ""
@@ -69,6 +78,7 @@ public struct DictationJoin: Equatable, Sendable {
     current = text
     currentStart = firstStart
     currentEnd = lastEnd
+    currentObservedAudioEnd = observedAudioEnd
     return fresh
   }
 

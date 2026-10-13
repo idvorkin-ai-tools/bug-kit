@@ -222,7 +222,7 @@ func dictationZeroTimedPartialIsRevisedWithoutDuplicatingItsWords(_ final: Bool)
 
 @Test func dictationTimedNewStretchAfterUntimedStretchIsAdded() {
   var join = DictationJoin(typed: "")
-  join.update(text: "hello there", firstStart: 0, lastEnd: 0)
+  join.update(text: "hello there", firstStart: 0, lastEnd: 0, observedAudioEnd: 2)
   let fresh = join.update(text: "and then something more", firstStart: 5, lastEnd: 6.2)
   #expect(fresh)
   #expect(join.note == "hello there and then something more")
@@ -254,4 +254,30 @@ func dictationZeroTimedPartialIsRevisedWithoutDuplicatingItsWords(_ final: Bool)
   join.update(text: "settings can be a button", firstStart: 0.96, lastEnd: 4.1, isFinal: true)
   _ = await writer.save(note: join.note, screen: "fixture", context: [:], screenshotPNG: nil, log: nil, extraFiles: nil)
   #expect(try BugStore(documents: docs).readAll().reports.first?.note == "Typed: settings can be a button")
+}
+
+
+@Test(arguments: [nil, 4.0] as [Double?])
+func dictationFirstWordChangingTimedPartialStillRevisesUntimedSpeech(_ observedEnd: Double?) {
+  var join = DictationJoin(typed: "Typed:")
+  join.update(text: "eye guess settings", firstStart: 0, lastEnd: 0, observedAudioEnd: observedEnd)
+  let fresh = join.update(text: "I guess settings can be a button now", firstStart: 0.96, lastEnd: 4.1)
+  #expect(!fresh)
+  #expect(join.note == "Typed: I guess settings can be a button now")
+}
+
+@Test func dictationShorterUntimedCorrectionDoesNotCommitTheWrongWords() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "the settings can be", firstStart: 0, lastEnd: 0, observedAudioEnd: 3)
+  let fresh = join.update(text: "a button", firstStart: 0.8, lastEnd: 2)
+  #expect(!fresh)
+  #expect(join.note == "a button")
+}
+
+@Test func dictationWithoutTimingEvidenceFavorsRevision() {
+  var join = DictationJoin(typed: "")
+  join.update(text: "hello there", firstStart: 0, lastEnd: 0)
+  let fresh = join.update(text: "and then something more", firstStart: 5, lastEnd: 6.2)
+  #expect(!fresh)
+  #expect(join.note == "and then something more")
 }
