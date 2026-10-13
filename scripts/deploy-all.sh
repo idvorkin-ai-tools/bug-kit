@@ -46,7 +46,7 @@ if [ "$dry" = 0 ] && [ -z "${BUG_KIT_LOCKED:-}" ]; then
     $([ "$watch" = 1 ] && echo --watch)
 fi
 
-exec 3>&2  # the terminal's stderr, kept for run() when a call's own output is redirected to a file
+exec 3>&2  # the terminal's stderr, kept for run() and the guard's own messages when output is captured
 run() {  # prints the command; runs it unless --dry-run
   { printf '+ '; printf '%q ' "$@"; echo; } >&3
   [ "$dry" = 1 ] || "$@"
@@ -119,7 +119,7 @@ if [ "$dry" = 1 ]; then
 else
   out=$("$SIGNING_GUARD" xcodebuild "${container[@]}" -scheme "$scheme" -derivedDataPath "$derived" \
     -destination "platform=iOS,id=$dest_udid" -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
-    ${settings[@]+"${settings[@]}"} build 2>&1)
+    ${settings[@]+"${settings[@]}"} build 2>&3)
   build_status=$?
   echo "$out" | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | sort -u | head -40
   if grep -qiE 'No Accounts|Failed to load credentials' <<<"$out"; then

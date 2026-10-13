@@ -61,10 +61,12 @@ starting the build. It runs `caffeinate -d -w $$` for its lifetime, including th
 assertion. `caffeinate -i` alone does not prevent display sleep and the immediate screen lock. The guard
 refuses to start if the lock-state query fails or the display assertion process exits.
 
-One-line adoption in each app's existing device recipe (substitute its BugKit checkout and build args):
+One-line adoption in each app's existing device recipe, which must run whole (generation, build, install,
+launch) under `xcode-signing.lock` ([the device build](deploying.md#the-device-build)): prefix only the build,
+and install only after it succeeds (substitute its BugKit checkout and build args):
 
 ```sh
-lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock "$BUG_KIT/scripts/signing-guard.sh" xcodebuild <existing-build-args>
+out=$("$BUG_KIT/scripts/signing-guard.sh" xcodebuild <existing-build-args>) || exit $?   # inside the held lock
 ```
 
 Create the lock directory first. Keep the outer build turn and `build.lock` rules; do not reacquire either

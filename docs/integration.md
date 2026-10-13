@@ -300,14 +300,17 @@ UDIDs, emails or account identifiers.
 
 ### Each app's agent
 
-1. **Pin BugKit 0.3.2 exactly for new adoption, the Mac fixes and the dictation fix**. Existing apps on 0.3.0
-   can stay there: their CloudKit report format remains compatible with the updated reader. lcd-timer and Magic
-   Monitor's Mac side need 0.3.1 or later for the Mac storage, CLT and listener fixes; 0.3.2 also stops dictated
-   notes from repeating their words and adds the CloudKit reader's missing query index diagnostics.
+1. **Pin BugKit 0.3.3 exactly for new adoption**: `prepare(documents:)` below (uploading only reports saved
+   after opt-in) and `BugKitAboutLink` are new in 0.3.3.
    - Xcode: **File › Add Package Dependencies** → `https://github.com/idvorkin/bug-kit` → **Dependency Rule:
-     Exact Version** → `0.3.2`. For an existing dependency, use the project's **Package Dependencies** tab.
-   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.2 } }`.
-   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.2")`.
+     Exact Version** → `0.3.3`. For an existing dependency, use the project's **Package Dependencies** tab.
+   - XcodeGen: `packages: { BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.3 } }`.
+   - SwiftPM: `.package(url: "https://github.com/idvorkin/bug-kit", exact: "0.3.3")`.
+
+   Existing senders on 0.3.0–0.3.2 stay compatible: their CloudKit report format works with the updated reader,
+   and they do not call `prepare`. lcd-timer and Magic Monitor's Mac side need 0.3.1 or later for the Mac
+   storage, CLT and listener fixes; 0.3.2 or later also stops dictated notes from repeating their words and adds
+   the CloudKit reader's missing query index diagnostics.
 2. Add **Signing & Capabilities → + Capability → iCloud**, check **CloudKit**, and select the shared container
    from the local config alongside any existing iCloud Documents containers. All sending apps and the Mac reader
    must have this same container authorized in their provisioning profiles. Do not reuse a Documents container
@@ -538,7 +541,8 @@ integration choices and real watch/cellular validation.
 
 ## About / version in Settings
 
-Place `BugKitAboutLink()` in a Settings `List` or `Form` inside the app's `NavigationStack`. It opens the
+Requires BugKit 0.3.3 (pin it exactly, as in [CloudKit adoption](#each-apps-agent)). Place `BugKitAboutLink()`
+in a Settings `List` or `Form` inside the app's `NavigationStack`. It opens the
 shared `BugKitAboutView`: app name, version (build), short commit linked to GitHub, and repository link.
 The same view supports iOS, macOS and watchOS. For a custom navigation label or a sheet, present
 `BugKitAboutView()` directly; give a Mac sheet/window its usual size.

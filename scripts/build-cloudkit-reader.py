@@ -46,7 +46,7 @@ def main():
     # Logs can contain local identifiers. Keep them outside version control, and show a sanitized result.
     derived.mkdir(parents=True, exist_ok=True)
     with (derived / 'build.log').open('w') as log:
-        result = subprocess.run(command + ['build'], stdout=log, stderr=subprocess.STDOUT)
+        result = subprocess.run(command + ['build'], stdout=log, stderr=None if config else subprocess.STDOUT)
     print(f'Build exit: {result.returncode}; local details: {derived / "build.log"}')
     if result.returncode:
         return result.returncode

@@ -133,9 +133,11 @@ def test_reader_signed_path_wraps_guard_inside_lock_and_stops_before_install(tmp
                                   "app": str(destination)}))
     monkeypatch.setattr(sys, "argv", ["reader", "--config", str(config)] + (["--unsigned"] if unsigned else []))
     calls = []
+    streams = []
 
     def fake_run(args, **kwargs):
         calls.append(args)
+        streams.append(kwargs.get("stderr"))
         return subprocess.CompletedProcess(args, 0 if args[0] == "xcodegen" else 78)
 
     monkeypatch.setattr(module.subprocess, "run", fake_run)
@@ -147,5 +149,6 @@ def test_reader_signed_path_wraps_guard_inside_lock_and_stops_before_install(tmp
     else:
         assert build[:4] == ["lockf", "-k", "-t", "900"]
         assert build[5:7] == [str(fake_root / "scripts/signing-guard.sh"), "xcodebuild"]
+        assert streams[1] is None  # guard wait/stop messages reach the terminal, not only the log
     assert len(calls) == 2
     assert not destination.exists()
