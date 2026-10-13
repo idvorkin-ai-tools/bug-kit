@@ -225,6 +225,8 @@ To use your own server/library, conform an actor or a Sendable type to `BugDicta
 
 “Log it” and “Log it and another” wait for the provider's final words. A finish failure keeps the sheet and current note open. Cancel/dismiss invalidates permission, audio and provider callbacks so they cannot write into a later report. The UI shows startup/finish progress and disables duplicate operations.
 
+Apple dictation treats zero-duration partial timing as unavailable, so a later timing revision does not append that partial again. It uses the duration of submitted PCM audio to recognize a genuinely later stretch, and final corrections replace the current stretch. A cumulative final that starts before the current stretch replaces only the earlier stretches its clock overlaps, even when it revises their words; untouched earlier stretches stay. After a clock reset, or without ranges for earlier stretches, which stretches a final covers is ambiguous, so completed speech is kept and the final revises only the current stretch. `DictationJoin` callers can pass `observedAudioEnd:` (the submitted audio duration when observing a result); without timing evidence it favors a revision over guessing that speech restarted. This avoids text-based deduplication and retains deliberate repeated timed utterances.
+
 `voice-keyboard/ios/Host/AudioCapture.swift` and `DeepgramEngine.swift` were the design reference for input selection and streaming segment finalization. Its private `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.
 
 ## macOS storage and Command Line Tools
@@ -526,13 +528,3 @@ waiting for its paired iPhone. Give that watch target its own authorized App ID/
 container, and call `start()` when the watch app launches or becomes active. This does not add a watch report
 dialog, shake handling, dictation UI, screenshots, or a WatchConnectivity relay, so #25 remains open for those
 integration choices and real watch/cellular validation.
-
-
-Apple dictation treats zero-duration partial timing as unavailable, so a later timing revision does not append
-that partial again. It uses the duration of submitted PCM audio to recognize a genuinely later stretch, and
-final corrections replace the current stretch. A cumulative final that starts before the current stretch
-replaces only the earlier stretches its clock overlaps, even when it revises their words; untouched earlier
-stretches stay. After a clock reset, or without ranges for earlier stretches, which stretches a final covers
-is ambiguous, so completed speech is kept and the final revises only the current stretch. `DictationJoin` callers can pass `observedAudioEnd:` (the
-submitted audio duration when observing a result); without timing evidence it favors a revision over guessing
-that speech restarted. This avoids text-based deduplication and retains deliberate repeated timed utterances.
