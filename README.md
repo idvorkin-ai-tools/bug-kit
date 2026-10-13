@@ -11,6 +11,21 @@ BugKit requires **iOS 17+**. Its report model, storage and flow also support **m
 
 Extracted from Exercise Analyzer, Context Grabber and Magic Monitor so shared fixes reach every app.
 
+## Shared practices for every app
+
+BugKit is the one repository every app shares, so it also holds practices each app should follow even when they are not
+BugKit code. They live here because this is the global repo, not because they depend on the library:
+
+| Practice | Where |
+|---|---|
+| Building, signing, deploying and testing on real devices with agents | [docs/ops](docs/ops/README.md) |
+| Evidence, deduplication, crashes and debugging | [docs/principles.md](docs/principles.md) |
+| Fixing a shared bug once, here, not in each app | [Where a bug gets fixed](#where-a-bug-gets-fixed) |
+| The app checklist: report a problem, What's new, version and commit, session logs, crash capture, CloudKit opt-in | [#46](https://github.com/idvorkin/bug-kit/issues/46) |
+
+Link to this section from each app's AGENTS.md. When work in one app turns up a bug or a practice that applies to every app,
+file it here and link the app's issue to it.
+
 ## Quick start
 
 Add `https://github.com/idvorkin/bug-kit` through Xcode’s **File › Add Package Dependencies**, and link the `BugKit` product. With XcodeGen:

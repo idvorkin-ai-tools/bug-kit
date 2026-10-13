@@ -1,5 +1,7 @@
 # Working in BugKit
 
+BugKit is the shared repository for all of the apps. Besides the library, it holds the practices every app follows (README, "Shared practices for every app"). When a bug or practice found in one app applies to all of them, it belongs here.
+
 Use Beads for all repository task tracking. Run `bd prime` at the start of a session and after context recovery, then `bd ready` or `bd list --status=in_progress`. Create a bead before new work, mark it `in_progress`, and close it only after the work and its required validation are complete. Link related GitHub issues with `--external-ref`; GitHub remains the intake for reports and the review surface for PRs.
 
 All git worktrees share the main checkout's Beads database. Issue data lives in Dolt, outside code branches; `.beads/config.yaml` and `.beads/metadata.json` are tracked configuration. Use `bd dolt pull` and `bd dolt push` to sync issue data. JSONL exports are optional interchange files, not backups or the source of truth.
