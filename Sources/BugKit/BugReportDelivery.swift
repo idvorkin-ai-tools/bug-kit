@@ -124,7 +124,7 @@ struct CloudReportPayload: Codable, Sendable {
 }
 
 public enum CloudDeliveryError: Error, Equatable, Sendable {
-  case invalidPath, invalidPayload, tooLarge, wrongStore, accountUnavailable, accountChanged
+  case invalidPath, invalidPayload, tooLarge, wrongStore, accountUnavailable, accountChanged, invalidAcknowledgement
 }
 
 protocol CloudReportTransport: Sendable {
@@ -291,7 +291,11 @@ actor CloudReportOutbox: BugReportDelivery {
       logger("bug_delivery_uploading", ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"])
       do { try await transport.upload(payload.report, payload: url) }
       catch {
-        logger("bug_delivery_pending", ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"])
+        var fields: [String: JSONValue] = ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"]
+        if error as? CloudDeliveryError == .invalidAcknowledgement {
+          fields["reason"] = "server acknowledgment missing or invalid"
+        }
+        logger("bug_delivery_pending", fields)
         throw error
       }
       try FileManager.default.createDirectory(at: sent, withIntermediateDirectories: true)
