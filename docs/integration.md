@@ -501,8 +501,9 @@ The sender marks a report sent only after both operation completion and a matchi
 succeed. The returned record must match the report UUID, default zone, BugKitReport type and app bundle;
 this also guards restored long-lived operations. Missing, mismatched or duplicate acknowledgments fail
 closed and leave the queued report eligible for recovery instead of emitting `bug_delivery_uploaded`.
-Native CloudKit errors retain their existing retry policy. An invalid acknowledgment requires attention
-and is retried at a later start/foreground, rather than reported as delivered. Local report files remain.
+Native CloudKit errors retain their existing retry policy. An invalid acknowledgment logs
+`bug_delivery_pending` with a `reason` field, then `bug_delivery_stopped`; it requires attention and is
+retried at a later start/foreground, rather than reported as delivered. Local report files remain.
 
 This verifies the save acknowledgment, not Mac receipt. It does not add a post-save readback, prove
 cross-client visibility, or resend reports already in `sent/`. Correlate the upload UUID with the Mac's
