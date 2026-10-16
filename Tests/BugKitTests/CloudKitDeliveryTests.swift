@@ -480,8 +480,8 @@ private func acknowledgedRecord(_ report: BugReport) -> CKRecord {
   let f = CloudFixture(); defer { f.clean() }
   let report = try f.report()
   let ack = CloudRecordSaveAcknowledgement(report: report)
-  ack.observe(CKRecord.ID(recordName: report.id.uuidString), result: .failure(CKError(.networkFailure)))
-  #expect(throws: CKError.self) { try ack.finish(.success(())) }
+  ack.observe(CKRecord.ID(recordName: report.id.uuidString), result: .failure(CKError(.serverResponseLost)))
+  #expect { try ack.finish(.success(())) } throws: { ($0 as? CKError)?.code == .serverResponseLost }
 }
 
 @Test func nativeOverallFailureSurvivesMatchingRecordSuccess() throws {
@@ -493,7 +493,7 @@ private func acknowledgedRecord(_ report: BugReport) -> CKRecord {
   #expect(throws: CKError.self) { try ack.finish(.failure(CKError(.networkFailure))) }
 }
 
-@Test(arguments: ["callbackID", "savedID", "zone", "bundle", "type", "duplicate"])
+@Test(arguments: ["callbackID", "savedID", "zone", "bundle", "missingBundle", "type", "duplicate"])
 func nativeAcknowledgmentRejectsUnrelatedOrAmbiguousSave(_ mismatch: String) throws {
   let f = CloudFixture(); defer { f.clean() }
   let report = try f.report()
@@ -503,21 +503,35 @@ func nativeAcknowledgmentRejectsUnrelatedOrAmbiguousSave(_ mismatch: String) thr
   let savedID = mismatch == "savedID" ? other : mismatch == "zone"
     ? CKRecord.ID(recordName: report.id.uuidString, zoneID: CKRecordZone.ID(zoneName: "other")) : expected
   let record = CKRecord(recordType: mismatch == "type" ? "Other" : "BugKitReport", recordID: savedID)
-  record["bundle"] = (mismatch == "bundle" ? "local.other" : report.bundle) as CKRecordValue
+  if mismatch != "missingBundle" {
+    record["bundle"] = (mismatch == "bundle" ? "local.other" : report.bundle) as CKRecordValue
+  }
   ack.observe(mismatch == "callbackID" ? other : expected, result: .success(record))
   if mismatch == "duplicate" { ack.observe(expected, result: .success(record)) }
   #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try ack.finish(.success(())) }
 }
 
+@Test func nativeInvalidAcknowledgementWaitsForLaterStartWithoutChangingRetryPolicy() {
+  let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
+  #expect(transport.retryDelay(for: CloudDeliveryError.invalidAcknowledgement, attempt: 0) == nil)
+  #expect(transport.retryDelay(for: CKError(.networkFailure), attempt: 0) != nil)
+  #expect(transport.retryDelay(for: CKError(.permissionFailure), attempt: 0) == nil)
+}
+
 private actor AcknowledgingCloudTransport: CloudReportTransport {
-  var acknowledge = false
+  enum Mode { case wrongBundle, nativeFailure, matching }
+  var mode = Mode.wrongBundle
   func accountID() -> String { "fixture-owner" }
-  func setAcknowledging() { acknowledge = true }
+  func set(_ next: Mode) { mode = next }
   func upload(_ report: BugReport, payload: URL) throws {
     let ack = CloudRecordSaveAcknowledgement(report: report)
-    if acknowledge {
-      let record = acknowledgedRecord(report)
+    let record = acknowledgedRecord(report)
+    switch mode {
+    case .wrongBundle:
+      record["bundle"] = "local.other" as CKRecordValue
       ack.observe(record.recordID, result: .success(record))
+    case .nativeFailure: ack.observe(record.recordID, result: .failure(CKError(.networkFailure)))
+    case .matching: ack.observe(record.recordID, result: .success(record))
     }
     try ack.finish(.success(()))
   }
@@ -539,7 +553,12 @@ private actor AcknowledgingCloudTransport: CloudReportTransport {
   #expect(!events.all.contains { $0.0 == "bug_delivery_uploaded" })
   #expect(events.all.contains { $0.0 == "bug_delivery_pending"
     && $0.1["reason"] == .string("server acknowledgment missing or invalid") })
-  await transport.setAcknowledging()
+  await transport.set(.nativeFailure)
+  await #expect { try await queue.flush() } throws: { ($0 as? CKError)?.code == .networkFailure }
+  #expect(events.all.last { $0.0 == "bug_delivery_pending" }?.1["reason"] == nil)
+  #expect(FileManager.default.fileExists(atPath: pending.path))
+  #expect(!FileManager.default.fileExists(atPath: sent.path))
+  await transport.set(.matching)
   #expect(try await queue.flush() == 1)
   #expect(!FileManager.default.fileExists(atPath: pending.path))
   #expect(FileManager.default.fileExists(atPath: sent.path))
