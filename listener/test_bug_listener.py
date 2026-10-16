@@ -36,7 +36,7 @@ def cloud_fixture(tmp_path):
 
 
 def synced(*events):
-    output = "\n".join(json.dumps(e) for e in (*events, {"event": "cloudkit_sync", "ok": True}))
+    output = "\n".join(json.dumps(e) for e in (*events, {"event": "cloudkit_sync", "ok": True, "downloaded": 0}))
     return lambda *args, **kwargs: (0, output, "")
 
 
@@ -794,8 +794,11 @@ def test_cloud_sync_success_does_not_keep_failure_diagnostics(listener_state, mo
 
 
 @pytest.mark.parametrize("lose_seen_store", [False, True])
-def test_device_first_then_cloudkit_keeps_one_tracker_and_one_inbox_line(listener_state, lose_seen_store):
+def test_device_first_then_cloudkit_keeps_one_tracker_and_one_inbox_line(listener_state, monkeypatch, lose_seen_store):
     cfg, rec, _ = cloud_fixture(listener_state)
+    folder = Path(cfg["cloudkit"]["inbox"]) / rec["id"]
+    staged = listener_state / "reader-payload"
+    folder.rename(staged)
     filer = CloudFakeFiler()
     seen, summary = {}, cloud_summary()
     device_entry = {"keys": []}
@@ -806,11 +809,55 @@ def test_device_first_then_cloudkit_keeps_one_tracker_and_one_inbox_line(listene
     assert len(bl.INBOX.read_text().splitlines()) == 1
     if lose_seen_store:
         bl.SEEN.unlink()
-    seen = bl.load_seen()
-    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
-    bl.poll_cloud_reports(cfg, seen, filer, summary, False)
+    assert not folder.exists()
+    def reader(cmd, **kwargs):
+        # Fake only the native reader boundary; publish after USB has filed.
+        assert "--inbox" in cmd
+        staged.rename(folder)
+        return 0, json.dumps({"event": "cloudkit_sync", "ok": True, "downloaded": 1}), ""
+    monkeypatch.setattr(bl, "run", reader)
+    monkeypatch.setattr(bl, "list_devices", lambda: [])
+    monkeypatch.setattr(bl, "Filer", lambda: filer)
+    result = bl.poll(cfg, False)
+    assert result["skipped"] == 1 and result["filed"] == 0 and result["errors"] == 0
+    bl.poll_cloud_reports(cfg, bl.load_seen(), filer, cloud_summary(), False)
+    assert bl.read_status()["cloudkit"]["downloaded"] == 1
+    assert json.loads((folder / "report.json").read_text())["id"] == rec["id"]
+    assert (folder / "Documents" / rec["screenshot"]).read_bytes() == b"synthetic screen"
     assert len(filer.calls) == 1
     lines = [json.loads(line) for line in bl.INBOX.read_text().splitlines()]
     assert len(lines) == 1 and lines[0]["key"] == rec["id"]
     assert lines[0]["ref"] == "synthetic-ref"
     assert summary["filed"] == 1 and summary["errors"] == 0
+
+
+@pytest.mark.parametrize("downloaded", [0, 3])
+def test_cloud_sync_retains_valid_download_count_in_status_and_log(listener_state, monkeypatch, downloaded):
+    cfg, _, _ = cloud_fixture(listener_state)
+    output = json.dumps({"event": "cloudkit_sync", "ok": True, "downloaded": downloaded})
+    monkeypatch.setattr(bl, "run", lambda *a, **k: (0, output, ""))
+    monkeypatch.setattr(bl, "list_devices", lambda: [])
+    monkeypatch.setattr(bl, "Filer", CloudFakeFiler)
+    bl.poll(cfg, False)
+    assert bl.read_status()["cloudkit"]["downloaded"] == downloaded
+    events = [json.loads(line) for line in bl.LOG.read_text().splitlines()]
+    sync = next(e for e in events if e["event"] == "cloudkit_sync")
+    assert sync["ok"] is True and sync["downloaded"] == downloaded
+
+
+@pytest.mark.parametrize("count", [None, True, False, -1, 1.5, "2", [], {}])
+def test_cloud_sync_rejects_invalid_download_count(listener_state, monkeypatch, count):
+    cfg, _, _ = cloud_fixture(listener_state)
+    event = {"event": "cloudkit_sync", "ok": True}
+    if count is not None:
+        event["downloaded"] = count
+    monkeypatch.setattr(bl, "run", lambda *a, **k: (0, json.dumps(event), ""))
+    health = {"cloudkit": {"ok": True, "downloaded": 99}}
+    summary = cloud_summary()
+    bl.sync_cloudkit(cfg, summary, health)
+    assert health["cloudkit"]["ok"] is False
+    assert health["cloudkit"]["reason"] == "invalid_download_count"
+    assert "downloaded" not in health["cloudkit"]
+    assert summary["errors"] == 1 and summary["reachable"] == 0
+    event = json.loads(bl.LOG.read_text().splitlines()[-1])
+    assert event["ok"] is False and "downloaded" not in event
