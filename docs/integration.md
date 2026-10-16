@@ -495,6 +495,19 @@ sandboxed execution can hide Xcode accounts or iCloud access. Retrying after an 
 `ok: true` and download eligible records; confirm each report reaches filing and the agent inbox separately.
 
 
+### Sender save acknowledgment
+
+The sender marks a report sent only after both operation completion and a matching per-record server save
+succeed. The returned record must match the report UUID, default zone, BugKitReport type and app bundle;
+this also guards restored long-lived operations. Missing, mismatched or duplicate acknowledgments fail
+closed and leave the queued report eligible for recovery instead of emitting `bug_delivery_uploaded`.
+Native CloudKit errors retain their existing retry policy. An invalid acknowledgment requires attention
+and is retried at a later start/foreground, rather than reported as delivered. Local report files remain.
+
+This verifies the save acknowledgment, not Mac receipt. It does not add a post-save readback, prove
+cross-client visibility, or resend reports already in `sent/`. Correlate the upload UUID with the Mac's
+`cloudkit_downloaded` event and filing/inbox receipt; use the direct diagnostic below when a report is absent.
+
 ### Diagnose a report missing from the query
 
 Use the sending report's full UUID (not its tracker issue ID) with the signed reader:

@@ -34,6 +34,46 @@ public actor CloudKitReportDelivery: BugReportDelivery {
   @discardableResult public func flush() async throws -> Int { try await outbox.flush() }
 }
 
+/// Require the specific server save acknowledgment, not just successful operation completion.
+/// CloudKit callbacks are serialized, but tests/callers may arrive on different threads.
+final class CloudRecordSaveAcknowledgement: @unchecked Sendable {
+  private let lock = NSLock()
+  private let expectedID: CKRecord.ID
+  private let bundle: String
+  private var saved: Result<Void, any Error>?
+
+  init(report: BugReport) {
+    expectedID = CKRecord.ID(recordName: report.id.uuidString)
+    bundle = report.bundle
+  }
+
+  func observe(_ id: CKRecord.ID, result: Result<CKRecord, any Error>) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard saved == nil, id == expectedID else {
+      saved = .failure(CloudDeliveryError.invalidAcknowledgement)
+      return
+    }
+    saved = result.flatMap { record in
+      guard record.recordID == expectedID, record.recordType == "BugKitReport",
+            record["bundle"] as? String == bundle else {
+        return .failure(CloudDeliveryError.invalidAcknowledgement)
+      }
+      return .success(())
+    }
+  }
+
+  func finish(_ operation: Result<Void, any Error>) throws {
+    // A matching per-record save must never hide an overall operation failure.
+    try operation.get()
+    lock.lock()
+    let result = saved
+    lock.unlock()
+    guard let result else { throw CloudDeliveryError.invalidAcknowledgement }
+    try result.get()
+  }
+}
+
 struct NativeCloudReportTransport: CloudReportTransport {
   let containerIdentifier: String
   var container: CKContainer { CKContainer(identifier: containerIdentifier) }
@@ -54,8 +94,13 @@ struct NativeCloudReportTransport: CloudReportTransport {
     let operation = restored ?? Self.uploadOperation(report, payload: payload)
     if restored == nil { try Data(operation.operationID.utf8).write(to: operationFile, options: .atomic) }
     do {
+      let acknowledgment = CloudRecordSaveAcknowledgement(report: report)
       try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-        operation.modifyRecordsResultBlock = { result in continuation.resume(with: result) }
+        // Also checks a restored operation against this report's ID/zone and bundle.
+        operation.perRecordSaveBlock = { id, result in acknowledgment.observe(id, result: result) }
+        operation.modifyRecordsResultBlock = { result in
+          continuation.resume(with: Result { try acknowledgment.finish(result) })
+        }
         container.privateCloudDatabase.add(operation)
       }
       try? FileManager.default.removeItem(at: operationFile)

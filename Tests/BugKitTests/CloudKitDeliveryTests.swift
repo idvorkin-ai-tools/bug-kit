@@ -454,4 +454,97 @@ func cloudReceiverOtherQueryFailuresRemainFailures(_ code: CKError.Code) async t
   let delays = (0..<8).map { transport.retryDelay(for: CloudDeliveryError.accountUnavailable, attempt: $0) }
   #expect(delays == [5, 10, 20, 40, 80, 160, 300, 300])
 }
+
+private func acknowledgedRecord(_ report: BugReport) -> CKRecord {
+  let record = CKRecord(recordType: "BugKitReport", recordID: CKRecord.ID(recordName: report.id.uuidString))
+  record["bundle"] = report.bundle as CKRecordValue
+  return record
+}
+
+@Test func nativeAcknowledgmentRequiresTheSpecificSavedRecord() throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let report = try f.report()
+  let ack = CloudRecordSaveAcknowledgement(report: report)
+  let record = acknowledgedRecord(report)
+  ack.observe(record.recordID, result: .success(record))
+  try ack.finish(.success(()))
+}
+
+@Test func nativeOperationSuccessWithoutRecordAcknowledgmentIsNotUploadSuccess() throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let ack = CloudRecordSaveAcknowledgement(report: try f.report())
+  #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try ack.finish(.success(())) }
+}
+
+@Test func nativePerRecordFailureSurvivesOverallSuccess() throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let report = try f.report()
+  let ack = CloudRecordSaveAcknowledgement(report: report)
+  ack.observe(CKRecord.ID(recordName: report.id.uuidString), result: .failure(CKError(.networkFailure)))
+  #expect(throws: CKError.self) { try ack.finish(.success(())) }
+}
+
+@Test func nativeOverallFailureSurvivesMatchingRecordSuccess() throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let report = try f.report()
+  let ack = CloudRecordSaveAcknowledgement(report: report)
+  let record = acknowledgedRecord(report)
+  ack.observe(record.recordID, result: .success(record))
+  #expect(throws: CKError.self) { try ack.finish(.failure(CKError(.networkFailure))) }
+}
+
+@Test(arguments: ["callbackID", "savedID", "zone", "bundle", "type", "duplicate"])
+func nativeAcknowledgmentRejectsUnrelatedOrAmbiguousSave(_ mismatch: String) throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let report = try f.report()
+  let ack = CloudRecordSaveAcknowledgement(report: report)
+  let expected = CKRecord.ID(recordName: report.id.uuidString)
+  let other = CKRecord.ID(recordName: UUID().uuidString)
+  let savedID = mismatch == "savedID" ? other : mismatch == "zone"
+    ? CKRecord.ID(recordName: report.id.uuidString, zoneID: CKRecordZone.ID(zoneName: "other")) : expected
+  let record = CKRecord(recordType: mismatch == "type" ? "Other" : "BugKitReport", recordID: savedID)
+  record["bundle"] = (mismatch == "bundle" ? "local.other" : report.bundle) as CKRecordValue
+  ack.observe(mismatch == "callbackID" ? other : expected, result: .success(record))
+  if mismatch == "duplicate" { ack.observe(expected, result: .success(record)) }
+  #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try ack.finish(.success(())) }
+}
+
+private actor AcknowledgingCloudTransport: CloudReportTransport {
+  var acknowledge = false
+  func accountID() -> String { "fixture-owner" }
+  func setAcknowledging() { acknowledge = true }
+  func upload(_ report: BugReport, payload: URL) throws {
+    let ack = CloudRecordSaveAcknowledgement(report: report)
+    if acknowledge {
+      let record = acknowledgedRecord(report)
+      ack.observe(record.recordID, result: .success(record))
+    }
+    try ack.finish(.success(()))
+  }
+}
+
+@Test func cloudOutboxKeepsUnacknowledgedSavePendingUntilMatchingSave() async throws {
+  let f = CloudFixture(); defer { f.clean() }
+  let transport = AcknowledgingCloudTransport()
+  let events = CloudEvents()
+  let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: events.logger)
+  try await queue.prepare(documents: f.documents)
+  let report = try f.report()
+  try f.store.append(report)
+  await #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try await queue.flush() }
+  let pending = f.outboxRoot.appendingPathComponent("pending/" + report.id.uuidString + ".json")
+  let sent = f.outboxRoot.appendingPathComponent("sent/" + report.id.uuidString + ".json")
+  #expect(FileManager.default.fileExists(atPath: pending.path))
+  #expect(!FileManager.default.fileExists(atPath: sent.path))
+  #expect(!events.all.contains { $0.0 == "bug_delivery_uploaded" })
+  #expect(events.all.contains { $0.0 == "bug_delivery_pending"
+    && $0.1["reason"] == .string("server acknowledgment missing or invalid") })
+  await transport.setAcknowledging()
+  #expect(try await queue.flush() == 1)
+  #expect(!FileManager.default.fileExists(atPath: pending.path))
+  #expect(FileManager.default.fileExists(atPath: sent.path))
+  #expect(events.all.filter { $0.0 == "bug_delivery_uploaded" }.count == 1)
+  #expect(try f.store.readAll().reports == [report])
+}
+
 #endif
