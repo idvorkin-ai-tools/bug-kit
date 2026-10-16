@@ -166,7 +166,8 @@ Mac's login session.
 
 Cloud events: `cloudkit_poll`, `cloudkit_downloaded` (key/bundle), `cloudkit_report_pending` (key = the failed
 report UUID, or null when the record name is not a UUID; reason = `download or evidence validation failed`,
-`listing failed or record metadata is invalid` or `unknown`), `cloudkit_sync` (ok/rc/ms, plus safe code/reason/action on failure), `cloudkit_report_error`
+`listing failed or record metadata is invalid` or `unknown`), `cloudkit_sync` (ok/rc/ms, plus the reader's validated `downloaded` count, including 0, on success or safe
+code/reason/action on failure; a missing or invalid count fails with `invalid_download_count`), `cloudkit_report_error`
 and `devices_error`, then the existing `file` and new `inbox` event for each successful handoff. Sync output/error codes are sanitized; account/record contents are not logged. Downloads
 have no first-contact baseline: apps upload only reports saved after opt-in, so the configured apps' first
 reports are filed immediately. Unknown app bundles
@@ -178,7 +179,7 @@ reason and retries without filing another issue. Do not delete receipts, downloa
 routine cleanup.
 
 `doctor` runs `--check-signing` on the helper without contacting CloudKit. It cannot prove iCloud login,
-network, schema/index or cellular delivery. `status.json.cloudkit` contains the last actual sync result;
+network, schema/index or cellular delivery. `status.json.cloudkit` contains the last actual sync result with the same `downloaded` or failure fields;
 `--once` returns non-zero on failed sync even if earlier downloaded reports are filed. Dry runs do not launch
 the CloudKit helper. For a live check, require a phone report's UUID in both the tracker and Mac inbox within
 one poll after a cellular upload; a local report that never reaches the Mac is failure.
