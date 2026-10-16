@@ -495,6 +495,34 @@ sandboxed execution can hide Xcode accounts or iCloud access. Retrying after an 
 `ok: true` and download eligible records; confirm each report reaches filing and the agent inbox separately.
 
 
+### Diagnose a report missing from the query
+
+Use the sending report's full UUID (not its tracker issue ID) with the signed reader:
+
+```sh
+~/Applications/BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader \
+  --container iCloud.com.example.BugKitReports \
+  --fetch-report 00000000-0000-4000-8000-000000000001 --environment Development
+```
+
+Substitute your local container and report UUID; run outside the agent sandbox. This performs
+`CKDatabase.record(for:)` against the same private database/default zone as normal downloads, bypassing
+the listing query. It does not write an inbox folder, file an issue, or alter USB/cloud delivery receipts.
+The `cloudkit_fetch_report` event reports:
+
+- `ok:true, found:true`: the record is directly accessible. If a contemporaneous listing in the same
+  scope omits it, investigate query discovery/indexing. `report_type_matches`, `has_bundle` and
+  `has_payload` describe basic shape only; finding a record is not proof of valid downloaded evidence.
+- `ok:true, found:false, code:11, reason:record_absent`: CloudKit returned `unknownItem` for that exact ID
+  in this database/zone. Check sender UUID, account, container and signed environment; this does not
+  prove the record was never uploaded or is absent from a different scope.
+- `ok:false, reason:fetch_failed` (exit 1): authentication/network/other errors are inconclusive, not
+  evidence that the record is absent. Argument errors exit 2. Successful found/absent probes exit 0.
+
+Append `--diagnostics` for raw error details on stderr, keeping that output private. `--environment`
+validates the executable's signed environment; it cannot switch Development/Production at runtime.
+Build and live-run this diagnostic only in the assigned build turn.
+
 ### Igor's setup and real acceptance check
 
 Before the live check, confirm these setup steps with Igor:

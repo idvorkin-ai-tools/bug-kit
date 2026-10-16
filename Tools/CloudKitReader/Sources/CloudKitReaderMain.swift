@@ -35,6 +35,7 @@ import Security
       print("Usage: BugKitCloudReader.app/Contents/MacOS/BugKitCloudReader --container iCloud.com.example.BugKitReports --inbox /absolute/path")
       print("Downloads private reports once. Requires an entitled app with an embedded provisioning profile and iCloud login. Add --diagnostics to print full CloudKit errors to stderr.")
       print("Signing check only: --check-signing --container iCloud.com.example.BugKitReports")
+      print("Direct lookup (no query or inbox writes): --container iCloud.com.example.BugKitReports --fetch-report UUID [--environment Development|Production] [--diagnostics]")
       return
     }
     if (args.count == 3 || args.count == 5), args[0] == "--check-signing", args[1] == "--container" {
@@ -43,14 +44,42 @@ import Security
       print("{\"signing_ok\":\(ok)}")
       exit(ok ? 0 : 1)
     }
-    guard (args.count == 4 || args.count == 6), args[0] == "--container", args[2] == "--inbox",
-          args[1].hasPrefix("iCloud."), args[3].hasPrefix("/") else {
+    let directLookup = args.count >= 3 && args[2] == "--fetch-report"
+    guard (args.count == 4 || args.count == 6), args[0] == "--container",
+          args[1].hasPrefix("iCloud."),
+          (directLookup ? UUID(uuidString: args[3]) != nil : args[2] == "--inbox" && args[3].hasPrefix("/")) else {
       FileHandle.standardError.write(Data("Invalid arguments. Use --help.\n".utf8)); exit(2)
     }
     guard args.count == 4 || (args[4] == "--environment" && ["Development", "Production"].contains(args[5])) else { exit(2) }
     guard hasProvisionedContainer(args[1], environment: args.count == 6 ? args[5] : nil) else {
       emit("cloudkit_signing_error", ["reason": "run the provisioned headless app; a bare or unsigned CLI cannot access this container"])
       exit(1)
+    }
+    if directLookup {
+      // Same signed container/private default zone as the normal reader, bypassing CKQuery.
+      // This probe deliberately does not install evidence or touch delivery receipts.
+      guard let id = UUID(uuidString: args[3]) else { exit(2) }
+      let container = CKContainer(identifier: args[1])
+      do {
+        guard try await container.accountStatus() == .available else { throw CloudDeliveryError.accountUnavailable }
+        let record = try await container.privateCloudDatabase.record(for: CKRecord.ID(recordName: id.uuidString))
+        emit("cloudkit_fetch_report", ["ok": true, "found": true, "id": .string(id.uuidString),
+          "report_type_matches": .bool(record.recordType == "BugKitReport"),
+          "has_bundle": .bool(record["bundle"] as? String != nil),
+          "has_payload": .bool(record["payload"] as? CKAsset != nil)])
+      } catch {
+        let failure = CloudKitSyncFailure(error)
+        if let cloudError = error as? CKError, cloudError.code == .unknownItem {
+          emit("cloudkit_fetch_report", ["ok": true, "found": false, "id": .string(id.uuidString),
+            "code": .int(cloudError.errorCode), "reason": "record_absent"])
+        } else {
+          emit("cloudkit_fetch_report", ["ok": false, "id": .string(id.uuidString),
+            "code": .int(failure.code), "reason": "fetch_failed"])
+        }
+        if diagnostics { FileHandle.standardError.write(Data((cloudKitErrorDetails(error) + "\n").utf8)) }
+        if (error as? CKError)?.code != .unknownItem { exit(1) }
+      }
+      return
     }
     do {
       let receiver = CloudKitReportReceiver(containerIdentifier: args[1], logger: { event, fields in emit(event, fields) })
