@@ -171,6 +171,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Log retention | Call `BugStore().pruneLogs(logger: log.logger)` at launch. Add `keepNewest: 20` for a count cap; logs named by reports remain protected. |
 
 For CloudKit troubleshooting, add `--diagnostics` to the signed Mac reader for local full-error inspection.
+To check one report the listing omits, run the reader with `--fetch-report UUID`; see [the direct lookup](docs/integration.md#diagnose-a-report-missing-from-the-query).
 The Development schema needs a `BugKitReport.recordName` Queryable index; see [setup](docs/integration.md#private-cloudkit-delivery).
 Apps using dictation should adopt v0.3.2 to receive the fix for doubled partial/final transcripts.
 
