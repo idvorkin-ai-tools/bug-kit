@@ -52,3 +52,10 @@ def test_a_failing_check_is_said_once_then_its_recovery(tmp_path):
     ])
     assert lines == ["check_failed demo: could not read owner/demo's issues (HTTP 502)", "check_ok", A]
     assert (tmp_path / "args").read_text().splitlines() == ["--check"] * 3
+
+
+def test_a_stale_listener_is_said_once_until_it_polls_again(tmp_path):
+    stale = "no unfiled reports\nbut the listener's last poll was 2026-10-17T17:29:00.000Z: reports waiting for it\n"
+    lines = monitor(tmp_path, [(stale, 3, ""), (stale, 3, ""), ("no unfiled reports\n", 0, "")])
+    assert lines == ["listener_stale but the listener's last poll was 2026-10-17T17:29:00.000Z: reports waiting for it",
+                     "listener_ok"]

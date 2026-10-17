@@ -122,3 +122,73 @@ def test_check_with_the_report_filed_finds_nothing_new(tmp_path):
     run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
     assert run.returncode == 0, run.stdout + run.stderr
     assert "no unfiled reports" in run.stdout
+
+
+# The signed CloudKit reader, stubbed: `--inbox D` installs the reports in CLOUD_REPORTS as D/<id>/report.json and
+# prints cloudkit_sync, or fails when CLOUD_FAIL is set (#66).
+READER = """#!/bin/bash
+while [ $# -gt 0 ]; do case $1 in --inbox) inbox=$2; shift;; esac; shift; done
+[ -n "${CLOUD_FAIL:-}" ] && { echo '{"event":"cloudkit_sync","ok":false,"code":9,"reason":"sync_failed"}'; exit 1; }
+python3 - "$inbox" <<'PY'
+import json, os, pathlib, sys
+for rec in json.loads(os.environ.get("CLOUD_REPORTS", "[]")):
+    folder = pathlib.Path(sys.argv[1]) / rec["id"]
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "report.json").write_text(json.dumps(rec))
+PY
+echo '{"ok":true,"event":"cloudkit_sync","downloaded":1}'
+"""
+CLOUD_ID = "6F1C2B9A-0000-4000-8000-000000000066"
+
+
+def with_cloud(tmp: Path, env: dict, reports, fail=False):
+    reader = tmp / "Reader.app/Contents/MacOS/BugKitCloudReader"
+    reader.parent.mkdir(parents=True)
+    reader.write_text(READER)
+    reader.chmod(0o755)
+    config = json.loads(Path(env["BUG_KIT_CONFIG"]).read_text())
+    config["cloudkit"] = {"app": str(tmp / "Reader.app"), "container": "iCloud.com.example.BugKitReports",
+                          "inbox": str(tmp / "listener-inbox"), "environment": "Development"}
+    Path(env["BUG_KIT_CONFIG"]).write_text(json.dumps(config))
+    return {**env, "CLOUD_REPORTS": json.dumps(reports), **({"CLOUD_FAIL": "1"} if fail else {})}
+
+
+def test_check_lists_unfiled_cloudkit_reports(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [{"id": CLOUD_ID, "bundle": "com.example.demo",
+                                      "reported_at": "2026-10-17T19:00:00.000Z", "note": "sent from the phone"}])
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert "new demo cloudkit 2026-10-17T19:00:00.000Z sent from the phone" in run.stdout.splitlines()
+    assert not (tmp_path / "listener-inbox").exists()  # the listener's own inbox is left to the listener
+
+
+def test_check_counts_a_cloudkit_report_with_its_id_marker_as_filed(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z -->\n<!-- bug-id:" + CLOUD_ID)
+    env = with_cloud(tmp_path, env, [{"id": CLOUD_ID, "bundle": "com.example.demo",
+                                      "reported_at": "2026-10-17T19:00:00.000Z", "note": "filed already"}])
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "no unfiled reports" in run.stdout
+
+
+def test_check_fails_rather_than_reading_clean_when_cloudkit_cannot_be_read(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [], fail=True)
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read CloudKit" in run.stderr
+
+
+def test_check_with_a_stale_listener_does_not_read_clean(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    (tmp_path / "out").mkdir(exist_ok=True)
+    (tmp_path / "out/status.json").write_text(json.dumps(
+        {"last_poll_completed": "2026-10-17T17:29:00.000Z", "poll_seconds": 300}))
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 3, run.stdout + run.stderr
+    assert "listener's last poll was 2026-10-17T17:29:00.000Z" in run.stdout

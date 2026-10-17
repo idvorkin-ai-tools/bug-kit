@@ -11,6 +11,8 @@
 #   check_failed <reason>                      the check exited 2 (devicectl, or the issue lookup), printed once
 #                                              until a check succeeds again, so a broken check is not silence
 #   check_ok                                   the first good check after a check_failed
+#   listener_stale <line>                      the check exited 3: clean, but the listener has stopped polling;
+#                                              printed once until it polls again, then listener_ok
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 CHECK=${BUG_KIT_CHECK:-$HERE/pull-reports.sh}
@@ -25,11 +27,18 @@ while [ $# -gt 0 ]; do
   shift
 done
 
-seen=" " failing=0
+seen=" " failing=0 stale=0
 errf=$(mktemp)
 trap 'rm -f "$errf"' EXIT
 while [ "$rounds" != 0 ]; do
   out=$("$CHECK" --check ${app:+"$app"} 2>"$errf"); rc=$?
+  if [ "$rc" = 3 ]; then
+    [ "$stale" = 0 ] && echo "listener_stale $(grep -m1 "listener's last poll" <<<"$out" | cut -c1-160)"
+    stale=1
+  elif [ "$rc" != 2 ]; then
+    [ "$stale" = 1 ] && echo "listener_ok"
+    stale=0
+  fi
   if [ "$rc" = 2 ]; then
     [ "$failing" = 0 ] && echo "check_failed $(tail -1 "$errf" | cut -c1-160)"
     failing=1
