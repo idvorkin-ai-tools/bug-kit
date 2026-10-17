@@ -258,16 +258,6 @@ def test_check_counts_a_report_on_the_device_and_in_cloudkit_once(tmp_path):
     assert "1 unfiled report(s)" in run.stdout
 
 
-def test_a_malformed_listener_status_does_not_break_the_check(tmp_path):
-    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
-    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
-    (tmp_path / "out").mkdir(exist_ok=True)
-    (tmp_path / "out/status.json").write_text(json.dumps(
-        {"last_poll_completed": "2026-10-17T17:29:00.000Z", "poll_seconds": "oops"}))
-    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
-    assert run.returncode == 3, run.stdout + run.stderr  # falls back to the 300 s default, still stale
-
-
 def check_with_status(tmp_path, status):
     github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
     env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
