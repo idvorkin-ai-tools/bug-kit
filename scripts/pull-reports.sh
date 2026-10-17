@@ -174,8 +174,11 @@ if [ "$check" = 1 ]; then
   echo "no unfiled reports"
   if [ -f "$ROOT/status.json" ]; then
     last=$(jq -r '.last_poll_completed // empty' "$ROOT/status.json" 2>/dev/null)
-    every=$(jq -r '.poll_seconds // 300' "$ROOT/status.json" 2>/dev/null)
-    at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601' 2>/dev/null || echo 0)
+    every=$(jq -r 'if (.poll_seconds | type) == "number" and .poll_seconds > 0 then .poll_seconds | floor
+                   else 300 end' "$ROOT/status.json" 2>/dev/null)
+    at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | floor' 2>/dev/null)
+    [[ "$every" =~ ^[0-9]+$ ]] || every=300  # a malformed status.json must not abort the check (exit 1 means "new")
+    [[ "$at" =~ ^[0-9]+$ ]] || at=0
     if [ $(( $(date +%s) - ${at:-0} )) -gt $(( 3 * ${every:-300} )) ]; then
       echo "but the listener's last poll was ${last:-never}: reports waiting for it are not counted; start it" \
         "(docs/ops/listener.md)"
