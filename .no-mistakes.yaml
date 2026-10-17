@@ -22,6 +22,10 @@ test:
     Run heavy host commands one at a time. Do not file real issues, send notifications, or deploy to devices;
     listener and deployment tests use fake tools for those effects.
     Live simulator and device checks happen once in the driving session's build turn and are recorded in the PR body.
+    Only one simulator on this Mac at a time: before booting, check xcrun simctl list devices booted
+    and wait until it is empty. When done, pass or fail, run xcrun simctl shutdown <udid> and
+    xcrun simctl delete <udid> for every device you created, and make sure no xcodebuild/xctest
+    you started is still running. Bound every xcodebuild test with a timeout.
 
 document:
   instructions: |
