@@ -41,6 +41,7 @@ STATE = HOME / "tmp" / "agent" / "bugs"
 LOG = STATE / "listener.log"
 SEEN = STATE / "seen.json"
 INBOX = STATE / "inbox.jsonl"
+ISSUE_LIMIT = 10000  # gh issue list reads at most this many; a full read is treated as a failed lookup
 FIXED = {
     "id", "reported_at", "app", "bundle", "build", "commit", "device", "screen", "note", "log", "screenshot",
     "context", "session_t_ms", "folder", "files", "source", "reason",
@@ -449,7 +450,7 @@ class Filer:
     def github_markers(self, repo: str) -> Optional[set[str]]:
         """The bodies' markers, read once per poll. A failed read stops filing (CG 6fed157): better late than twice."""
         if repo not in self.filed_markers:
-            rc, out, err = run(["gh", "issue", "list", "-R", repo, "--state", "all", "--limit", "1000",
+            rc, out, err = run(["gh", "issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT),
                                 "--json", "body"], timeout=90)
             if rc != 0:
                 log("tracker_error", tracker="github", repo=repo, step="list", rc=rc, stderr=tail(err))
@@ -459,6 +460,8 @@ class Filer:
                     issues = json.loads(out)
                     if not isinstance(issues, list):
                         raise ValueError("issue list is not an array")
+                    if len(issues) >= ISSUE_LIMIT:  # gh stops at --limit: the marker may be on an issue not read
+                        raise ValueError(f"{len(issues)} issues reach the {ISSUE_LIMIT} read limit")
                     bodies = [issue.get("body") or "" for issue in issues]
                     self.filed_markers[repo] = set()
                     self.legacy_markers[repo] = set()

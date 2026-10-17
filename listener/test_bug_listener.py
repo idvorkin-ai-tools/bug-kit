@@ -1213,3 +1213,11 @@ def test_first_contact_waits_for_a_readable_tracker_before_baselining(mac_fixtur
     filer.lookup_ok = True
     assert bl.poll(cfg, False)["filed"] == 1
     assert [key for key, _ in filer.calls] == [unfiled["id"]]
+
+
+def test_a_full_issue_page_is_not_a_complete_marker_list(listener_state, monkeypatch):
+    # gh caps the list at --limit: a full result may hide the issue that already holds this report's marker (#71).
+    monkeypatch.setattr(bl, "ISSUE_LIMIT", 2)
+    monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (0, json.dumps([{"body": "a"}, {"body": "b"}]), ""))
+    a = {"name": "app", "tracker": {"kind": "github", "repo": "owner/app"}}
+    assert bl.Filer().check(a, {"id": "NEW", "reported_at": "T", "note": "x"}) == ("error", None)
