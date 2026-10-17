@@ -205,6 +205,18 @@ def test_local_mac_honours_report_marked_filed_by_app(mac_fixture):
     assert bl.poll(cfg, False)["filed"] == 0 and len(filer.calls) == 1
 
 
+def test_local_mac_baseline_records_app_filed_receipt_for_other_lanes(mac_fixture, listener_state):
+    cfg, root, filer = mac_fixture
+    cloud_cfg, cloud_rec, _ = cloud_fixture(listener_state)
+    marked = write_mac_report(root, identity=cloud_rec["id"])
+    (root / "bugs/sample/report.json").write_text(json.dumps({**marked, "beads": "mmn-abc"}))
+    assert bl.poll(cfg, False)["baselined"] == 1  # first contact, no backfill
+    assert bl.load_seen()["_deliveries"]["local.fixture:" + marked["id"]]["ref"] == "mmn-abc"
+    summary = cloud_summary()
+    bl.poll_cloud_reports(cloud_cfg, bl.load_seen(), filer, summary, False)
+    assert summary["skipped"] == 1 and not filer.calls and not bl.INBOX.exists()
+
+
 def test_mac_dir_app_still_polls_paired_devices(mac_fixture, monkeypatch):
     cfg, root, filer = mac_fixture
     write_mac_report(root)

@@ -666,23 +666,33 @@ def already_filed(filer: Filer, a: dict, rec: dict, dev: dict, entry: dict, keys
     return True
 
 
-def filed_by_app(a: dict, rec: dict, dev: dict, entry: dict, seen: dict, summary: dict, key: str) -> bool:
-    """An app's own filer (Magic Monitor's `just file-bugs`) writes the beads id into its report.json. Honour it."""
+def app_filed_ref(a: dict, rec: dict) -> Optional[str]:
+    """An app's own filer (Magic Monitor's `just file-bugs`) writes the beads id into its report.json."""
     folder = folder_of(rec)
     if not folder:
-        return False
+        return None
     try:
-        ref = json.loads(store_evidence_path(Path(a["mac_dir"]), folder + "/report.json", scope="Mac").read_text())
-        ref = ref.get("beads") if isinstance(ref, dict) else None
+        data = json.loads(store_evidence_path(Path(a["mac_dir"]), folder + "/report.json", scope="Mac").read_text())
     except (OSError, ValueError):
-        return False
-    if not isinstance(ref, str) or not ref:
+        return None
+    ref = data.get("beads") if isinstance(data, dict) else None
+    return ref if isinstance(ref, str) and ref else None
+
+
+def record_app_receipt(a: dict, rec: dict, key: str, ref: str, seen: dict) -> None:
+    # Bundle-wide, so the same report arriving via CloudKit or a paired device is not refiled.
+    if rec.get("id") and not DRY:
+        seen.setdefault("_deliveries", {})[a["bundle"] + ":" + key] = {"ref": ref, "inbox": True, "by_app": True}
+
+
+def filed_by_app(a: dict, rec: dict, dev: dict, entry: dict, seen: dict, summary: dict, key: str) -> bool:
+    ref = app_filed_ref(a, rec)
+    if ref is None:
         return False
     summary["skipped"] += 1
     entry["keys"].append(key)
     entry.setdefault("pending", {}).pop(key, None)
-    if rec.get("id") and not DRY:
-        seen.setdefault("_deliveries", {})[a["bundle"] + ":" + key] = {"ref": ref, "inbox": True, "by_app": True}
+    record_app_receipt(a, rec, key, ref, seen)
     log("file", key=key, outcome="filed_by_app", ref=ref, app=a["name"], device=dev["dir"])
     save_seen(seen)
     return True
@@ -709,6 +719,11 @@ def poll_reports(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
     log("index", reports=len(reports), new=len(fresh), first_contact=first, **ctx)
     if first and not backfill:
         entry["keys"] = sorted(set(k for k, _ in reports))
+        if dev.get("type") == "Mac":
+            for key, rec in reports:
+                ref = app_filed_ref(a, rec)
+                if ref:
+                    record_app_receipt(a, rec, key, ref, seen)
         summary["baselined"] += len(entry["keys"])
         log("baseline", marked_seen=len(entry["keys"]), **ctx)
         save_seen(seen)
