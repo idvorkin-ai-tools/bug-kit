@@ -179,7 +179,7 @@ if [ "$check" = 1 ]; then
     at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | floor' 2>/dev/null)
     [[ "$every" =~ ^[0-9]+$ ]] || every=300  # a malformed status.json must not abort the check (exit 1 means "new")
     [[ "$at" =~ ^[0-9]+$ ]] || at=0
-    if [ $(( $(date +%s) - ${at:-0} )) -gt $(( 3 * ${every:-300} )) ]; then
+    if [ $(( $(date +%s) - at )) -gt $(( 3 * every )) ]; then
       echo "but the listener's last poll was ${last:-never}: reports waiting for it are not counted; start it" \
         "(docs/ops/listener.md)"
       exit 3

@@ -235,14 +235,10 @@ def test_check_fails_rather_than_reading_clean_when_cloudkit_cannot_be_read(tmp_
 
 
 def test_check_with_a_stale_listener_does_not_read_clean(tmp_path):
-    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
-    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
-    (tmp_path / "out").mkdir(exist_ok=True)
-    (tmp_path / "out/status.json").write_text(json.dumps(
-        {"last_poll_completed": "2026-10-17T17:29:00.000Z", "poll_seconds": 300}))
-    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    last = ago(3 * 3600)
+    run = check_with_status(tmp_path, {"last_poll_completed": last, "poll_seconds": 300})
     assert run.returncode == 3, run.stdout + run.stderr
-    assert "listener's last poll was 2026-10-17T17:29:00.000Z" in run.stdout
+    assert f"listener's last poll was {last}" in run.stdout
 
 
 def test_check_counts_a_report_on_the_device_and_in_cloudkit_once(tmp_path):
@@ -266,13 +262,13 @@ def check_with_status(tmp_path, status):
     return subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
 
 
-def a_minute_ago():
-    return (datetime.now(timezone.utc) - timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+def ago(seconds):
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 @pytest.mark.parametrize("bad", ["oops", 0, -5])  # a fallback of 0 would call a poll a minute old stale
 def test_a_bad_poll_seconds_falls_back_to_300_seconds(tmp_path, bad):
-    run = check_with_status(tmp_path, {"last_poll_completed": a_minute_ago(), "poll_seconds": bad})
+    run = check_with_status(tmp_path, {"last_poll_completed": ago(60), "poll_seconds": bad})
     assert run.returncode == 0, run.stdout + run.stderr
     assert "no unfiled reports" in run.stdout
 
