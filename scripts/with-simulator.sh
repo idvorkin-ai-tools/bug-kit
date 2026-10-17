@@ -11,7 +11,8 @@
 #   <name>   the simulator's name in `xcrun simctl list devices available`; the newest runtime's wins
 #   --wait   how long to wait for the lock, and then for booted simulators to shut down (default 1200)
 #   The command runs with SIM_UDID set. Exits 75 when another run held <name>, or a simulator stayed booted, for the
-#   whole wait; 2 when no simulator has that name; 69 when simctl cannot list booted simulators.
+#   whole wait; 2 when no simulator has that name; 69 when simctl cannot list booted simulators; 70 when the command
+#   passed but the simulator would not shut down.
 set -uo pipefail
 usage() { echo "usage: with-simulator.sh <name> [--wait <seconds>] -- <command…>" >&2; exit 2; }
 name=${1:-}; [ -n "$name" ] || usage; shift
@@ -48,6 +49,17 @@ while :; do
   [ "$SECONDS" -ge "$deadline" ] && { echo "a simulator stayed booted for $wait s; nothing ran: $booted" >&2; exit 75; }
   sleep 5
 done
-trap '$SIMCTL shutdown "$udid" >/dev/null 2>&1' EXIT
+# Shut down and verify, so a failed shutdown cannot leave the Mac's one simulator booted behind a passing run.
+shutdown_sim() {
+  local tries
+  for tries in 1 2 3; do
+    $SIMCTL shutdown "$udid" >/dev/null 2>&1
+    listed=$($SIMCTL list devices booted 2>/dev/null) && ! grep -qF "$udid" <<<"$listed" && return 0
+    sleep 1
+  done
+  echo "could not shut down $name ($udid); shut it down by hand: xcrun simctl shutdown $udid" >&2
+  return 1
+}
+trap 'status=$?; shutdown_sim || { [ "$status" = 0 ] && status=70; }; exit "$status"' EXIT
 $SIMCTL bootstatus "$udid" -b >/dev/null || { echo "could not boot $name ($udid)" >&2; exit 1; }
 SIM_UDID=$udid "$@"

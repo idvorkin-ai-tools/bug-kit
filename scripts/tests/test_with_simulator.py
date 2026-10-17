@@ -27,6 +27,10 @@ elif args[:3] == ['list', 'devices', 'booted']:
         print('    test-sim ({UDID}) (Booted)')
     elif {booted!r} == 'fail':
         sys.exit('CoreSimulatorService connection became invalid')
+    elif {booted!r} == 'stuck' and 'bootstatus' in open(os.environ['TEST_SIMCTL_CALLS']).read():
+        print('    test-sim ({UDID}) (Booted)')
+elif args[:1] == ['shutdown'] and {booted!r} == 'stuck':
+    sys.exit('Unable to shutdown device in current state: Booted')
 """)
     simctl.chmod(0o755)
     return {**os.environ, "BUG_KIT_SIMCTL": str(simctl), "BUG_KIT_SIM_LOCKS": str(tmp_path / "locks"),
@@ -47,7 +51,7 @@ def test_the_command_runs_on_the_booted_simulator_and_it_shuts_down_after_a_fail
     assert result.returncode == 3, result.stderr
     assert f"udid={UDID}" in result.stdout
     assert f"bootstatus {UDID} -b" in calls(tmp_path)
-    assert calls(tmp_path)[-1] == f"shutdown {UDID}"
+    assert calls(tmp_path)[-2:] == [f"shutdown {UDID}", "list devices booted"]  # shut down, then verified
 
 
 def test_two_runs_on_one_name_take_turns(tmp_path):
@@ -111,3 +115,16 @@ def test_a_failed_booted_query_fails_closed(tmp_path):
     assert "cannot list booted simulators; nothing ran" in result.stderr
     assert not (tmp_path / "ran").exists()
     assert not any(c.startswith("bootstatus") for c in calls(tmp_path))
+
+
+def test_a_simulator_that_will_not_shut_down_fails_a_passing_run(tmp_path):
+    result = run(tmp_path, "test-sim", "--", "true", env=env(tmp_path, booted="stuck"))
+    assert result.returncode == 70, result.stderr
+    assert f"could not shut down test-sim ({UDID})" in result.stderr
+    assert calls(tmp_path).count(f"shutdown {UDID}") == 3
+
+
+def test_a_failing_command_keeps_its_status_when_shutdown_fails(tmp_path):
+    result = run(tmp_path, "test-sim", "--", "sh", "-c", "exit 3", env=env(tmp_path, booted="stuck"))
+    assert result.returncode == 3, result.stderr
+    assert "could not shut down" in result.stderr
