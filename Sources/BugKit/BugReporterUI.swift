@@ -492,34 +492,16 @@
     }
   }
 
-  /// Calls `onShake` on iOS's own shake gesture. Sits invisibly in the view tree and holds first responder.
-  public struct ShakeDetector: UIViewControllerRepresentable {
-    let onShake: () -> Void
+  extension Notification.Name {
+    /// Posted on iOS's own shake gesture, whatever holds first responder.
+    static let bugKitShake = Notification.Name("BugKitShake")
+  }
 
-    public init(onShake: @escaping () -> Void) { self.onShake = onShake }
-
-    public final class Controller: UIViewController {
-      var onShake: (() -> Void)?
-      override public var canBecomeFirstResponder: Bool { true }
-      override public func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        becomeFirstResponder()
-      }
-      override public func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
-        if motion == .motionShake { onShake?() }
-        super.motionEnded(motion, with: event)
-      }
-    }
-
-    public func makeUIViewController(context: Context) -> Controller {
-      let controller = Controller()
-      controller.onShake = onShake
-      controller.view.isUserInteractionEnabled = false
-      return controller
-    }
-
-    public func updateUIViewController(_ controller: Controller, context: Context) {
-      controller.onShake = onShake
+  // Every responder chain, a presented sheet's or alert's included, ends at its window (#62).
+  extension UIWindow {
+    override open func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+      if motion == .motionShake { NotificationCenter.default.post(name: .bugKitShake, object: self) }
+      super.motionEnded(motion, with: event)
     }
   }
 
@@ -530,21 +512,18 @@
     func body(content: Content) -> some View {
       content
         .background {
-          ZStack {
-            if reporter.options.systemShake {
-              ShakeDetector {
-                reporter.hooks.logger("shake", ["source": "system"])
-                reporter.open(from: .shake)
-              }
-            }
-            if reporter.options.commandI {
-              Button("Report a problem") { reporter.open(from: .key) }
-                .keyboardShortcut("i", modifiers: .command)
-                .opacity(0)
-                .accessibilityHidden(true)
-            }
+          if reporter.options.commandI {
+            Button("Report a problem") { reporter.open(from: .key) }
+              .keyboardShortcut("i", modifiers: .command)
+              .opacity(0)
+              .accessibilityHidden(true)
+              .frame(width: 0, height: 0)
           }
-          .frame(width: 0, height: 0)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .bugKitShake)) { _ in
+          guard reporter.options.systemShake else { return }
+          reporter.hooks.logger("shake", ["source": "system"])
+          reporter.open(from: .shake)
         }
         .onAppear { reporter.sceneActive(scenePhase == .active) }
         .onChange(of: scenePhase) { _, phase in reporter.sceneActive(phase == .active) }
