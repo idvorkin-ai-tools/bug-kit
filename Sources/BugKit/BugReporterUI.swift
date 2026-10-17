@@ -505,9 +505,17 @@
     }
   }
 
+  /// A view placed in the modifier's hierarchy, so the modifier knows which window, and so scene, it lives in.
+  private struct WindowProbe: UIViewRepresentable {
+    let view: UIView
+    func makeUIView(context: Context) -> UIView { view }
+    func updateUIView(_ uiView: UIView, context: Context) {}
+  }
+
   private struct BugReporting: ViewModifier {
     @ObservedObject var reporter: BugReporter
     @Environment(\.scenePhase) private var scenePhase
+    @State private var probe = UIView()
 
     func body(content: Content) -> some View {
       content
@@ -520,8 +528,11 @@
               .frame(width: 0, height: 0)
           }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .bugKitShake)) { _ in
-          guard reporter.options.systemShake else { return }
+        .background(WindowProbe(view: probe).frame(width: 0, height: 0).accessibilityHidden(true))
+        .onReceive(NotificationCenter.default.publisher(for: .bugKitShake)) { note in
+          // Every scene's modifier hears every window's shake; answer only one from this scene.
+          guard reporter.options.systemShake, let scene = probe.window?.windowScene,
+                (note.object as? UIWindow)?.windowScene === scene else { return }
           reporter.hooks.logger("shake", ["source": "system"])
           reporter.open(from: .shake)
         }

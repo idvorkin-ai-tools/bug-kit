@@ -106,6 +106,15 @@ private final class Sheet: UIViewController {}
     try await Task.sleep(for: .milliseconds(500))  // the report sheet's dismissal animation
   }
 
+  @Test func aShakeInAnotherScenesWindowLeavesThisSceneAlone() async throws {
+    let app = try await appWithSheet()
+    defer { app.restore() }
+    let elsewhere = UIWindow(frame: .zero)  // not in this app's scene
+    elsewhere.motionEnded(.motionShake, with: nil)
+    try await waitForOpen(app.events)
+    #expect(!app.reporter.flow.isPresented)
+  }
+
   @Test func systemShakeOffIgnoresTheShake() async throws {
     let app = try await appWithSheet(systemShake: false)
     defer { app.restore() }
