@@ -202,6 +202,16 @@ def test_check_fails_when_the_cloudkit_config_file_is_missing(tmp_path):
     assert "could not read the CloudKit config" in run.stderr
 
 
+def test_check_fails_when_the_cloudkit_config_file_is_empty(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [])
+    (tmp_path / ".config/bug-kit/cloudkit.json").write_text("")
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read the CloudKit config" in run.stderr
+
+
 def test_check_counts_a_cloudkit_report_with_its_id_marker_as_filed(tmp_path):
     github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
     env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z -->\n<!-- bug-id:" + CLOUD_ID)

@@ -34,10 +34,11 @@ only=${1:-}
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
 cloud=""
 if [ "$check" = 1 ]; then
-  if cloud_config=$(jq -er '.cloudkit_config // empty' "$CONFIG"); then
+  if jq -e 'has("cloudkit_config")' "$CONFIG" >/dev/null; then
+    cloud_config=$(jq -r '.cloudkit_config' "$CONFIG")
     cloud_config=${cloud_config/#\~/$HOME}
-    cloud=$(jq -c . "$cloud_config" 2>/dev/null) || cloud="{}"
-  elif jq -e '.cloudkit' "$CONFIG" >/dev/null; then
+    cloud=$(jq -ec . "$cloud_config" 2>/dev/null) || cloud="{}"
+  elif jq -e 'has("cloudkit")' "$CONFIG" >/dev/null; then
     cloud=$(jq -c '.cloudkit' "$CONFIG")
     cloud_config="the \"cloudkit\" block in $CONFIG"
   fi
