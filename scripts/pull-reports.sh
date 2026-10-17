@@ -174,7 +174,7 @@ if [ "$check" = 1 ]; then
   echo "no unfiled reports"
   if [ -f "$ROOT/status.json" ]; then
     last=$(jq -r '.last_poll_completed // empty' "$ROOT/status.json" 2>/dev/null)
-    every=$(jq -r 'if (.poll_seconds | type) == "number" and .poll_seconds > 0 then .poll_seconds | floor
+    every=$(jq -r 'if (.poll_seconds | type) == "number" and .poll_seconds > 0 then .poll_seconds | ceil
                    else 300 end' "$ROOT/status.json" 2>/dev/null)
     at=$(jq -rn --arg t "$last" '$t | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601 | floor' 2>/dev/null)
     [[ "$every" =~ ^[0-9]+$ ]] || every=300  # a malformed status.json must not abort the check (exit 1 means "new")

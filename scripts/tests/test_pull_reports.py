@@ -3,7 +3,10 @@
 import json
 import os
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "pull-reports.sh"
 
@@ -263,3 +266,28 @@ def test_a_malformed_listener_status_does_not_break_the_check(tmp_path):
         {"last_poll_completed": "2026-10-17T17:29:00.000Z", "poll_seconds": "oops"}))
     run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
     assert run.returncode == 3, run.stdout + run.stderr  # falls back to the 300 s default, still stale
+
+
+def check_with_status(tmp_path, status):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    (tmp_path / "out").mkdir(exist_ok=True)
+    (tmp_path / "out/status.json").write_text(json.dumps(status))
+    return subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+
+
+def a_minute_ago():
+    return (datetime.now(timezone.utc) - timedelta(seconds=60)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+@pytest.mark.parametrize("bad", ["oops", 0, -5])  # a fallback of 0 would call a poll a minute old stale
+def test_a_bad_poll_seconds_falls_back_to_300_seconds(tmp_path, bad):
+    run = check_with_status(tmp_path, {"last_poll_completed": a_minute_ago(), "poll_seconds": bad})
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "no unfiled reports" in run.stdout
+
+
+def test_an_unparsable_last_poll_counts_as_stale(tmp_path):
+    run = check_with_status(tmp_path, {"last_poll_completed": "garbage", "poll_seconds": 300})
+    assert run.returncode == 3, run.stdout + run.stderr
+    assert "listener's last poll was garbage" in run.stdout
