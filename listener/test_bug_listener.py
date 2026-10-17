@@ -227,6 +227,17 @@ def test_mac_dir_app_still_polls_paired_devices(mac_fixture, monkeypatch):
     assert sorted(json.loads(line)["device"] for line in bl.INBOX.read_text().splitlines()) == ["ipad", "mac"]
 
 
+@pytest.mark.parametrize("files", [None, ["elsewhere/missing.txt"]])
+def test_local_mac_copies_folder_and_log_like_a_device(mac_fixture, files):
+    cfg, root, filer = mac_fixture
+    rec = write_mac_report(root, files=files)
+    result = bl.poll(cfg, True)
+    assert result["filed"] == 1 and result["errors"] == 0
+    snapshot = Path(json.loads(bl.INBOX.read_text())["dir"])
+    assert (snapshot / rec["screenshot"]).read_bytes() == b"synthetic screen"
+    assert not (snapshot / "elsewhere").exists()
+
+
 @pytest.mark.parametrize("escape", ["traversal", "symlink"])
 def test_local_mac_rejects_evidence_that_escapes_store(mac_fixture, listener_state, escape):
     cfg, root, filer = mac_fixture

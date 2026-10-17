@@ -48,8 +48,9 @@ its bundle+report-ID delivery receipts. Local reports reach the inbox with `"dev
 BugKit's updated Mac defaults use Application Support/<bundle ID>, or the executable name for an unbundled
 app such as `lcd-timer` ([Mac adoption](../integration.md#macos-storage-and-command-line-tools)). For an
 existing custom store, use its actual root instead: Magic Monitor can keep
-`~/Library/Application Support/MagicMonitor`. Reports, screenshots, extra files, logs and crashes are copied
-to `~/tmp/agent/bugs/<name>/mac/` before filing/inbox handoff. The app's source files are never moved or marked.
+`~/Library/Application Support/MagicMonitor`. Like the device lane, each report's folder, its session log
+and crashes are copied to `~/tmp/agent/bugs/<name>/mac/` before filing/inbox handoff. The app's source files
+are never moved or marked.
 `log_dir` and `crash_dir` retain their device defaults; the local lane strips the leading `Documents/`, so
 they resolve to `logs` and `crashes` beneath `mac_dir`. Report evidence paths stay relative to that root.
 Missing required evidence is retried; paths escaping the root and nested evidence symlinks are rejected.

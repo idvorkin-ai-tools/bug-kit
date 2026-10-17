@@ -723,13 +723,6 @@ def poll_reports(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
             continue
         folder = folder_of(rec)
         evidence_ok = not folder or copy(dev, a, under_documents(folder), local / folder, locked)
-        if dev.get("type") == "Mac":
-            # Report metadata can name evidence outside its report folder. Preserve the relative contract
-            # and require every named attachment, while validating it before creating a destination.
-            paths = set(rec.get("files", []) + [p for p in (rec.get("screenshot"),) if p])
-            for path in sorted(paths):
-                copied = copy(dev, a, under_documents(path), local / path, locked)
-                evidence_ok = evidence_ok and copied
         src = log_source(rec, a)
         if src:
             log_ok = copy(dev, a, src, local / "logs" / Path(src).name, locked)
