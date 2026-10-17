@@ -227,7 +227,7 @@ To use your own server/library, conform an actor or a Sendable type to `BugDicta
 
 Apple dictation treats zero-duration partial timing as unavailable, so a later timing revision does not append that partial again. It uses the duration of submitted PCM audio to recognize a genuinely later stretch, and final corrections replace the current stretch. A cumulative final that starts before the current stretch replaces only the earlier stretches its clock overlaps, even when it revises their words; untouched earlier stretches stay. After a clock reset, or without ranges for earlier stretches, which stretches a final covers is ambiguous, so completed speech is kept and the final revises only the current stretch. `DictationJoin` callers can pass `observedAudioEnd:` (the submitted audio duration when observing a result); without timing evidence it favors a revision over guessing that speech restarted. This avoids text-based deduplication and retains deliberate repeated timed utterances.
 
-`voice-keyboard/ios/Host/AudioCapture.swift` and `DeepgramEngine.swift` were the design reference for input selection and streaming segment finalization. Its private `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.
+A private app's audio capture and Deepgram engine were the design reference for input selection and streaming segment finalization. Its `Engine` interface is different; an existing app-owned engine needs a `BugDictationProvider` adapter. Apps already using the shared BugKit report sheet get the mic menu when they enable dictation. CG/EA can opt into Deepgram by adding the factory hook; Mac apps can use the provider API with their own PCM capture, since the shared report sheet and mic picker are iOS views.
 
 ## macOS storage and Command Line Tools
 
@@ -254,7 +254,7 @@ For a host app that shares evidence with an extension, point the store and log a
 
 ```swift
 guard let group = FileManager.default.containerURL(
-  forSecurityApplicationGroupIdentifier: "group.com.example.voicekeyboard"
+  forSecurityApplicationGroupIdentifier: "group.com.example.myapp"
 ) else { fatalError("Missing App Group entitlement") }
 let documents = group.appendingPathComponent("Documents", isDirectory: true)
 try FileManager.default.createDirectory(at: documents, withIntermediateDirectories: true)
@@ -266,7 +266,7 @@ let reporter = BugReporter(
   store: store)
 ```
 
-Keep report paths relative to this `documents` root. Add `"app_group": "group.com.example.voicekeyboard"` to this app's listener entry; it then pulls the group's `Documents` through `appGroupDataContainer`, including logs and crash evidence. Existing entries without `app_group` still pull the app container. [Listener configuration](ops/listener.md#configure) includes the full entry and backfill commands.
+Keep report paths relative to this `documents` root. Add `"app_group": "group.com.example.myapp"` to this app's listener entry; it then pulls the group's `Documents` through `appGroupDataContainer`, including logs and crash evidence. Existing entries without `app_group` still pull the app container. [Listener configuration](ops/listener.md#configure) includes the full entry and backfill commands.
 
 For memory-constrained keyboard extensions, link BugKit into the **host target only**, leave it out of the extension's package dependencies/link phase, and keep the extension's existing minimal evidence writer. The host can read or attach that evidence through its hooks. Do not assume the UIKit reporter is extension-safe: it uses `UIApplication`. Use distinct filenames or process prefixes for host and extension logs; this directory example does not establish cross-process safety for shared log/crash writers. A separate extension-safe product is tracked in [#26](https://github.com/idvorkin/bug-kit/issues/26).
 
@@ -615,7 +615,7 @@ After that metadata setup, each app's Settings adoption is one line:
 | App | Settings row | `BugKitRepositoryURL` |
 | --- | --- | --- |
 | Context Grabber (#303) | `BugKitAboutLink()` | `https://github.com/idvorkin/context-grabber` |
-| Voice Keyboard (#64) | `BugKitAboutLink(extraRows: [.init(title: "Model", value: modelName), .init(title: "Model version", value: modelVersion)])` | `https://github.com/idvorkin/voice-keyboard` |
+| An app with model rows | `BugKitAboutLink(extraRows: [.init(title: "Model", value: modelName), .init(title: "Model version", value: modelVersion)])` | `https://github.com/OWNER/REPO` |
 | Any other app | `BugKitAboutLink()` | `https://github.com/OWNER/REPO` |
 
 `modelName` and `modelVersion` are the app's own strings; BugKit does not infer or load a model. Extra rows
