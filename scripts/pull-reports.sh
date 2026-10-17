@@ -11,7 +11,8 @@
 # Monitor or a loop can parse it (CG's bugs-monitor stopped matching when the line format changed). It compares
 # against the `<!-- bug:<reported_at> -->` markers in the app's GitHub issues; if that lookup fails it says so and
 # exits 2 rather than calling everything new (CG 6fed157). An unreachable device is named, not a failure.
-# With a "cloudkit" block in the config it also reads CloudKit (#66), read-only, through the same signed reader the
+# With CloudKit configured as the listener has it (cloudkit_config naming a JSON file, or an inline "cloudkit" block;
+# app, container and environment) it also reads CloudKit (#66), read-only, through the same signed reader the
 # listener uses, into its own cache (<root>/.cloudkit-check; the listener's inbox is the listener's): one
 # `new <app> cloudkit <reported_at> <note>` line per report whose `bug-id:`/`bug:` marker is in no issue; an
 # unreadable CloudKit exits 2. When the listener's status.json says its last poll is older than three poll intervals,
@@ -31,6 +32,25 @@ check=0
 only=${1:-}
 [ -f "$CONFIG" ] || { echo "no config at $CONFIG (copy listener/apps.example.json)" >&2; exit 2; }
 command -v jq >/dev/null || { echo "jq is required" >&2; exit 2; }
+cloud=""
+if [ "$check" = 1 ]; then
+  if cloud_config=$(jq -er '.cloudkit_config // empty' "$CONFIG"); then
+    cloud_config=${cloud_config/#\~/$HOME}
+    cloud=$(jq -c . "$cloud_config" 2>/dev/null) || cloud="{}"
+  elif jq -e '.cloudkit' "$CONFIG" >/dev/null; then
+    cloud=$(jq -c '.cloudkit' "$CONFIG")
+    cloud_config="the \"cloudkit\" block in $CONFIG"
+  fi
+  if [ -n "$cloud" ]; then
+    if ! cloud=$(jq -ec 'select(type == "object" and ([.app, .container, .environment] | all(type == "string")))' \
+      <<<"$cloud"); then
+      echo "could not read the CloudKit config ($cloud_config): it needs app, container and environment" >&2
+      exit 2
+    fi
+    cloud_app=$(jq -r .app <<<"$cloud")
+    cloud_app=${cloud_app/#\~/$HOME}
+  fi
+fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -117,12 +137,12 @@ while IFS=$'\t' read -r app bundle tracker repo group extra; do
   done <"$tmp/devices"
 done <<<"$apps"
 
-if [ "$check" = 1 ] && jq -e '.cloudkit' "$CONFIG" >/dev/null; then
+if [ -n "$cloud" ]; then
   cache="$ROOT/.cloudkit-check"
   mkdir -p "$cache"
-  reader="$(jq -r '.cloudkit.app' "$CONFIG")/Contents/MacOS/BugKitCloudReader"
-  perl -e 'alarm 180; exec @ARGV' "$reader" --container "$(jq -r '.cloudkit.container' "$CONFIG")" --inbox "$cache" \
-    --environment "$(jq -r '.cloudkit.environment // "Production"' "$CONFIG")" >"$tmp/cloud.out" 2>"$tmp/cloud.err"
+  perl -e 'alarm 180; exec @ARGV' "$cloud_app/Contents/MacOS/BugKitCloudReader" \
+    --container "$(jq -r .container <<<"$cloud")" --inbox "$cache" \
+    --environment "$(jq -r .environment <<<"$cloud")" >"$tmp/cloud.out" 2>"$tmp/cloud.err"
   cloud_status=$?
   synced=$(jq -c 'select(.event == "cloudkit_sync" and .ok == true)' "$tmp/cloud.out" 2>/dev/null)
   if [ "$cloud_status" != 0 ] || [ -z "$synced" ]; then

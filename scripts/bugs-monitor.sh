@@ -8,8 +8,9 @@
 #
 # Lines:
 #   new <app> <device> <reported_at> <note>   a report with no issue yet, printed once per app and reported_at
-#   check_failed <reason>                      the check exited 2 (devicectl, or the issue lookup), printed once
-#                                              until a check succeeds again, so a broken check is not silence
+#   check_failed <reason>                      the check exited 2 (devicectl, the issue lookup, or the CloudKit
+#                                              read), printed once until a check succeeds again, so a broken
+#                                              check is not silence
 #   check_ok                                   the first good check after a check_failed
 #   listener_stale <line>                      the check exited 3: clean, but the listener has stopped polling;
 #                                              printed once until it polls again, then listener_ok
@@ -35,7 +36,7 @@ while [ "$rounds" != 0 ]; do
   if [ "$rc" = 3 ]; then
     [ "$stale" = 0 ] && echo "listener_stale $(grep -m1 "listener's last poll" <<<"$out" | cut -c1-160)"
     stale=1
-  elif [ "$rc" != 2 ]; then
+  elif [ "$rc" = 0 ]; then
     [ "$stale" = 1 ] && echo "listener_ok"
     stale=0
   fi

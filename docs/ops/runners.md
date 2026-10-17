@@ -18,7 +18,7 @@ A Monitor wakes the model only when a report appears. `/loop 5m just bugs-check`
 
 With BugKit, the command is `scripts/bugs-monitor.sh [app]`. It runs `pull-reports.sh --check` every minute and prints:
 - `new <app> <device> <reported_at> <note>`, once per report;
-- `check_failed <reason>`, once, when the check cannot run (devicectl, or the issue lookup), so a broken check is not mistaken for silence;
+- `check_failed <reason>`, once, when the check cannot run (devicectl, the issue lookup, or the CloudKit read), so a broken check is not mistaken for silence;
 - `check_ok`, when it recovers;
 - `listener_stale <line>`, once, when the check is clean but the listener has stopped polling, and `listener_ok` when it polls again.
 

@@ -141,16 +141,25 @@ echo '{"ok":true,"event":"cloudkit_sync","downloaded":1}'
 CLOUD_ID = "6F1C2B9A-0000-4000-8000-000000000066"
 
 
-def with_cloud(tmp: Path, env: dict, reports, fail=False):
-    reader = tmp / "Reader.app/Contents/MacOS/BugKitCloudReader"
+# The listener's shape (listener/apps.example.json, docs/ops/listener.md): apps.json names a separate cloudkit.json by
+# a ~ path, and that file's app is a ~ path too. HOME is the test folder, so the reader is found only if both expand.
+def with_cloud(tmp: Path, env: dict, reports, fail=False, inline=False, cloud=None):
+    reader = tmp / "Applications/Reader.app/Contents/MacOS/BugKitCloudReader"
     reader.parent.mkdir(parents=True)
     reader.write_text(READER)
     reader.chmod(0o755)
     config = json.loads(Path(env["BUG_KIT_CONFIG"]).read_text())
-    config["cloudkit"] = {"app": str(tmp / "Reader.app"), "container": "iCloud.com.example.BugKitReports",
-                          "inbox": str(tmp / "listener-inbox"), "environment": "Development"}
+    if cloud is None:
+        cloud = {"app": "~/Applications/Reader.app", "container": "iCloud.com.example.BugKitReports",
+                 "inbox": "~/listener-inbox", "environment": "Development"}
+    if inline:
+        config["cloudkit"] = {**cloud, "app": str(tmp / "Applications/Reader.app")}
+    else:
+        (tmp / ".config/bug-kit").mkdir(parents=True)
+        (tmp / ".config/bug-kit/cloudkit.json").write_text(json.dumps(cloud))
+        config["cloudkit_config"] = "~/.config/bug-kit/cloudkit.json"
     Path(env["BUG_KIT_CONFIG"]).write_text(json.dumps(config))
-    return {**env, "CLOUD_REPORTS": json.dumps(reports), **({"CLOUD_FAIL": "1"} if fail else {})}
+    return {**env, "HOME": str(tmp), "CLOUD_REPORTS": json.dumps(reports), **({"CLOUD_FAIL": "1"} if fail else {})}
 
 
 def test_check_lists_unfiled_cloudkit_reports(tmp_path):
@@ -162,6 +171,35 @@ def test_check_lists_unfiled_cloudkit_reports(tmp_path):
     assert run.returncode == 1, run.stdout + run.stderr
     assert "new demo cloudkit 2026-10-17T19:00:00.000Z sent from the phone" in run.stdout.splitlines()
     assert not (tmp_path / "listener-inbox").exists()  # the listener's own inbox is left to the listener
+
+
+def test_check_reads_cloudkit_from_an_inline_cloudkit_block(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [{"id": CLOUD_ID, "bundle": "com.example.demo",
+                                      "reported_at": "2026-10-17T19:00:00.000Z", "note": "inline"}], inline=True)
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert "new demo cloudkit 2026-10-17T19:00:00.000Z inline" in run.stdout.splitlines()
+
+
+def test_check_fails_when_the_cloudkit_config_lacks_a_key(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [], cloud={"app": "~/Applications/Reader.app", "environment": "Development"})
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read the CloudKit config" in run.stderr
+
+
+def test_check_fails_when_the_cloudkit_config_file_is_missing(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [])
+    (tmp_path / ".config/bug-kit/cloudkit.json").unlink()
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read the CloudKit config" in run.stderr
 
 
 def test_check_counts_a_cloudkit_report_with_its_id_marker_as_filed(tmp_path):

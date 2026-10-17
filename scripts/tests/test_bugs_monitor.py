@@ -59,3 +59,10 @@ def test_a_stale_listener_is_said_once_until_it_polls_again(tmp_path):
     lines = monitor(tmp_path, [(stale, 3, ""), (stale, 3, ""), ("no unfiled reports\n", 0, "")])
     assert lines == ["listener_stale but the listener's last poll was 2026-10-17T17:29:00.000Z: reports waiting for it",
                      "listener_ok"]
+
+
+def test_a_new_report_while_the_listener_is_stale_does_not_say_it_recovered(tmp_path):
+    stale = "no unfiled reports\nbut the listener's last poll was 2026-10-17T17:29:00.000Z: reports waiting for it\n"
+    lines = monitor(tmp_path, [(stale, 3, ""), (f"{A}\n1 unfiled report(s)\n", 1, ""), (stale, 3, "")])
+    assert lines == ["listener_stale but the listener's last poll was 2026-10-17T17:29:00.000Z: reports waiting for it",
+                     A]

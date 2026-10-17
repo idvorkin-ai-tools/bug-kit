@@ -34,13 +34,14 @@ xcrun devicectl device copy from --device <id> --domain-type systemCrashLogs --s
 
 ## Checking for unfiled reports
 
-`scripts/pull-reports.sh --check` copies only `bugs.jsonl`, and with a `cloudkit` block in the config also reads CloudKit:
+`scripts/pull-reports.sh --check` copies only `bugs.jsonl`, and, when CloudKit is configured as the listener has it
+(`cloudkit_config`, or an inline `cloudkit` block), also reads CloudKit:
 - It prints one line per report that has no issue yet: `new <app> <device> <reported_at> <note>`, with `cloudkit` as
   the device for a report waiting in CloudKit.
 - CloudKit is read read-only through the listener's signed reader, into its own cache (`<root>/.cloudkit-check`),
   never the listener's inbox. Reports already downloaded are not fetched again.
-- The exit code is 1 when there are new reports, 0 when clean, 2 when the issue lookup or the CloudKit read failed,
-  and 3 when it would read clean but the listener's `status.json` shows no poll for three poll intervals: a quiet
+- The exit code is 1 when there are new reports, 0 when clean, 2 when the issue lookup, the CloudKit config or the
+  CloudKit read failed, and 3 when it would read clean but the listener's `status.json` shows no poll for three poll intervals: a quiet
   check cannot hide a stopped listener. `scripts/bugs-monitor.sh` prints `listener_stale` once for that.
 
 Give a check like this a stable, machine-readable line. CG's monitor matched `new:` and went silent forever when the check's output changed to `new (<device>):` (after CG PR #241).
