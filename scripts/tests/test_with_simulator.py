@@ -82,3 +82,12 @@ def test_an_unknown_name_exits_2(tmp_path):
     result = run(tmp_path, "no-such-sim", "--", "true")
     assert result.returncode == 2
     assert "no simulator named no-such-sim" in result.stderr
+
+
+def test_a_nested_run_on_the_held_name_waits_for_the_lock(tmp_path):
+    inner = f'/bin/bash "{SCRIPT}" test-sim --wait 1 -- touch "{tmp_path / "ran"}"; echo "inner=$?"'
+    result = run(tmp_path, "test-sim", "--", "sh", "-c", inner)
+    assert result.returncode == 0, result.stderr
+    assert "inner=75" in result.stdout
+    assert "another run held test-sim for 1 s; nothing ran" in result.stderr
+    assert not (tmp_path / "ran").exists()

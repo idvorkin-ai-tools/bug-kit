@@ -3,8 +3,11 @@
 # lock per simulator name. Inside the lock the named simulator showing as booted can only be a leftover, so the run
 # waits only for OTHER booted simulators (one simulator on this Mac at a time), boots this one, and shuts it down on
 # exit, pass or fail. Create the command's log files inside the command, so two runs' logs cannot interleave.
+# Run it under the shared build lock: the per-name lock stops two runs claiming the same simulator, and build.lock
+# stops two simulators booting across names. The wait for other booted simulators is only a backstop for leftovers
+# or callers outside build.lock, not a guarantee.
 #
-#   scripts/with-simulator.sh <name> [--wait <seconds>] -- <command…>
+#   lockf -k -t 3600 ~/tmp/agent/locks/build.lock scripts/with-simulator.sh <name> [--wait <seconds>] -- <command…>
 #
 #   <name>   the simulator's name in `xcrun simctl list devices available`; the newest runtime's wins
 #   --wait   how long to wait for the lock, and then for other booted simulators (default 1200)
@@ -34,6 +37,7 @@ if [ -z "${BUG_KIT_SIM_HELD:-}" ]; then
   exit "$status"
 fi
 echo held >"$BUG_KIT_SIM_HELD"
+unset BUG_KIT_SIM_HELD
 
 udid=$($SIMCTL list devices available | grep -F -- "    $name (" | tail -1 | grep -oE '[0-9A-F-]{36}')
 [ -n "$udid" ] || { echo "no simulator named $name" >&2; exit 2; }
