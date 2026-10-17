@@ -40,8 +40,8 @@ Set `mac_dir` on a Mac app entry to the **storage root containing `bugs.jsonl`**
 ```
 
 The listener reads this local Mac store on every poll in addition to pulling the same bundle from paired
-iPhones and iPads, so an app with both a Mac and an iPad build (Magic Monitor) needs one entry. A Mac-only
-app gets the same failed-copy log lines on devices that lack it as any app not installed there. Local Mac
+iPhones and iPads, so an app with both a Mac and an iPad build (Magic Monitor) needs one entry. On devices
+without a Mac-only app, its copies log `absent: app_not_installed` like any app not installed there. Local Mac
 filing continues when device discovery fails. CloudKit intake remains available for the same app and shares
 its bundle+report-ID delivery receipts. Local reports reach the inbox with `"device": "mac"`.
 
@@ -113,6 +113,7 @@ Every step is a JSON line in `~/tmp/agent/bugs/listener.log`:
 - `devices`
 - `device` (reachable, locked, ms)
 - `copy` (source, ok, ms, locked, stderr on failure; `missing` and `absent: path|app_not_installed` for expected misses; `error: container_lookup_failed` when the app is installed)
+- `apps` (ok: false, rc, stderr when devicectl's app list fails)
 - `index`
 - `baseline`
 - `report`
