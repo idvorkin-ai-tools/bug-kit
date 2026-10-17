@@ -10,6 +10,7 @@
   ```
 
 - **One simulator on the Mac at a time** (see [runners.md](runners.md)).
+- **Claim a named simulator through `scripts/with-simulator.sh <name> -- <command>`.** Two agents that both see an empty booted list can otherwise claim the same simulator. The script holds a `lockf` lock per name (`~/tmp/agent/locks/sim-<name>.lock`), waits for any other booted simulator, boots this one, runs the command with `SIM_UDID` set and shuts the simulator down on exit, pass or fail. It exits 75 when the name or another simulator stayed busy for the whole `--wait` (default 1200 s). Create the command's log files inside the command, not before it, so two runs' logs cannot interleave (CG #298).
 - **Resolve names to UDIDs.** Every Xcode update leaves a second "iPhone 17" behind on the older runtime, so a boot by name and a launch by name can land on different devices (EA and CG `sim-udid.sh`):
 
   ```sh
