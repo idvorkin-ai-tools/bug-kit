@@ -39,7 +39,8 @@ xcrun devicectl device copy from --device <id> --domain-type systemCrashLogs --s
 - It prints one line per report that has no issue yet: `new <app> <device> <reported_at> <note>`, with `cloudkit` as
   the device for a report waiting in CloudKit.
 - CloudKit is read read-only through the listener's signed reader, into its own cache (`<root>/.cloudkit-check`),
-  never the listener's inbox. Reports already downloaded are not fetched again.
+  never the listener's inbox. Reports already downloaded are not fetched again. A CloudKit report counts as filed when
+  its `bug-id:` or `bug:` marker is in an issue. With no paired device, the check still reads CloudKit.
 - The exit code is 1 when there are new reports, 0 when clean, 2 when the issue lookup, the CloudKit config or the
   CloudKit read failed, and 3 when it would read clean but the listener's `status.json` shows no poll for three poll intervals: a quiet
   check cannot hide a stopped listener. `scripts/bugs-monitor.sh` prints `listener_stale` once for that.
