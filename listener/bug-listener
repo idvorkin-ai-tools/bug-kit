@@ -241,6 +241,22 @@ def probe(dev: dict) -> Optional[dict]:
 NOT_INSTALLED = "app_not_installed"
 
 
+def app_listed(dev: dict, a: dict) -> Optional[bool]:
+    """Whether devicectl's app list has the app's bundle on the device. None when the listing itself fails."""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "apps.json"
+        rc, _, err = run(["xcrun", "devicectl", "device", "info", "apps", "--device", dev["id"],
+                          "--bundle-id", a["bundle"], "--json-output", str(out), "--timeout", "30"], timeout=60)
+        try:
+            apps = json.loads(out.read_text())["result"]["apps"] if rc == 0 else None
+        except (OSError, ValueError, KeyError, TypeError):
+            apps = None
+    if not isinstance(apps, list):
+        log("apps", device=dev["dir"], app=a["name"], ok=False, rc=rc, stderr=tail(err))
+        return None
+    return bool(apps)
+
+
 def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> Any:
     """devicectl copy from the configured app or App Group container. Paths are relative to that container.
     With allow_missing, an app not installed on the device returns NOT_INSTALLED (truthy: not an error)."""
@@ -254,11 +270,15 @@ def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_miss
                       "--source", source, "--destination", str(dest), "--timeout", "90"], timeout=120)
     ms = int((time.monotonic() - t0) * 1000)
     # Expected misses, not failures (#39): a file or folder the app never made (devicectl: "Failed to retrieve the
-    # file node", CoreDeviceError 7000), or an app not installed on this device (ContainerLookupErrorDomain).
-    absent = None
+    # file node", CoreDeviceError 7000), or an app not installed on this device (ContainerLookupErrorDomain, and
+    # devicectl's app list confirms the bundle is absent; otherwise the container lookup itself failed).
+    absent = lookup_failed = None
     if allow_missing and rc not in (0, 124, 127):
         if re.search(r"ContainerLookupErrorDomain", err):
-            absent = "app_not_installed"
+            if app_listed(dev, a) is False:
+                absent = "app_not_installed"
+            else:
+                lookup_failed = True
         elif re.search(r"no such file|failed to retrieve the file node|file[^\n]*(?:does not exist|not found)"
                        r"|directory[^\n]*(?:does not exist|not found)", err, re.I):
             absent = "path"
@@ -270,6 +290,8 @@ def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_miss
         fields.update(missing=True, absent=absent)
     if not ok:
         fields.update(rc=rc, stderr=tail(err))
+    if lookup_failed:
+        fields.update(error="container_lookup_failed")
     log("copy", **fields)
     return NOT_INSTALLED if absent == "app_not_installed" else ok
 
