@@ -6,7 +6,7 @@
 # stops two simulators booting across names. The wait for booted simulators is only a backstop for callers outside
 # build.lock, not a guarantee. A failed booted-list query fails the run rather than boot unverified.
 #
-#   lockf -k -t 3600 ~/tmp/agent/locks/build.lock scripts/with-simulator.sh <name> [--wait <seconds>] -- <command…>
+#   mkdir -p ~/tmp/agent/locks && lockf -k -t 3600 ~/tmp/agent/locks/build.lock scripts/with-simulator.sh <name> [--wait <seconds>] -- <command…>
 #
 #   <name>   the simulator's name in `xcrun simctl list devices available`; the newest runtime's wins
 #   --wait   how long to wait for the lock, and then for booted simulators to shut down (default 1200)
