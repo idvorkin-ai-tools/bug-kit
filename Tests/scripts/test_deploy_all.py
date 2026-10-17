@@ -113,7 +113,7 @@ LOCKED_DESTINATION = (
 
 def test_a_destination_locked_at_build_time_names_the_device_not_a_build_failure(tmp_path):
     result, calls = deploy(tmp_path, xcodebuild_fail=LOCKED_DESTINATION)
-    assert result.returncode == 75, result.stdout + result.stderr
+    assert result.returncode == 79, result.stdout + result.stderr
     assert "test-phone is locked: unlock it and deploy again" in result.stderr
     assert "build failed" not in result.stderr
     assert not calls.exists()

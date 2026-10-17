@@ -19,7 +19,7 @@
 #   - inside the lock, signing-guard.sh waits for Mac unlock and prevents display sleep during the build;
 #   - "No Accounts" or "Failed to load credentials" stops the run: tell the person and never retry automatically;
 #   - a launch refused because the device is locked (CoreDeviceError 10002) is a soft success: installed, opens when
-#     unlocked; a build destination locked at build time ("needs to be unlocked") exits 75 naming the device, not as a
+#     unlocked; a build destination locked at build time ("needs to be unlocked") exits 79 naming the device, not as a
 #     build failure; a watch that refuses (1011/4000, usage assertion, timeout) is asleep, not broken.
 set -uo pipefail
 CONFIG=${BUG_KIT_CONFIG:-$HOME/.config/bug-kit/apps.json}
@@ -130,7 +130,7 @@ else
   if [ "$build_status" -ne 0 ] && grep -q 'Timed out waiting for all destinations' <<<"$out" \
     && grep -q 'needs to be unlocked' <<<"$out"; then
     echo "$(awk '{print $1}' <<<"$dest_line") is locked: unlock it and deploy again (nothing was built or installed)" >&2
-    exit 75
+    exit 79
   fi
   [ "$build_status" -eq 0 ] || { echo "build failed: nothing installed" >&2; exit "$build_status"; }
   grep -q "BUILD SUCCEEDED" <<<"$out" || { echo "build failed: nothing installed" >&2; exit 1; }
