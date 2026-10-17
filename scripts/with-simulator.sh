@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
 # Run a command with one named simulator held, so two agents cannot both claim it (#47). The whole run holds a lockf
-# lock per simulator name. Inside the lock the named simulator showing as booted can only be a leftover, so the run
-# waits only for OTHER booted simulators (one simulator on this Mac at a time), boots this one, and shuts it down on
-# exit, pass or fail. Create the command's log files inside the command, so two runs' logs cannot interleave.
+# lock per simulator name. Inside the lock it waits until no simulator is booted, this one included (a caller outside
+# the lock may be using it), boots this one, and shuts it down on exit, pass or fail. Create the command's log files inside the command, so two runs' logs cannot interleave.
 # Run it under the shared build lock: the per-name lock stops two runs claiming the same simulator, and build.lock
-# stops two simulators booting across names. The wait for other booted simulators is only a backstop for leftovers
-# or callers outside build.lock, not a guarantee.
+# stops two simulators booting across names. The wait for booted simulators is only a backstop for callers outside
+# build.lock, not a guarantee. A failed booted-list query fails the run rather than boot unverified.
 #
 #   lockf -k -t 3600 ~/tmp/agent/locks/build.lock scripts/with-simulator.sh <name> [--wait <seconds>] -- <command…>
 #
 #   <name>   the simulator's name in `xcrun simctl list devices available`; the newest runtime's wins
-#   --wait   how long to wait for the lock, and then for other booted simulators (default 1200)
-#   The command runs with SIM_UDID set. Exits 75 when another run held <name>, or another simulator stayed booted,
-#   for the whole wait; 2 when no simulator has that name.
+#   --wait   how long to wait for the lock, and then for booted simulators to shut down (default 1200)
+#   The command runs with SIM_UDID set. Exits 75 when another run held <name>, or a simulator stayed booted, for the
+#   whole wait; 2 when no simulator has that name; 69 when simctl cannot list booted simulators.
 set -uo pipefail
 usage() { echo "usage: with-simulator.sh <name> [--wait <seconds>] -- <command…>" >&2; exit 2; }
 name=${1:-}; [ -n "$name" ] || usage; shift
@@ -42,8 +41,11 @@ unset BUG_KIT_SIM_HELD
 udid=$($SIMCTL list devices available | grep -F -- "    $name (" | tail -1 | grep -oE '[0-9A-F-]{36}')
 [ -n "$udid" ] || { echo "no simulator named $name" >&2; exit 2; }
 deadline=$((SECONDS + wait))
-while others=$($SIMCTL list devices booted | grep -E '\(Booted\)' | grep -v -F "$udid"); [ -n "$others" ]; do
-  [ "$SECONDS" -ge "$deadline" ] && { echo "another simulator stayed booted for $wait s; nothing ran: $others" >&2; exit 75; }
+while :; do
+  listed=$($SIMCTL list devices booted) || { echo "cannot list booted simulators; nothing ran" >&2; exit 69; }
+  booted=$(grep -E '\(Booted\)' <<<"$listed" || true)
+  [ -z "$booted" ] && break
+  [ "$SECONDS" -ge "$deadline" ] && { echo "a simulator stayed booted for $wait s; nothing ran: $booted" >&2; exit 75; }
   sleep 5
 done
 trap '$SIMCTL shutdown "$udid" >/dev/null 2>&1' EXIT

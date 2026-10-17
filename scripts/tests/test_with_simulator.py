@@ -10,7 +10,7 @@ UDID = "11111111-2222-3333-4444-555555555555"
 OTHER = "99999999-2222-3333-4444-555555555555"
 
 
-def env(tmp_path, booted_other=False):
+def env(tmp_path, booted=None):
     simctl = tmp_path / "simctl"
     simctl.write_text(f"#!{sys.executable}\n" + f"""
 import os, sys
@@ -21,8 +21,12 @@ if args[:3] == ['list', 'devices', 'available']:
     print('-- iOS 27.0 --')
     print('    test-sim ({UDID}) (Shutdown)')
 elif args[:3] == ['list', 'devices', 'booted']:
-    if {booted_other!r}:
+    if {booted!r} == 'other':
         print('    other-sim ({OTHER}) (Booted)')
+    elif {booted!r} == 'self':
+        print('    test-sim ({UDID}) (Booted)')
+    elif {booted!r} == 'fail':
+        sys.exit('CoreSimulatorService connection became invalid')
 """)
     simctl.chmod(0o755)
     return {**os.environ, "BUG_KIT_SIMCTL": str(simctl), "BUG_KIT_SIM_LOCKS": str(tmp_path / "locks"),
@@ -71,9 +75,9 @@ def test_a_held_name_times_out_with_75_and_runs_nothing(tmp_path):
 
 def test_another_booted_simulator_blocks_the_boot(tmp_path):
     result = run(tmp_path, "test-sim", "--wait", "0", "--", "touch", str(tmp_path / "ran"),
-                 env=env(tmp_path, booted_other=True))
+                 env=env(tmp_path, booted="other"))
     assert result.returncode == 75, result.stderr
-    assert "another simulator stayed booted" in result.stderr
+    assert "a simulator stayed booted" in result.stderr
     assert not (tmp_path / "ran").exists()
     assert not any(c.startswith("bootstatus") for c in calls(tmp_path))
 
@@ -91,3 +95,19 @@ def test_a_nested_run_on_the_held_name_waits_for_the_lock(tmp_path):
     assert "inner=75" in result.stdout
     assert "another run held test-sim for 1 s; nothing ran" in result.stderr
     assert not (tmp_path / "ran").exists()
+
+
+def test_the_named_simulator_booted_by_a_caller_outside_the_lock_is_not_taken_over(tmp_path):
+    result = run(tmp_path, "test-sim", "--wait", "0", "--", "touch", str(tmp_path / "ran"),
+                 env=env(tmp_path, booted="self"))
+    assert result.returncode == 75, result.stderr
+    assert not (tmp_path / "ran").exists()
+    assert not any(c.startswith(("bootstatus", "shutdown")) for c in calls(tmp_path))
+
+
+def test_a_failed_booted_query_fails_closed(tmp_path):
+    result = run(tmp_path, "test-sim", "--", "touch", str(tmp_path / "ran"), env=env(tmp_path, booted="fail"))
+    assert result.returncode == 69, result.stderr
+    assert "cannot list booted simulators; nothing ran" in result.stderr
+    assert not (tmp_path / "ran").exists()
+    assert not any(c.startswith("bootstatus") for c in calls(tmp_path))
