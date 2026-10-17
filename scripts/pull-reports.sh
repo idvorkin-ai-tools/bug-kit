@@ -120,6 +120,9 @@ while IFS=$'\t' read -r app bundle tracker repo group extra; do
         [ -n "$at" ] || { echo "skip $app $dir line $n: no reported_at" >&2; continue; }
         grep -q -F "bug:$at" <<<"$markers" && continue
         new_total=$((new_total + 1))
+        # The same report may also wait in CloudKit (mirrored delivery): list it once, by id, else by time.
+        id=$(jq -r '.id // empty' <<<"$line" 2>/dev/null)
+        if [ -n "$id" ]; then echo "$app id:$id"; else echo "$app at:$at"; fi >>"$tmp/listed"
         note=$(jq -r '.note // ""' <<<"$line" | awk 'NF { print; exit }' | cut -c1-90)
         echo "new $app $dir $at $note"
       done <"$out/bugs.jsonl"
@@ -158,6 +161,7 @@ if [ -n "$cloud" ]; then
       app=$(awk -F'\t' -v b="$bundle" '$2 == b && $3 == "github" { print $1; exit }' <<<"$apps")
       [ -n "$app" ] && [ -f "$tmp/markers-$app" ] || continue
       grep -q -x -F -e "bug-id:$id" -e "bug:$at" "$tmp/markers-$app" && continue
+      grep -q -x -F -e "$app id:$id" -e "$app at:$at" "$tmp/listed" 2>/dev/null && continue  # already listed
       new_total=$((new_total + 1))
       echo "new $app cloudkit $at $note"
     done

@@ -240,3 +240,16 @@ def test_check_with_a_stale_listener_does_not_read_clean(tmp_path):
     run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
     assert run.returncode == 3, run.stdout + run.stderr
     assert "listener's last poll was 2026-10-17T17:29:00.000Z" in run.stdout
+
+
+def test_check_counts_a_report_on_the_device_and_in_cloudkit_once(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github)
+    rec = {"id": CLOUD_ID, "bundle": "com.example.demo", "reported_at": "2026-10-17T19:00:00.000Z", "note": "both"}
+    (tmp_path / "containers" / DEFAULT[0] / DEFAULT[1] / "Documents/bugs.jsonl").write_text(json.dumps(rec) + "\n")
+    env = with_cloud(tmp_path, env, [rec])  # mirrored delivery: still on the phone and uploaded to CloudKit
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert [l for l in run.stdout.splitlines() if l.startswith("new ")] == [
+        "new demo iphone-17-pro 2026-10-17T19:00:00.000Z both"]
+    assert "1 unfiled report(s)" in run.stdout
