@@ -127,7 +127,8 @@ else
     echo "Xcode account access failed: stop, do not retry; ask the person to unlock and check Xcode Settings > Accounts (docs/ops/signing.md)" >&2
     exit 78
   fi
-  if grep -q 'needs to be unlocked' <<<"$out"; then
+  if [ "$build_status" -ne 0 ] && grep -q 'Timed out waiting for all destinations' <<<"$out" \
+    && grep -q 'needs to be unlocked' <<<"$out"; then
     echo "$(awk '{print $1}' <<<"$dest_line") is locked: unlock it and deploy again (nothing was built or installed)" >&2
     exit 75
   fi

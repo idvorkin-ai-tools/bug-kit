@@ -14,7 +14,8 @@ SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "deploy-all.sh"
 UNLOCKED = '#!/bin/bash\necho \'"CGSSessionScreenIsLocked" = No\'\n'
 
 
-def deploy(tmp_path, dry_run=False, account_error=None, ioreg_script=UNLOCKED, xcodebuild_fail=None):
+def deploy(tmp_path, dry_run=False, account_error=None, ioreg_script=UNLOCKED, xcodebuild_fail=None,
+           xcodebuild_note=None):
     tools = tmp_path / "bin"
     tools.mkdir(exist_ok=True)
     calls = tmp_path / "calls.jsonl"
@@ -34,6 +35,7 @@ else:
     xcodebuild = tools / "xcodebuild"
     xcodebuild.write_text("#!/bin/bash\nprintf '%s\\n' \"${TEST_ACCOUNT_ERROR:-}\"\n"
                           "[ -n \"${TEST_XCODEBUILD_FAIL:-}\" ] && { printf '%s\\n' \"$TEST_XCODEBUILD_FAIL\"; exit 70; }\n"
+                          "printf '%s\\n' \"${TEST_XCODEBUILD_NOTE:-}\"\n"
                           "echo '** BUILD SUCCEEDED **'\n")
     xcodebuild.chmod(0o755)
     pgrep = tools / "pgrep"
@@ -53,7 +55,8 @@ else:
         "build": {"scheme": "App", "project": "App.xcodeproj", "app": "Build/My App.app"}}]}))
     env = {**os.environ, "PATH": f"{tools}:{os.environ['PATH']}", "BUG_KIT_CONFIG": str(config),
            "BUG_KIT_LOCKED": "1", "TEST_DEPLOY_CALLS": str(calls), "TEST_ACCOUNT_ERROR": account_error or "",
-           "TEST_XCODEBUILD_FAIL": xcodebuild_fail or ""}
+           "TEST_XCODEBUILD_FAIL": xcodebuild_fail or "",
+           "TEST_XCODEBUILD_NOTE": xcodebuild_note or ""}
     args = ["/bin/bash", str(SCRIPT), "app"] + (["--dry-run"] if dry_run else [])
     return subprocess.run(args, env=env, capture_output=True, text=True, timeout=10), calls
 
@@ -121,3 +124,10 @@ def test_other_build_errors_still_read_as_build_failures(tmp_path):
     assert result.returncode == 70, result.stdout + result.stderr
     assert "build failed: nothing installed" in result.stderr
     assert not calls.exists()
+
+
+def test_a_successful_build_that_mentions_a_locked_device_still_installs(tmp_path):
+    result, calls = deploy(tmp_path, xcodebuild_note="warning: another device needs to be unlocked to continue")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "is locked" not in result.stderr
+    assert len(calls.read_text().splitlines()) == 2
