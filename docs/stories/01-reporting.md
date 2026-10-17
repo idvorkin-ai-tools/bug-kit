@@ -274,11 +274,11 @@ Given `<PREFIX>_BUG` notes and `<PREFIX>_BUG_AFTER=10`, reports capture evidence
 
 ### Choose the microphone and transcription service
 
-**Issues:** #1; beads bug-9j5, bug-ig8
+**Issues:** #1, #48; beads bug-9j5, bug-ig8
 
 With dictation enabled, the report offers Automatic and an explicit “Refresh microphones” action to load iOS inputs. Opening a report does not reconfigure audio. The saved input preference applies to a fresh dictation and shows as “Saved microphone” until refreshed. Missing inputs are cleared on refresh; changes during capture stop dictation without erasing text. Apple Speech is the default, while a host factory can choose Deepgram or another streaming provider. Cloud providers skip Apple Speech authorization. Typed words and finalized speech survive interim revisions; save waits for final words, and canceled permission/network callbacks cannot alter another report.
 
-Host coverage (Foundation, `swift test`): `DictationProviderTests.swift` verifies transport, Deepgram handshake credentials, segment revisions, final flushing and cancellation. iOS simulator coverage (`Tests/iOS` bundle): `NoteDictationTests.swift` uses fake iOS capture/permissions to verify selected input, a saved microphone shown before any explicit refresh, no microphone discovery or capture while the host records (including when it starts recording during permission or provider startup), Apple's quiet end after Stop, final text before save, permission cancellation, service failure, disappeared-input fallback, and that discovery stays active only for plain ambient/`.mixWithOthers` hosts. Physical mic routes and live vendor transcription need separate device/service verification.
+Host coverage (Foundation, `swift test`): `DictationProviderTests.swift` verifies transport, Deepgram handshake credentials, segment revisions, final flushing and cancellation. iOS simulator coverage (`Tests/iOS` bundle): `NoteDictationTests.swift` uses fake iOS capture/permissions to verify selected input, a saved microphone shown before any explicit refresh, no microphone discovery or capture while the host records (including when it starts recording during permission or provider startup), Apple's quiet end after Stop, final text before save, no saved report when dictation on an empty note fails or hears nothing, permission cancellation, service failure, disappeared-input fallback, and that discovery stays active only for plain ambient/`.mixWithOthers` hosts. Physical mic routes and live vendor transcription need separate device/service verification.
 
 ### Report private-text apps without automatic screen images
 
