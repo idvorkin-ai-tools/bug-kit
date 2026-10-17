@@ -765,7 +765,7 @@ def test_crash_does_not_match_manual_report_at_same_second(listener_state, monke
 
 NO_FILE_NODE = ("ERROR: Failed to retrieve the file node for Documents/crashes "
                 "(com.apple.dt.CoreDeviceError error 7000 (0x1B58))")
-NOT_INSTALLED = ("ERROR: An unknown error occurred. (com.apple.dt.CoreDeviceError error -1 (0xFFFFFFFF)) | "
+NOT_INSTALLED_ERR = ("ERROR: An unknown error occurred. (com.apple.dt.CoreDeviceError error -1 (0xFFFFFFFF)) | "
                  "---------------------------------------- | "
                  "The operation couldn’t be completed. (ContainerLookupErrorDomain error -1.)")
 DISCONNECTED = ("ERROR: The device disconnected immediately after connecting. "
@@ -775,11 +775,13 @@ DISCONNECTED = ("ERROR: The device disconnected immediately after connecting. "
 @pytest.mark.parametrize("rc,err,expected", [(1, "No such file or directory", True),
     (127, "No such file or directory: xcrun", False), (124, "timed out", False), (1, "device unreachable", False),
     # devicectl's own wording (#39): a folder the app never made, an app not installed on this device, a real drop
-    (1, NO_FILE_NODE, True), (1, NOT_INSTALLED, True), (1, DISCONNECTED, False)])
+    (1, NO_FILE_NODE, True), (1, NOT_INSTALLED_ERR, True), (1, DISCONNECTED, False)])
 def test_optional_copy_distinguishes_missing_evidence_from_tool_failures(listener_state, monkeypatch, rc, err, expected):
     monkeypatch.setattr(bl, "run", lambda *args, **kwargs: (rc, "", err))
-    assert bl.copy({"id": "d", "dir": "phone"}, {"bundle": "b", "name": "app"}, "Documents/crashes",
-                   listener_state / "copy", False, allow_missing=True) is expected
+    got = bl.copy({"id": "d", "dir": "phone"}, {"bundle": "b", "name": "app"}, "Documents/crashes",
+                  listener_state / "copy", False, allow_missing=True)
+    assert bool(got) is expected
+    assert (got == bl.NOT_INSTALLED) is (err == NOT_INSTALLED_ERR)
 
 
 @pytest.mark.parametrize("rc", [0, 1])
@@ -1109,3 +1111,27 @@ def test_cloud_sync_rejects_invalid_download_count(listener_state, monkeypatch, 
     assert summary["errors"] == 1 and summary["reachable"] == 0
     event = json.loads(bl.LOG.read_text().splitlines()[-1])
     assert event["ok"] is False and "downloaded" not in event
+
+
+def test_an_app_not_installed_sets_no_baseline_until_it_is(listener_state, monkeypatch):
+    dev = {"id": "device-id", "dir": "iphone", "type": "iPhone", "model": "phone", "pairing": "paired"}
+    cfg = {"apps": [{"name": "app", "bundle": "app.bundle", "tracker": {"kind": "none"}}], "poll_seconds": 300}
+    monkeypatch.setattr(bl, "list_devices", lambda: [dev])
+    monkeypatch.setattr(bl, "probe", lambda dev: {"locked": False})
+    installed = []
+    report = {"id": "OLD", "reported_at": "2026-10-11T00:00:00Z", "note": "made before the listener saw the app"}
+    def run(cmd, **kwargs):
+        source, dest = cmd[cmd.index("--source") + 1], Path(cmd[cmd.index("--destination") + 1])
+        if not installed:
+            return 1, "", NOT_INSTALLED_ERR
+        if source == "Documents/bugs.jsonl":
+            dest.write_text(json.dumps(report) + "\n")
+            return 0, "", ""
+        return 1, "", NO_FILE_NODE
+    monkeypatch.setattr(bl, "run", run)
+    first = bl.poll(cfg, backfill=False)
+    assert first["errors"] == 0 and first["baselined"] == 0
+    assert set(bl.load_seen().get("app.bundle|device-id", {})) <= {"since"}
+    installed.append(True)
+    second = bl.poll(cfg, backfill=False)  # first contact now: the report already there is baselined, not filed
+    assert second["baselined"] == 1 and second["new"] == 0 and not bl.INBOX.exists()

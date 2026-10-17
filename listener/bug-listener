@@ -238,8 +238,12 @@ def probe(dev: dict) -> Optional[dict]:
     return state
 
 
-def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> bool:
-    """devicectl copy from the configured app or App Group container. Paths are relative to that container."""
+NOT_INSTALLED = "app_not_installed"
+
+
+def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> Any:
+    """devicectl copy from the configured app or App Group container. Paths are relative to that container.
+    With allow_missing, an app not installed on the device returns NOT_INSTALLED (truthy: not an error)."""
     if dev.get("type") == "Mac":
         return copy_mac(a, dev, source, dest, allow_missing=allow_missing)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -267,7 +271,7 @@ def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_miss
     if not ok:
         fields.update(rc=rc, stderr=tail(err))
     log("copy", **fields)
-    return ok
+    return NOT_INSTALLED if absent == "app_not_installed" else ok
 
 
 def copy_mac(a: dict, dev: dict, source: str, dest: Path, *, allow_missing: bool) -> bool:
@@ -712,9 +716,12 @@ def poll_reports(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
     # Read a fresh snapshot. A missing index must not replay a stale local copy.
     with tempfile.TemporaryDirectory() as tmp:
         index = Path(tmp) / "bugs.jsonl"
-        if not copy(dev, a, "Documents/bugs.jsonl", index, locked, allow_missing=True):
+        got = copy(dev, a, "Documents/bugs.jsonl", index, locked, allow_missing=True)
+        if not got:
             summary["errors"] += 1
             return
+        if got == NOT_INSTALLED:
+            return  # no first contact yet: an app installed later still baselines what it already has
         reports = read_index(index, ctx) if index.exists() else []
         if index.exists():
             local.mkdir(parents=True, exist_ok=True)
@@ -765,8 +772,11 @@ def poll_crashes(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
     pair = f"{a['bundle']}|{dev['id']}"
     with tempfile.TemporaryDirectory() as tmp:
         snapshot = Path(tmp) / "crashes"
-        if not copy(dev, a, a.get("crash_dir", "Documents/crashes"), snapshot, locked, allow_missing=True):
+        got = copy(dev, a, a.get("crash_dir", "Documents/crashes"), snapshot, locked, allow_missing=True)
+        if not got:
             summary["errors"] += 1
+            return
+        if got == NOT_INSTALLED:
             return
         records = {}
         for path in sorted(snapshot.glob("*")):
