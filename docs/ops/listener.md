@@ -108,6 +108,7 @@ any that already have an issue.
 Every step is a JSON line in `~/tmp/agent/bugs/listener.log`:
 
 - `poll_start`
+- `mac_store` (app, reachable; [local Mac apps](#local-mac-apps))
 - `devices`
 - `device` (reachable, locked, ms)
 - `copy` (source, ok, ms, locked, stderr on failure)
@@ -116,7 +117,7 @@ Every step is a JSON line in `~/tmp/agent/bugs/listener.log`:
 - `report`
 - `crash`, `crash_baseline`, `crash_unreadable`
 - `evidence_pending` (named evidence failed to copy; retries next poll)
-- `file` (outcome: `filed`, `already_filed`, `would_file`, `none` or `error`)
+- `file` (outcome: `filed`, `already_filed`, `would_file`, `filed_by_app`, `none` or `error`)
 - `tracker_error`
 - `notify`
 - `poll_end`, with counts
