@@ -970,9 +970,6 @@ def poll(cfg: dict, backfill: bool) -> dict:
         health["devices"] = []
         health["mac_stores"] = []
         devices = []
-        if cfg.get("cloudkit"):
-            sync_cloudkit(cfg, summary, health)
-            poll_cloud_reports(cfg, seen, filer, summary, backfill)
         for a in cfg["apps"]:
             if not a.get("mac_dir"):
                 continue
@@ -991,6 +988,10 @@ def poll(cfg: dict, backfill: bool) -> dict:
                 except (OSError, ValueError, TypeError) as error:
                     summary["errors"] += 1
                     log("app_poll_error", app=a["name"], device="mac", step=action.__name__, message=str(error))
+        # After the Mac stores, so receipts for reports their apps filed themselves exist before CloudKit copies land.
+        if cfg.get("cloudkit"):
+            sync_cloudkit(cfg, summary, health)
+            poll_cloud_reports(cfg, seen, filer, summary, backfill)
         try:
             devices = list_devices()
         except (OSError, ValueError, RuntimeError) as error:

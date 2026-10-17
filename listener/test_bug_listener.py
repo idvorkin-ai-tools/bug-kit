@@ -217,6 +217,18 @@ def test_local_mac_baseline_records_app_filed_receipt_for_other_lanes(mac_fixtur
     assert summary["skipped"] == 1 and not filer.calls and not bl.INBOX.exists()
 
 
+def test_first_poll_app_filed_mac_report_is_not_refiled_from_cloudkit(mac_fixture, listener_state, monkeypatch):
+    cfg, root, filer = mac_fixture
+    cloud_cfg, cloud_rec, _ = cloud_fixture(listener_state)
+    marked = write_mac_report(root, identity=cloud_rec["id"])
+    (root / "bugs/sample/report.json").write_text(json.dumps({**marked, "beads": "mmn-abc"}))
+    cfg["cloudkit"] = cloud_cfg["cloudkit"]
+    monkeypatch.setattr(bl, "sync_cloudkit", lambda cfg, summary, health: None)
+    result = bl.poll(cfg, False)  # one poll sees both copies; the CloudKit inbox has no baseline
+    assert result["filed"] == 0 and result["skipped"] == 1
+    assert not filer.calls and not bl.INBOX.exists()
+
+
 def test_mac_dir_app_still_polls_paired_devices(mac_fixture, monkeypatch):
     cfg, root, filer = mac_fixture
     write_mac_report(root)
