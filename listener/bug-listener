@@ -3,9 +3,10 @@
 # requires-python = ">=3.11"
 # dependencies = ["typer>=0.12"]
 # ///
-"""bug-listener: pulls new bug reports off every reachable iPhone and iPad and files each one once.
+"""bug-listener: files new reports from paired iOS devices, configured local Mac stores and CloudKit.
 
-Each poll, for each physical iOS device `devicectl` lists and each app in ~/.config/bug-kit/apps.json:
+Each poll, for each physical iOS device `devicectl` lists (and an app's `mac_dir` on this Mac, as device "mac")
+and each app in ~/.config/bug-kit/apps.json:
 copy Documents/bugs.jsonl and independently discover crash files; for each report not in the seen-store,
 copy its folder and session evidence to ~/tmp/agent/bugs/<app>/<device>/, file it through the app's tracker, append a line
 to ~/tmp/agent/bugs/inbox.jsonl and send a Herdr notification. Every step is a JSON line in
@@ -120,6 +121,15 @@ def load_config(path: Path) -> dict:
                 raise ValueError(f"{a['name']}: {key} must be relative to the app container")
         if a.get("repo"):
             a["repo"] = str(Path(a["repo"]).expanduser())
+        if "mac_dir" in a:
+            value = a["mac_dir"]
+            if not isinstance(value, str) or not value or not Path(value).expanduser().is_absolute():
+                raise ValueError(f"{a['name']}: mac_dir must be an absolute local storage root")
+            root = Path(value).expanduser().resolve()
+            state = STATE.resolve()
+            if root.is_relative_to(state) or state.is_relative_to(root):
+                raise ValueError(f"{a['name']}: mac_dir and listener state must not overlap")
+            a["mac_dir"] = str(root)
     interval = cfg.setdefault("poll_seconds", 300)
     if isinstance(interval, bool) or not isinstance(interval, int) or interval <= 0:
         raise ValueError("poll_seconds must be a positive integer")
@@ -230,6 +240,8 @@ def probe(dev: dict) -> Optional[dict]:
 
 def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> bool:
     """devicectl copy from the configured app or App Group container. Paths are relative to that container."""
+    if dev.get("type") == "Mac":
+        return copy_mac(a, dev, source, dest, allow_missing=allow_missing)
     dest.parent.mkdir(parents=True, exist_ok=True)
     t0 = time.monotonic()
     rc, _, err = run(["xcrun", "devicectl", "device", "copy", "from", "--device", dev["id"],
@@ -248,6 +260,38 @@ def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_miss
         fields.update(rc=rc, stderr=tail(err))
     log("copy", **fields)
     return ok
+
+
+def copy_mac(a: dict, dev: dict, source: str, dest: Path, *, allow_missing: bool) -> bool:
+    """Snapshot evidence without changing the app's store or following links outside its root."""
+    started = time.monotonic()
+    try:
+        root = Path(a["mac_dir"])
+        relative = source.removeprefix("Documents/")
+        path = store_evidence_path(root, relative, scope="Mac")
+        if not path.exists():
+            if not allow_missing:
+                raise FileNotFoundError("required local evidence is missing")
+            log("copy", device=dev["dir"], app=a["name"], source=source, ok=True, missing=True, domain="mac_dir")
+            return True
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if path.is_dir():
+            # copytree would follow nested symlinks by default. Reject them before copying the snapshot.
+            for child in path.rglob("*"):
+                if child.is_symlink() or not (child.is_file() or child.is_dir()):
+                    raise ValueError("local evidence contains a symbolic link or special file")
+            shutil.copytree(path, dest, dirs_exist_ok=True)
+        elif path.is_file():
+            shutil.copy2(path, dest)
+        else:
+            raise ValueError("local evidence is not a regular file or directory")
+        log("copy", device=dev["dir"], app=a["name"], source=source, ok=True, domain="mac_dir",
+            ms=int((time.monotonic() - started) * 1000))
+        return True
+    except (OSError, ValueError) as error:
+        log("copy", device=dev["dir"], app=a["name"], source=source, ok=False, domain="mac_dir",
+            message=str(error), ms=int((time.monotonic() - started) * 1000))
+        return False
 
 
 # --- reports ------------------------------------------------------------------------------------------------
@@ -622,6 +666,28 @@ def already_filed(filer: Filer, a: dict, rec: dict, dev: dict, entry: dict, keys
     return True
 
 
+def filed_by_app(a: dict, rec: dict, dev: dict, entry: dict, seen: dict, summary: dict, key: str) -> bool:
+    """An app's own filer (Magic Monitor's `just file-bugs`) writes the beads id into its report.json. Honour it."""
+    folder = folder_of(rec)
+    if not folder:
+        return False
+    try:
+        ref = json.loads(store_evidence_path(Path(a["mac_dir"]), folder + "/report.json", scope="Mac").read_text())
+        ref = ref.get("beads") if isinstance(ref, dict) else None
+    except (OSError, ValueError):
+        return False
+    if not isinstance(ref, str) or not ref:
+        return False
+    summary["skipped"] += 1
+    entry["keys"].append(key)
+    entry.setdefault("pending", {}).pop(key, None)
+    if rec.get("id") and not DRY:
+        seen.setdefault("_deliveries", {})[a["bundle"] + ":" + key] = {"ref": ref, "inbox": True, "by_app": True}
+    log("file", key=key, outcome="filed_by_app", ref=ref, app=a["name"], device=dev["dir"])
+    save_seen(seen)
+    return True
+
+
 def poll_reports(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer: Filer,
                  summary: dict, backfill: bool) -> None:
     ctx = {"device": dev["dir"], "app": a["name"]}
@@ -651,10 +717,19 @@ def poll_reports(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
     for key, rec in fresh.items():
         summary["new"] += 1
         log("report", key=key, reported_at=rec.get("reported_at"), title=title_of(rec), **ctx)
+        if dev.get("type") == "Mac" and filed_by_app(a, rec, dev, entry, seen, summary, key):
+            continue
         if already_filed(filer, a, rec, dev, entry, "keys", seen, summary, key):
             continue
         folder = folder_of(rec)
         evidence_ok = not folder or copy(dev, a, under_documents(folder), local / folder, locked)
+        if dev.get("type") == "Mac":
+            # Report metadata can name evidence outside its report folder. Preserve the relative contract
+            # and require every named attachment, while validating it before creating a destination.
+            paths = set(rec.get("files", []) + [p for p in (rec.get("screenshot"),) if p])
+            for path in sorted(paths):
+                copied = copy(dev, a, under_documents(path), local / path, locked)
+                evidence_ok = evidence_ok and copied
         src = log_source(rec, a)
         if src:
             log_ok = copy(dev, a, src, local / "logs" / Path(src).name, locked)
@@ -754,13 +829,17 @@ def save_status(data: dict) -> None:
 
 
 def cloud_evidence_path(root: Path, name: str) -> Path:
+    return store_evidence_path(root, name, scope="CloudKit")
+
+
+def store_evidence_path(root: Path, name: str, *, scope: str) -> Path:
     if not isinstance(name, str) or not name or "\\" in name or "\0" in name:
-        raise ValueError("invalid CloudKit evidence path")
+        raise ValueError(f"invalid {scope} evidence path")
     if name.startswith("/") or any(p in ("", ".", "..") for p in name.split("/")):
-        raise ValueError("invalid CloudKit evidence path")
+        raise ValueError(f"invalid {scope} evidence path")
     resolved = (root / name).resolve()
     if not resolved.is_relative_to(root.resolve()):
-        raise ValueError("CloudKit evidence escapes inbox")
+        raise ValueError(f"{scope} evidence escapes its storage root")
     return resolved
 
 
@@ -881,14 +960,33 @@ def poll(cfg: dict, backfill: bool) -> dict:
         seen = load_seen()
         filer = Filer()
         health["devices"] = []
+        health["mac_stores"] = []
         devices = []
         if cfg.get("cloudkit"):
             sync_cloudkit(cfg, summary, health)
             poll_cloud_reports(cfg, seen, filer, summary, backfill)
+        for a in cfg["apps"]:
+            if not a.get("mac_dir"):
+                continue
+            root = Path(a["mac_dir"])
+            reachable = root.is_dir() and os.access(root, os.R_OK | os.X_OK)
+            health["mac_stores"].append({"app": a["name"], "reachable": reachable})
+            log("mac_store", app=a["name"], reachable=reachable)
+            if not reachable:
+                continue
+            summary["reachable"] += 1
+            dev = {"id": "local-mac", "dir": "mac", "type": "Mac", "model": "local Mac"}
+            local = STATE / a["name"] / "mac"
+            for action in (poll_reports, poll_crashes):
+                try:
+                    action(a, dev, local, False, seen, filer, summary, backfill)
+                except (OSError, ValueError, TypeError) as error:
+                    summary["errors"] += 1
+                    log("app_poll_error", app=a["name"], device="mac", step=action.__name__, message=str(error))
         try:
             devices = list_devices()
         except (OSError, ValueError, RuntimeError) as error:
-            if not cfg.get("cloudkit"):
+            if not cfg.get("cloudkit") and not any(a.get("mac_dir") for a in cfg["apps"]):
                 raise
             summary["errors"] += 1
             log("devices_error", message=str(error))
@@ -986,6 +1084,11 @@ def doctor_checks(config: Path) -> dict:
                "provisioned container entitlement present; iCloud/network health requires a poll" if rc == 0
                else "build/install the signed headless app with the shared container entitlement and profile")
     for a in cfg["apps"]:
+        if a.get("mac_dir"):
+            root = Path(a["mac_dir"])
+            accessible = root.is_dir() and os.access(root, os.R_OK | os.X_OK)
+            record(f"mac_store:{a['name']}", "ok" if accessible else "warning",
+                   "local storage root readable" if accessible else "store missing or unreadable; launch the app or check mac_dir")
         kind = a["tracker"]["kind"]
         name = f"tracker:{a['name']}"
         if kind == "none":
