@@ -27,6 +27,8 @@ public final class KeychainPairedDeviceStore: PairedDeviceStore {
       kSecClass as String: kSecClassGenericPassword,
       kSecAttrService as String: "com.idvorkin.paired-device",
       kSecAttrAccount as String: "device",
+      // On a Mac, the iOS-style Keychain, where access groups and "this device only" apply.
+      kSecUseDataProtectionKeychain as String: true,
     ]
     query[kSecAttrAccessGroup as String] = accessGroup
     self.query = query
