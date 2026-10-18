@@ -3,7 +3,10 @@
 import json
 import os
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "pull-reports.sh"
 
@@ -122,3 +125,155 @@ def test_check_with_the_report_filed_finds_nothing_new(tmp_path):
     run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
     assert run.returncode == 0, run.stdout + run.stderr
     assert "no unfiled reports" in run.stdout
+
+
+# The signed CloudKit reader, stubbed: `--inbox D` installs the reports in CLOUD_REPORTS as D/<id>/report.json and
+# prints cloudkit_sync, or fails when CLOUD_FAIL is set (#66).
+READER = """#!/bin/bash
+while [ $# -gt 0 ]; do case $1 in --inbox) inbox=$2; shift;; esac; shift; done
+[ -n "${CLOUD_FAIL:-}" ] && { echo '{"event":"cloudkit_sync","ok":false,"code":9,"reason":"sync_failed"}'; exit 1; }
+python3 - "$inbox" <<'PY'
+import json, os, pathlib, sys
+for rec in json.loads(os.environ.get("CLOUD_REPORTS", "[]")):
+    folder = pathlib.Path(sys.argv[1]) / rec["id"]
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "report.json").write_text(json.dumps(rec))
+PY
+echo '{"ok":true,"event":"cloudkit_sync","downloaded":1}'
+"""
+CLOUD_ID = "6F1C2B9A-0000-4000-8000-000000000066"
+
+
+# The listener's shape (listener/apps.example.json, docs/ops/listener.md): apps.json names a separate cloudkit.json by
+# a ~ path, and that file's app is a ~ path too. HOME is the test folder, so the reader is found only if both expand.
+def with_cloud(tmp: Path, env: dict, reports, fail=False, inline=False, cloud=None):
+    reader = tmp / "Applications/Reader.app/Contents/MacOS/BugKitCloudReader"
+    reader.parent.mkdir(parents=True)
+    reader.write_text(READER)
+    reader.chmod(0o755)
+    config = json.loads(Path(env["BUG_KIT_CONFIG"]).read_text())
+    if cloud is None:
+        cloud = {"app": "~/Applications/Reader.app", "container": "iCloud.com.example.BugKitReports",
+                 "inbox": "~/listener-inbox", "environment": "Development"}
+    if inline:
+        config["cloudkit"] = {**cloud, "app": str(tmp / "Applications/Reader.app")}
+    else:
+        (tmp / ".config/bug-kit").mkdir(parents=True)
+        (tmp / ".config/bug-kit/cloudkit.json").write_text(json.dumps(cloud))
+        config["cloudkit_config"] = "~/.config/bug-kit/cloudkit.json"
+    Path(env["BUG_KIT_CONFIG"]).write_text(json.dumps(config))
+    return {**env, "HOME": str(tmp), "CLOUD_REPORTS": json.dumps(reports), **({"CLOUD_FAIL": "1"} if fail else {})}
+
+
+def test_check_lists_unfiled_cloudkit_reports(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [{"id": CLOUD_ID, "bundle": "com.example.demo",
+                                      "reported_at": "2026-10-17T19:00:00.000Z", "note": "sent from the phone"}])
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert "new demo cloudkit 2026-10-17T19:00:00.000Z sent from the phone" in run.stdout.splitlines()
+    assert not (tmp_path / "listener-inbox").exists()  # the listener's own inbox is left to the listener
+
+
+def test_check_reads_cloudkit_from_an_inline_cloudkit_block(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [{"id": CLOUD_ID, "bundle": "com.example.demo",
+                                      "reported_at": "2026-10-17T19:00:00.000Z", "note": "inline"}], inline=True)
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert "new demo cloudkit 2026-10-17T19:00:00.000Z inline" in run.stdout.splitlines()
+
+
+def test_check_fails_when_the_cloudkit_config_lacks_a_key(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [], cloud={"app": "~/Applications/Reader.app", "environment": "Development"})
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read the CloudKit config" in run.stderr
+
+
+def test_check_fails_when_the_cloudkit_config_file_is_missing(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [])
+    (tmp_path / ".config/bug-kit/cloudkit.json").unlink()
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read the CloudKit config" in run.stderr
+
+
+def test_check_fails_when_the_cloudkit_config_file_is_empty(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [])
+    (tmp_path / ".config/bug-kit/cloudkit.json").write_text("")
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read the CloudKit config" in run.stderr
+
+
+def test_check_counts_a_cloudkit_report_with_its_id_marker_as_filed(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z -->\n<!-- bug-id:" + CLOUD_ID)
+    env = with_cloud(tmp_path, env, [{"id": CLOUD_ID, "bundle": "com.example.demo",
+                                      "reported_at": "2026-10-17T19:00:00.000Z", "note": "filed already"}])
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "no unfiled reports" in run.stdout
+
+
+def test_check_fails_rather_than_reading_clean_when_cloudkit_cannot_be_read(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    env = with_cloud(tmp_path, env, [], fail=True)
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "could not read CloudKit" in run.stderr
+
+
+def test_check_with_a_stale_listener_does_not_read_clean(tmp_path):
+    last = ago(3 * 3600)
+    run = check_with_status(tmp_path, {"last_poll_completed": last, "poll_seconds": 300})
+    assert run.returncode == 3, run.stdout + run.stderr
+    assert f"listener's last poll was {last}" in run.stdout
+
+
+def test_check_counts_a_report_on_the_device_and_in_cloudkit_once(tmp_path):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github)
+    rec = {"id": CLOUD_ID, "bundle": "com.example.demo", "reported_at": "2026-10-17T19:00:00.000Z", "note": "both"}
+    (tmp_path / "containers" / DEFAULT[0] / DEFAULT[1] / "Documents/bugs.jsonl").write_text(json.dumps(rec) + "\n")
+    env = with_cloud(tmp_path, env, [rec])  # mirrored delivery: still on the phone and uploaded to CloudKit
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert run.returncode == 1, run.stdout + run.stderr
+    assert [l for l in run.stdout.splitlines() if l.startswith("new ")] == [
+        "new demo iphone-17-pro 2026-10-17T19:00:00.000Z both"]
+    assert "1 unfiled report(s)" in run.stdout
+
+
+def check_with_status(tmp_path, status):
+    github = {"tracker": {"kind": "github", "repo": "owner/demo"}}
+    env, _ = setup(tmp_path, github, filed="2026-10-10T15:00:00.000Z")
+    (tmp_path / "out").mkdir(exist_ok=True)
+    (tmp_path / "out/status.json").write_text(json.dumps(status))
+    return subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+
+
+def ago(seconds):
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+@pytest.mark.parametrize("bad", ["oops", 0, -5])  # a fallback of 0 would call a poll a minute old stale
+def test_a_bad_poll_seconds_falls_back_to_300_seconds(tmp_path, bad):
+    run = check_with_status(tmp_path, {"last_poll_completed": ago(60), "poll_seconds": bad})
+    assert run.returncode == 0, run.stdout + run.stderr
+    assert "no unfiled reports" in run.stdout
+
+
+def test_an_unparsable_last_poll_counts_as_stale(tmp_path):
+    run = check_with_status(tmp_path, {"last_poll_completed": "garbage", "poll_seconds": 300})
+    assert run.returncode == 3, run.stdout + run.stderr
+    assert "listener's last poll was garbage" in run.stdout

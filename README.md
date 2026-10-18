@@ -212,7 +212,7 @@ See [listener setup](docs/ops/listener.md) for configuration, logging and launch
 
 ```sh
 scripts/pull-reports.sh                       # all configured apps and devices
-scripts/pull-reports.sh --check               # exit 1 for unfiled reports; 2 for lookup errors
+scripts/pull-reports.sh --check               # devices and CloudKit; 1 unfiled, 2 lookup error, 3 listener stale
 scripts/deploy-all.sh my-app --dry-run        # inspect the configured deployment commands
 ```
 
