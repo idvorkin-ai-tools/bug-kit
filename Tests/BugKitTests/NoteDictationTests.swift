@@ -200,6 +200,41 @@ import Testing
   #expect(!fixture.dictation.busy)
 }
 
+// #48: Log it is enabled only by `flow.canLog`, and a Log it during dictation saves through `flow.log` after
+// `finish`, so a recording that heard nothing or failed cannot save an empty report.
+@MainActor
+@Test func dictationThatFailsOnAnEmptyNoteCannotSaveAReport() async throws {
+  let fixture = try DictationFixture()
+  defer { fixture.cleanup() }
+  var flow = BugReportFlow()
+  flow.open(from: .shake)
+  fixture.dictation.toggle(note: flow.note) { fixture.note.value = $0 }
+  try await fixture.until { fixture.dictation.listening }
+  flow.note = fixture.note.value
+  #expect(!flow.canLog)
+  await fixture.provider.fail()
+  try await fixture.until { !fixture.dictation.busy }
+  flow.note = fixture.note.value
+  #expect(fixture.dictation.problem != nil)
+  #expect(flow.log(another: false) == nil)
+  #expect(flow.isPresented && flow.savedThisTime == 0)
+}
+
+@MainActor
+@Test func dictationThatFinishesSilentCannotSaveAReport() async throws {
+  let fixture = try DictationFixture()
+  defer { fixture.cleanup() }
+  var flow = BugReportFlow()
+  flow.open(from: .shake)
+  fixture.dictation.toggle(note: flow.note) { fixture.note.value = $0 }
+  try await fixture.until { fixture.dictation.listening }
+  await fixture.provider.setFinalRecognition("", firstStart: 0, lastEnd: 0)
+  #expect(await fixture.dictation.finish(why: "log_it"))
+  flow.note = fixture.note.value
+  #expect(flow.log(another: false) == nil)
+  #expect(flow.isPresented && flow.savedThisTime == 0)
+}
+
 @MainActor
 private final class DictationFixture {
   let capture = TestDictationCapture()
