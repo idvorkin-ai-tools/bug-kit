@@ -101,12 +101,18 @@ private struct CloudFixture {
   try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
   defer { try? FileManager.default.removeItem(at: dir) }
   let key = "<key>com.apple.developer.icloud-container-identifiers</key>"
-  let plist = "\(key)\n\t<array>\n\t\t<string>iCloud.com.example.A</string>\n\t\t<string>iCloud.com.example.B</string>\n\t</array>"
+  let containers = "\(key)\n\t<array>\n\t\t<string>iCloud.com.example.A</string>\n\t\t<string>iCloud.com.example.B</string>\n\t</array>"
+  let services = { (names: String) in "<key>com.apple.developer.icloud-services</key>\n\t<array>\(names)</array>\n" }
+  let plist = services("<string>CloudDocuments</string><string>CloudKit</string>") + containers
   let signed = dir.appendingPathComponent("signed")
   // The key also sits in a binary's string table, followed by other strings rather than an array.
   try (Data([0xCF, 0xFA, 0xED, 0xFE, 0x00]) + Data("\(key)\0iCloud.com.example.C\0</array>".utf8) + Data([0x00, 0xFF])
     + Data(plist.utf8) + Data([0x00])).write(to: signed)
   #expect(NativeCloudReportTransport.containers(inExecutable: signed) == ["iCloud.com.example.A", "iCloud.com.example.B"])
+  // iCloud Documents alone also lists the container, but CKContainer(identifier:) still traps without CloudKit.
+  let documentsOnly = dir.appendingPathComponent("documents-only")
+  try Data((services("<string>CloudDocuments</string>") + containers).utf8).write(to: documentsOnly)
+  #expect(NativeCloudReportTransport.containers(inExecutable: documentsOnly).isEmpty)
   let unsigned = dir.appendingPathComponent("unsigned")
   try Data("\(key)\0iCloud.com.example.C\0".utf8).write(to: unsigned)
   #expect(NativeCloudReportTransport.containers(inExecutable: unsigned).isEmpty)

@@ -83,11 +83,18 @@ struct NativeCloudReportTransport: CloudReportTransport {
   static let signedContainers = containers(inExecutable: Bundle.main.executableURL)
 
   /// The entitlements plist is in the executable on both: the code signature on a device, the `__entitlements`
-  /// section in a simulator build. The file is mapped, not read. The key also sits in BugKit's own string table,
-  /// so only a key followed by an `<array>` counts.
+  /// section in a simulator build. The file is mapped, not read. iCloud Documents alone also lists a container, so
+  /// the CloudKit service must be there too, as the Mac reader checks.
   static func containers(inExecutable url: URL?) -> Set<String> {
-    guard let url, let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return [] }
-    let key = Data("<key>com.apple.developer.icloud-container-identifiers</key>".utf8)
+    guard let url, let data = try? Data(contentsOf: url, options: .alwaysMapped),
+          strings(of: "com.apple.developer.icloud-services", in: data).contains("CloudKit") else { return [] }
+    return strings(of: "com.apple.developer.icloud-container-identifiers", in: data)
+  }
+
+  /// The `<string>`s of a plist array entitlement. The key also sits in BugKit's own string table, so only a key
+  /// followed by an `<array>` counts.
+  static func strings(of entitlement: String, in data: Data) -> Set<String> {
+    let key = Data("<key>\(entitlement)</key>".utf8)
     var found: Set<String> = []
     var from = data.startIndex
     while let match = data.range(of: key, in: from..<data.endIndex) {
