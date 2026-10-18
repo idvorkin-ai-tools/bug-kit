@@ -25,8 +25,11 @@ container="{containers}/$type/$id"
 [ -e "$container/$src" ] || {{ echo "error: No such file $src" >&2; exit 1; }}
 rm -rf "$dst"; cp -R "$container/$src" "$dst"
 """
+# `gh issue list … --json body` prints one filed issue, or GH_ISSUES of them, and logs its arguments.
 GH = """#!/bin/bash
-echo "<!-- bug:{filed} -->"
+echo "$@" >> "{calls}"
+n=${{GH_ISSUES:-1}}
+jq -cn --argjson n "$n" '[range($n) | {{body: "<!-- bug:{filed} -->"}}]'
 """
 DEFAULT = ("appDataContainer", "com.example.demo")
 GROUP = ("appGroupDataContainer", "group.com.example.demo")
@@ -46,7 +49,7 @@ def setup(tmp: Path, app: dict, domain=DEFAULT, filed="none"):
     bin_dir.mkdir()
     (bin_dir / "xcrun").write_text(STUB.format(devices=tmp / "devices.json", containers=tmp / "containers",
                                                copies=tmp / "copies"))
-    (bin_dir / "gh").write_text(GH.format(filed=filed))
+    (bin_dir / "gh").write_text(GH.format(filed=filed, calls=tmp / "gh-calls"))
     for tool in ("xcrun", "gh"):
         (bin_dir / tool).chmod(0o755)
     config = tmp / "apps.json"
@@ -277,3 +280,18 @@ def test_an_unparsable_last_poll_counts_as_stale(tmp_path):
     run = check_with_status(tmp_path, {"last_poll_completed": "garbage", "poll_seconds": 300})
     assert run.returncode == 3, run.stdout + run.stderr
     assert "listener's last poll was garbage" in run.stdout
+
+
+def test_check_reads_up_to_10000_issues_like_the_listener(tmp_path):
+    env, _ = setup(tmp_path, {"tracker": {"kind": "github", "repo": "owner/demo"}}, filed="2026-10-10T15:00:00.000Z")
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True, env=env)
+    assert "--limit 10000" in (tmp_path / "gh-calls").read_text()
+    assert "new demo" not in run.stdout, run.stdout + run.stderr
+
+
+def test_a_full_issue_page_is_a_failed_lookup_not_a_complete_marker_list(tmp_path):
+    env, _ = setup(tmp_path, {"tracker": {"kind": "github", "repo": "owner/demo"}}, filed="2026-10-10T15:00:00.000Z")
+    run = subprocess.run([str(SCRIPT), "--check", "demo"], capture_output=True, text=True,
+                         env={**env, "GH_ISSUES": "10000"})
+    assert run.returncode == 2, run.stdout + run.stderr
+    assert "10000 issues or more" in run.stderr
