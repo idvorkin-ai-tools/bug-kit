@@ -56,8 +56,10 @@ serialization; it does not make a locked-screen build safe.
 
 Every app's signing recipe must run the shared guard **inside** `xcode-signing.lock`. Cached profiles do
 not exempt a command that passes `-allowProvisioningUpdates`: it can still read the account keychain. The guard checks
-`ioreg -n Root -d1` for `"CGSSessionScreenIsLocked" = Yes` and waits for the person to unlock the Mac before
-starting the build. It runs `caffeinate -d -w $$` for its lifetime, including the build, then cleans up the
+`ioreg -n Root -d1` for `"CGSSessionScreenIsLocked" = Yes` and waits up to 2 minutes for the person to unlock the
+Mac before starting the build. If the Mac is still locked, it exits 80 with "Mac locked, gave up the build turn" and
+builds nothing, so the caller releases `build.lock` instead of holding every other build turn; unlock the Mac and
+requeue. It runs `caffeinate -d -w $$` for its lifetime, including the build, then cleans up the
 assertion. `caffeinate -i` alone does not prevent display sleep and the immediate screen lock. The guard
 refuses to start if the lock-state query fails or the display assertion process exits.
 

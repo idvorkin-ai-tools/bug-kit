@@ -16,7 +16,8 @@
 #   - one signing build at a time on this Mac: the whole run holds `lockf -k -t 900 ~/tmp/agent/locks/xcode-signing.lock`
 #     (MM mmn-af8), and inside it waits for any unlocked `xcodebuild … -allowProvisioningUpdates` (anchored pgrep);
 #   - a failed build never installs the previous bundle: success is "BUILD SUCCEEDED" in the output (EA #43);
-#   - inside the lock, signing-guard.sh waits for Mac unlock and prevents display sleep during the build;
+#   - inside the lock, signing-guard.sh waits up to 2 minutes for Mac unlock (then exits 80, nothing built) and
+#     prevents display sleep during the build;
 #   - "No Accounts" or "Failed to load credentials" stops the run: tell the person and never retry automatically;
 #   - a launch refused because the device is locked (CoreDeviceError 10002) is a soft success: installed, opens when
 #     unlocked; a build destination locked at build time ("needs to be unlocked") exits 79 naming the device, not as a
@@ -127,6 +128,8 @@ else
     echo "Xcode account access failed: stop, do not retry; ask the person to unlock and check Xcode Settings > Accounts (docs/ops/signing.md)" >&2
     exit 78
   fi
+  # The guard already said why on stderr: the Mac stayed locked, so the build turn was given up (#77).
+  [ "$build_status" -eq 80 ] && exit 80
   if [ "$build_status" -ne 0 ] && grep -q 'Timed out waiting for all destinations' <<<"$out" \
     && grep -q 'needs to be unlocked' <<<"$out"; then
     echo "$(awk '{print $1}' <<<"$dest_line") is locked: unlock it and deploy again (nothing was built or installed)" >&2

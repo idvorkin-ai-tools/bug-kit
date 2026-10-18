@@ -131,3 +131,15 @@ def test_a_successful_build_that_mentions_a_locked_device_still_installs(tmp_pat
     assert result.returncode == 0, result.stdout + result.stderr
     assert "is locked" not in result.stderr
     assert len(calls.read_text().splitlines()) == 2
+
+
+def test_a_mac_that_stays_locked_gives_up_without_reading_as_a_build_failure(tmp_path):
+    (tmp_path / "bin").mkdir()
+    sleep = tmp_path / "bin" / "sleep"
+    sleep.write_text("#!/bin/bash\nexit 0\n")
+    sleep.chmod(0o755)
+    result, calls = deploy(tmp_path, ioreg_script="#!/bin/bash\necho '\"CGSSessionScreenIsLocked\" = Yes'\n")
+    assert result.returncode == 80, result.stdout + result.stderr
+    assert "Mac locked, gave up the build turn" in result.stderr
+    assert "build failed" not in result.stderr
+    assert not calls.exists()

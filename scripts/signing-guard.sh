@@ -19,6 +19,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 waiting=0
+polls=0  # a locked Mac gets 24 polls 5 s apart, then the caller's build turn and lock go back (#77)
 while :; do
   if ! state=$(ioreg -n Root -d1); then
     echo "signing_guard: cannot read screen-lock state; build not started" >&2
@@ -37,6 +38,11 @@ while :; do
   fi
   [ "$waiting" -ne 0 ] || echo "signing_guard: Mac is locked; waiting for the person to unlock it" >&2
   waiting=1
+  if [ "$polls" -ge 24 ]; then
+    echo "signing_guard: Mac locked, gave up the build turn after 2 minutes; nothing built. Unlock the Mac and requeue." >&2
+    exit 80
+  fi
+  polls=$((polls + 1))
   sleep 5
 done
 [ "$waiting" -eq 0 ] || echo "signing_guard: Mac unlocked; starting build" >&2
