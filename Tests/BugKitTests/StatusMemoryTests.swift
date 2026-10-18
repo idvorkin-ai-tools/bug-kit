@@ -23,7 +23,8 @@ import Testing
   }
   let of = { (type: String) in lines().filter { $0["type"] as? String == type } }
   // Wait for both lines, not a fixed time: a busy CI runner can hold a utility-QoS timer for longer (bug-ej9).
-  for _ in 0..<200 where of("with_memory").isEmpty || of("without_memory").isEmpty {
+  let deadline = ContinuousClock.now + .seconds(10)
+  while of("with_memory").isEmpty || of("without_memory").isEmpty, ContinuousClock.now < deadline {
     try await Task.sleep(for: .milliseconds(50))
   }
   let with = of("with_memory")

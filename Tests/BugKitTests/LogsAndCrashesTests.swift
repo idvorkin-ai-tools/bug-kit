@@ -152,6 +152,7 @@ private final class Events: @unchecked Sendable {
     return ((try? String(contentsOf: log.url, encoding: .utf8)) ?? "").components(separatedBy: "\"type\":\"status\"").count - 1
   }
   // Wait for the lines, not a fixed time: a busy CI runner can hold a utility-QoS timer for longer (bug-ej9).
-  for _ in 0..<200 where statuses() < 2 { try await Task.sleep(for: .milliseconds(50)) }
+  let deadline = ContinuousClock.now + .seconds(10)
+  while statuses() < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
   #expect(statuses() >= 2)
 }
