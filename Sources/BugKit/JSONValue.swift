@@ -11,6 +11,38 @@ public enum JSONValue: Codable, Equatable, Hashable, Sendable {
   case array([JSONValue])
   case object([String: JSONValue])
 
+  public enum FoundationConversionError: Error, Equatable, Sendable {
+    case unsupportedType(String)
+    case invalidNumber
+  }
+
+  /// The inverse of `foundation`, for an app whose context is already `[String: Any]`:
+  /// `try context.mapValues { try JSONValue(foundation: $0) }`. NSNumber(1) stays an int, not true. Unsupported
+  /// objects, integers outside `Int` and non-finite numbers throw rather than silently drop context.
+  public init(foundation value: Any) throws {
+    if value is NSNull {
+      self = .null
+    } else if let number = value as? NSNumber {
+      if CFGetTypeID(number) == CFBooleanGetTypeID() {
+        self = .bool(number.boolValue)
+      } else if ["f", "d"].contains(String(cString: number.objCType)) {
+        guard number.doubleValue.isFinite else { throw FoundationConversionError.invalidNumber }
+        self = .double(number.doubleValue)
+      } else {
+        guard let integer = Int(number.stringValue) else { throw FoundationConversionError.invalidNumber }
+        self = .int(integer)
+      }
+    } else if let string = value as? String {
+      self = .string(string)
+    } else if let array = value as? [Any] {
+      self = .array(try array.map { try JSONValue(foundation: $0) })
+    } else if let object = value as? [String: Any] {
+      self = .object(try object.mapValues { try JSONValue(foundation: $0) })
+    } else {
+      throw FoundationConversionError.unsupportedType(String(reflecting: type(of: value)))
+    }
+  }
+
   public init(from decoder: Decoder) throws {
     let c = try decoder.singleValueContainer()
     if c.decodeNil() {

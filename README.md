@@ -150,6 +150,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Wall and host-clock timestamps | Create `SessionLog(prefix: "app", clocks: [.wall, .mono])`. Both are off by default. |
 | Memory on status lines | Use `log.status(every: 5, memory: true) { ... }` to include `rss_mb`. Default: off. |
 | Bridge an existing logger | Convert fields with `fields.mapValues(\.foundation)` when the app's logger accepts `[String: Any]`. |
+| Foundation context | Convert an existing `[String: Any]` context with `try context.mapValues { try JSONValue(foundation: $0) }`. Unsupported values throw `JSONValue.FoundationConversionError`; `BugReporterHooks.context` does not throw, so convert and handle the error before supplying it. |
 | Private CloudKit delivery | Add the shared container entitlement, retain `CloudKitReportDelivery`, await `prepare(documents:)` before exposing the reporter/writer, pass `delivery:`, and call `start()` at launch/foreground. Only reports saved after opt-in upload. New adopters, `prepare(documents:)` and Mac apps pin `exact: "0.3.3"`; existing 0.3.0–0.3.2 senders without `prepare` remain compatible with the reader. Configure the listener with `cloudkit_config`. Default: off. See [CloudKit adoption](docs/integration.md#private-cloudkit-delivery). |
 | Shake and keyboard reporting | Enabled by `.bugReporting(reporter)`. `systemShake`, `gentleShake`, `commandI` and `dialogKeys` default to `true`. |
 | Report button | Add `BugReportButton(reporter: reporter)` to your view or toolbar. |
