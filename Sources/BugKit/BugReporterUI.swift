@@ -163,12 +163,13 @@
       }
       guard !flow.isPresented else { return }  // keepMoment: the dialog stays, empty
       let host = presented
+      let window = host?.view.window  // the next report opens in the same window
       presented = nil
       screenshot = nil
       // The next report's picture is of the screen underneath, so it waits for this dialog to be gone.
       host?.dismiss(animated: true) { [weak self] in
         guard let self, self.flow.reopenIfPending() else { return }
-        self.present(source: .another)
+        self.present(source: .another, in: window ?? Self.keyWindow())
       }
     }
 
