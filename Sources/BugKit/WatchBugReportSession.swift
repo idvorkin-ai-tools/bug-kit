@@ -23,11 +23,9 @@ public struct WatchBugReportSession: Sendable {
     let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else { throw SaveError.emptyNote }
     log?.flush()  // so the copied session.jsonl holds the moments before the report
-    let report = await writer.save(note: trimmed, screen: screen, context: context, screenshotPNG: nil,
+    let saved = await writer.write(note: trimmed, screen: screen, context: context, screenshotPNG: nil,
                                    log: log?.position, extraFiles: nil)
-    guard (try? writer.store.readAll().reports.contains { $0.id == report.id }) == true else {
-      throw SaveError.indexNotWritten
-    }
-    return report
+    guard saved.indexWritten else { throw SaveError.indexNotWritten }
+    return saved.report
   }
 }

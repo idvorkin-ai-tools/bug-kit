@@ -35,3 +35,15 @@ import Testing
   try Data("This is a file, not a directory".utf8).write(to: root)
   await #expect(throws: WatchBugReportSession.SaveError.indexNotWritten) { try await session.save(note: "Keep this note") }
 }
+
+@Test func watchSaveSucceedsWhenOlderIndexLinesAreNotUTF8() async throws {
+  let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  defer { try? FileManager.default.removeItem(at: root) }
+  let store = BugStore(documents: root)
+  try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+  try Data([0x7B, 0xE2, 0x82, 0x0A]).write(to: store.index)  // a line torn inside a multibyte character
+  let info = BugAppInfo(app: "Cards", bundle: "com.example.Cards.watch", build: "1", commit: "test", device: "Watch")
+  let session = WatchBugReportSession(writer: BugReportWriter(store: store, info: info, logger: { _, _ in }), screen: "card")
+  let report = try await session.save(note: "Saved once")
+  #expect(report.note == "Saved once")
+}

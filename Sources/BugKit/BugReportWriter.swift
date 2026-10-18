@@ -99,6 +99,18 @@ public struct BugReportWriter: Sendable {
     diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot(), source: String? = nil,
     reason: String? = nil, event: String = "bug_report", copySessionLog: Bool? = nil, screenshotDropped: Bool = false
   ) async -> BugReport {
+    await write(note: note, screen: screen, context: context, screenshotPNG: screenshotPNG, log: log,
+                extraFiles: extraFiles, date: date, diagnostics: diagnostics, source: source, reason: reason,
+                event: event, copySessionLog: copySessionLog, screenshotDropped: screenshotDropped).report
+  }
+
+  /// `save`, also saying whether bugs.jsonl took the report (the watch form keeps the note when it did not).
+  func write(
+    note: String, screen: String, context: [String: JSONValue], screenshotPNG: Data?,
+    log: (path: String, tMs: Int)?, extraFiles: BugExtraFiles?, date: Date = Date(),
+    diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot(), source: String? = nil,
+    reason: String? = nil, event: String = "bug_report", copySessionLog: Bool? = nil, screenshotDropped: Bool = false
+  ) async -> (report: BugReport, indexWritten: Bool) {
     // This must precede all report work, especially append: a launch Task may not have run yet,
     // and termination after append must not classify this report as pre-opt-in on restart.
     if let delivery {
@@ -188,6 +200,6 @@ public struct BugReportWriter: Sendable {
                          "message": "Cloud delivery is pending; the report remains local."])
       }
     }
-    return report
+    return (report, indexWritten)
   }
 }
