@@ -147,8 +147,12 @@ private final class Events: @unchecked Sendable {
   defer { try? FileManager.default.removeItem(at: docs) }
   let log = SessionLog(prefix: "app", documents: docs)
   log.status(every: 0.05) { ["frames": 1] }
-  try await Task.sleep(for: .milliseconds(400))
-  log.flush()
-  let text = try String(contentsOf: log.url, encoding: .utf8)
-  #expect(text.components(separatedBy: "\"type\":\"status\"").count - 1 >= 2)
+  let statuses = {
+    log.flush()
+    return ((try? String(contentsOf: log.url, encoding: .utf8)) ?? "").components(separatedBy: "\"type\":\"status\"").count - 1
+  }
+  // Wait for the lines, not a fixed time: a busy CI runner can hold a utility-QoS timer for longer (bug-ej9).
+  let deadline = ContinuousClock.now + .seconds(10)
+  while statuses() < 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
+  #expect(statuses() >= 2)
 }

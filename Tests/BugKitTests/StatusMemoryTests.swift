@@ -16,12 +16,19 @@ import Testing
   let log = SessionLog(prefix: "app", documents: dir)
   log.status("with_memory", every: 0.05, memory: true) { ["n": 1] }
   log.status("without_memory", every: 0.05) { ["n": 1] }
-  try await Task.sleep(for: .milliseconds(300))
-  log.flush()
-  let lines = try String(contentsOf: log.url, encoding: .utf8).split(separator: "\n")
-    .compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
-  let with = lines.filter { $0["type"] as? String == "with_memory" }
-  let without = lines.filter { $0["type"] as? String == "without_memory" }
+  let lines = {
+    log.flush()
+    return ((try? String(contentsOf: log.url, encoding: .utf8)) ?? "").split(separator: "\n")
+      .compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
+  }
+  let of = { (type: String) in lines().filter { $0["type"] as? String == type } }
+  // Wait for both lines, not a fixed time: a busy CI runner can hold a utility-QoS timer for longer (bug-ej9).
+  let deadline = ContinuousClock.now + .seconds(10)
+  while of("with_memory").isEmpty || of("without_memory").isEmpty, ContinuousClock.now < deadline {
+    try await Task.sleep(for: .milliseconds(50))
+  }
+  let with = of("with_memory")
+  let without = of("without_memory")
   #expect(!with.isEmpty && with.allSatisfy { ($0["rss_mb"] as? Int ?? 0) > 0 })
   #expect(!without.isEmpty && without.allSatisfy { $0["rss_mb"] == nil })
 }
