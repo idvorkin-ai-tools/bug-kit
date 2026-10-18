@@ -125,7 +125,8 @@ struct CloudReportPayload: Codable, Sendable {
 
 public enum CloudDeliveryError: Error, Equatable, Sendable {
   case invalidPath, invalidPayload, tooLarge, wrongStore, accountUnavailable, accountChanged, invalidAcknowledgement
-  /// This build is not signed for the iCloud container (an unsigned simulator or UI-test build); reports stay local.
+  /// This build is not signed for CloudKit in the iCloud container (an unsigned simulator or UI-test build); reports
+  /// stay local.
   case notEntitled
 }
 
