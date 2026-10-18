@@ -152,3 +152,14 @@ def test_reader_signed_path_wraps_guard_inside_lock_and_stops_before_install(tmp
         assert streams[1] is None  # guard wait/stop messages reach the terminal, not only the log
     assert len(calls) == 2
     assert not destination.exists()
+
+
+def test_a_mac_that_stays_locked_gives_up_the_build_turn_after_two_minutes(tmp_path):
+    env = fake_tools(tmp_path, ['"CGSSessionScreenIsLocked" = Yes'])
+    result = guarded(env)
+    assert result.returncode == 80, result.stderr
+    assert len((tmp_path / "waited").read_text().splitlines()) == 24  # 24 polls, 5 s apart (#77)
+    assert "Mac locked, gave up the build turn" in result.stderr
+    assert not (tmp_path / "builds.jsonl").exists()
+    with pytest.raises(ProcessLookupError):
+        os.kill(json.loads((tmp_path / "caffeinate.json").read_text())["pid"], 0)
