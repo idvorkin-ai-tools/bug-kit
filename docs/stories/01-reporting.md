@@ -44,7 +44,8 @@ Part of the [BugKit stories](README.md).
   - iOS's shake is heard at `UIWindow`, so it reaches BugKit whatever holds first responder (#62). The
     simulator's `ShakeTests` cover a sheet, a focused text field in a sheet and an alert
     (`shakeOverASheetOpensTheReportOverThatSheet`, `shakeInAFocusedTextFieldInsideASheetOpensTheReport`,
-    `shakeOverAnAlertOpensTheReport`); a physical shake on a device is still to do.
+    `shakeOverAnAlertOpensTheReport`), and a shake in another scene's window leaves this scene alone
+    (`aShakeInAnotherScenesWindowLeavesThisSceneAlone`); a physical shake on a device is still to do.
 
 #### Use Case:
 - **As someone** reporting a problem with a settings sheet or a list open

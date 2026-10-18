@@ -84,7 +84,8 @@ NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
 - `reporter.shakeEnabled = false` ignores shakes, for example during a run where the phone is in a pocket (EA
   story 037).
 - BugKit hears iOS's shake at `UIWindow`, so a shake over a sheet, an alert or a focused text field still opens
-  the report. Remove any app-owned `ShakeDetector` or `UIWindow.motionEnded` override: two overrides collide.
+  the report. Only the shaken window's scene opens it, so each scene can have its own `.bugReporting`. Remove any
+  app-owned `ShakeDetector` or `UIWindow.motionEnded` override: two overrides collide.
 - `reporter.lastStatus` says "Problem logged. Thanks." after a save, for a status line.
 - `log.status(every: 5) { [...] }` writes a periodic status line.
 - Add `memory: true` to include resident memory (`rss_mb`); create the logger with `clocks: [.wall, .mono]`
