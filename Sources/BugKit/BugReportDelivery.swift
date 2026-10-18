@@ -125,6 +125,9 @@ struct CloudReportPayload: Codable, Sendable {
 
 public enum CloudDeliveryError: Error, Equatable, Sendable {
   case invalidPath, invalidPayload, tooLarge, wrongStore, accountUnavailable, accountChanged, invalidAcknowledgement
+  /// This build is not signed for CloudKit in the iCloud container (an unsigned simulator or UI-test build); reports
+  /// stay local.
+  case notEntitled
 }
 
 protocol CloudReportTransport: Sendable {
@@ -249,7 +252,20 @@ actor CloudReportOutbox: BugReportDelivery {
     return try await task.value
   }
 
+  /// Something is queued, or a report saved since opt-in has not been sent yet.
+  private func hasWork() throws -> Bool {
+    let queued = (try? FileManager.default.contentsOfDirectory(atPath: pending.path)) ?? []
+    if queued.contains(where: { $0.hasSuffix(".json") }) { return true }
+    let preexisting = try preexistingReports()
+    return try store.readAll().reports.contains { report in
+      !preexisting.contains(report.id.uuidString)
+        && !FileManager.default.fileExists(atPath: sent.appendingPathComponent(report.id.uuidString + ".json").path)
+    }
+  }
+
   private func drain() async throws -> Int {
+    // A launch with nothing to send never touches CloudKit, which traps in a build without the entitlement (#87).
+    guard try hasWork() else { return 0 }
     // Account switches must not silently deliver an old account's reports to the new account.
     let account = try await transport.accountID()
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

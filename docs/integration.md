@@ -362,6 +362,10 @@ The relevant entitlements are `com.apple.developer.icloud-services = ["CloudKit"
 also supplies the container environment for iOS/watchOS apps. Enable the iCloud capability and select the
 authorized container; do not manually add the Mac distribution reader's environment entitlement to their
 entitlements files. Do not copy a signature's generated team-prefixed entitlements into source control.
+A build whose executable is not signed with both entitlements for the container (an unsigned simulator or
+UI-test build, or an app with iCloud Documents but not CloudKit) never creates a `CKContainer`: delivery
+fails with `CloudDeliveryError.notEntitled`, is not retried, and reports stay local. A launch with nothing
+to send makes no CloudKit call.
 The app owns the opt-in preference: construct/pass delivery only when enabled. `stop()` stops
 app-level retry timers; an already submitted CloudKit daemon operation may still finish.
 

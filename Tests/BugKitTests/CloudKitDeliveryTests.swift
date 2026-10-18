@@ -69,9 +69,57 @@ private struct CloudFixture {
   let report = try f.report(); try f.store.append(report)
   _ = try await queue.flush()
   await transport.setAccount("different-owner")
+  var next = try f.report(); next.id = UUID(); try f.store.append(next)  // the check guards a report waiting to go
   await #expect(throws: CloudDeliveryError.accountChanged) { try await f.outbox(transport).flush() }
   #expect(await transport.count() == 1)
 }
+
+@Test func flushWithNothingWaitingNeverAsksCloudKit() async throws {
+  // An unsigned build traps in CKContainer(identifier:); a launch with nothing to send must not touch it (#87).
+  let f = CloudFixture(); defer { f.clean() }
+  let transport = FakeCloudTransport()
+  let queue = try await f.optedIn(transport)
+  #expect(try await queue.flush() == 0)
+  #expect(await transport.checks() == 0)
+  let report = try f.report(); try f.store.append(report)
+  #expect(try await queue.flush() == 1)
+  let afterUpload = await transport.checks()
+  #expect(try await queue.flush() == 0)
+  #expect(await transport.checks() == afterUpload)
+}
+
+#if canImport(CloudKit)
+@Test func aBuildNotSignedForTheContainerNeverCreatesOne() async throws {
+  // The test runner has no iCloud entitlement: creating the CKContainer here would trap the whole run (#87).
+  let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
+  await #expect(throws: CloudDeliveryError.notEntitled) { try await transport.accountID() }
+  #expect(transport.retryDelay(for: CloudDeliveryError.notEntitled, attempt: 0) == nil)
+}
+
+@Test func signedContainersAreReadFromTheEntitlementsPlistInTheExecutable() throws {
+  let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+  try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+  defer { try? FileManager.default.removeItem(at: dir) }
+  let key = "<key>com.apple.developer.icloud-container-identifiers</key>"
+  let containers = "\(key)\n\t<array>\n\t\t<string>iCloud.com.example.A</string>\n\t\t<string>iCloud.com.example.B</string>\n\t</array>"
+  let services = { (names: String) in "<key>com.apple.developer.icloud-services</key>\n\t<array>\(names)</array>\n" }
+  let plist = services("<string>CloudDocuments</string><string>CloudKit</string>") + containers
+  let signed = dir.appendingPathComponent("signed")
+  // The key also sits in a binary's string table, followed by other strings rather than an array.
+  try (Data([0xCF, 0xFA, 0xED, 0xFE, 0x00]) + Data("\(key)\0iCloud.com.example.C\0</array>".utf8) + Data([0x00, 0xFF])
+    + Data(plist.utf8) + Data([0x00])).write(to: signed)
+  #expect(NativeCloudReportTransport.containers(inExecutable: signed) == ["iCloud.com.example.A", "iCloud.com.example.B"])
+  // iCloud Documents alone also lists the container, but CKContainer(identifier:) still traps without CloudKit.
+  let documentsOnly = dir.appendingPathComponent("documents-only")
+  try Data((services("<string>CloudDocuments</string>") + containers).utf8).write(to: documentsOnly)
+  #expect(NativeCloudReportTransport.containers(inExecutable: documentsOnly).isEmpty)
+  let unsigned = dir.appendingPathComponent("unsigned")
+  try Data("\(key)\0iCloud.com.example.C\0".utf8).write(to: unsigned)
+  #expect(NativeCloudReportTransport.containers(inExecutable: unsigned).isEmpty)
+  #expect(NativeCloudReportTransport.containers(inExecutable: dir.appendingPathComponent("missing")).isEmpty)
+  #expect(NativeCloudReportTransport.containers(inExecutable: nil).isEmpty)
+}
+#endif
 
 @Test func cloudPayloadInstallsCompleteEvidenceAndRepairsMissingFiles() throws {
   let f = CloudFixture(); defer { f.clean() }
