@@ -14,7 +14,15 @@ redeem, the stored device and the words an app shows. No UI.
 
 - **Summary:** Pair this device from a link Larry sends
 - **From:** think-a-card-trainer's practice ledger (its story 070), the first app to use it
-- **Status:** in progress
+- **Status:** the client half is implemented in 5b2d766 (`PairingLink`, `PairingClient`, `PairedDevice`,
+  `KeychainPairedDeviceStore`, `MemoryPairedDeviceStore`).
+  - Verified on the host by `PairingTests`:
+    - the link's code and https host are read, any other link is refused, and the logged link has no code;
+    - the redeem posts the code, the device and what it replaces;
+    - expired, used, unknown, too many, unreachable and malformed are each their own error with its words;
+    - the device round-trips and never prints its key.
+  - Not yet run: the Keychain item in the shared access group (a device check in the first app), and a redeem
+    against the box (waits on Larry's `/pair` routes).
 
 #### Use Case:
 - **As someone** who uses several of my own apps on one phone
@@ -46,7 +54,9 @@ redeem, the stored device and the words an app shows. No UI.
 
 - **Summary:** When the key runs out, ask Larry to pair again
 - **From:** Igor's answer 2, 2026-10-18 (keys expire after one month)
-- **Status:** in progress
+- **Status:** `PairingStatus` is implemented in 5b2d766. It is verified on the host by `PairingStatusTests`, which
+  check each of the four scenarios' words and that expired, refused and unpaired need pairing. Each app owns what it
+  stops sending and what it keeps in the meantime.
 
 #### Use Case:
 - **As someone** whose device key lasts a month
