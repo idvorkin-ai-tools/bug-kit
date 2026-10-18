@@ -9,6 +9,7 @@ private final class Events: @unchecked Sendable {
   private var events: [(String, [String: JSONValue])] = []
   func append(_ event: String, _ fields: [String: JSONValue]) { lock.withLock { events.append((event, fields)) } }
   func opens() -> [[String: JSONValue]] { lock.withLock { events.filter { $0.0 == "bug_report_open" }.map(\.1) } }
+  func names() -> [String] { lock.withLock { events.map(\.0) } }
 }
 
 private final class Sheet: UIViewController {}
@@ -130,9 +131,12 @@ private final class OtherWindowRoot: UIViewController {}
     let app = try await appWithSheet()
     defer { app.restore() }
     let elsewhere = UIWindow(frame: .zero)  // not in this app's scene
+    elsewhere.rootViewController = OtherWindowRoot()  // something the report could open over
     elsewhere.motionEnded(.motionShake, with: nil)
     try await waitForOpen(app.events)
     #expect(!app.reporter.flow.isPresented)
+    #expect(!app.events.names().contains("shake"))
+    #expect(app.events.opens().isEmpty)
   }
 
   @Test func systemShakeOffIgnoresTheShake() async throws {
