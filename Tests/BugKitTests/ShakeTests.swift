@@ -12,6 +12,7 @@ private final class Events: @unchecked Sendable {
 }
 
 private final class Sheet: UIViewController {}
+private final class OtherWindowRoot: UIViewController {}
 
 /// A `.bugReporting` app in a key window with a sheet up. The sheet, not BugKit, heads the responder chain (#62).
 @MainActor private func appWithSheet(systemShake: Bool = true) async throws
@@ -102,6 +103,25 @@ private final class Sheet: UIViewController {}
     try await waitForOpen(app.events)
     #expect(app.reporter.flow.isPresented)
     #expect(app.events.opens().first?["over"] == "UIAlertController")
+    app.reporter.cancel()
+    try await Task.sleep(for: .milliseconds(500))  // the report sheet's dismissal animation
+  }
+
+  @Test func theReportOpensOverTheWindowThatWasShakenNotTheKeyOne() async throws {
+    let app = try await appWithSheet()
+    let scene = try #require(app.window.windowScene)
+    let other = UIWindow(windowScene: scene)  // same scene, visible, never made key
+    other.rootViewController = OtherWindowRoot()
+    other.isHidden = false
+    defer {
+      other.rootViewController?.dismiss(animated: false)
+      other.isHidden = true
+      app.restore()
+    }
+    #expect(!other.isKeyWindow)
+    other.motionEnded(.motionShake, with: nil)
+    try await waitForOpen(app.events)
+    #expect(app.events.opens().first?["over"] == "OtherWindowRoot")
     app.reporter.cancel()
     try await Task.sleep(for: .milliseconds(500))  // the report sheet's dismissal animation
   }

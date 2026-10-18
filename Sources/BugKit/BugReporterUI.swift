@@ -106,7 +106,10 @@
 
     /// Captures the screen first, then presents the dialog from the topmost view controller, so it opens over any
     /// sheet, cover or dialog already up instead of replacing it or being swallowed (EA #41, CG #182).
-    public func open(from source: BugReportFlow.Source) {
+    public func open(from source: BugReportFlow.Source) { open(from: source, in: nil) }
+
+    /// Open over `window` (the one that was shaken), or over the key window when nil.
+    func open(from source: BugReportFlow.Source, in window: UIWindow?) {
       if source == .shake, !shakeEnabled {
         hooks.logger("bug_report_open", ["source": "shake", "ignored": true])
         return
@@ -115,11 +118,10 @@
         hooks.logger("bug_report_open", ["source": .string(source.rawValue), "already_open": true])
         return
       }
-      present(source: source)
+      present(source: source, in: window ?? Self.keyWindow())
     }
 
-    private func present(source: BugReportFlow.Source) {
-      let window = Self.keyWindow()
+    private func present(source: BugReportFlow.Source, in window: UIWindow?) {
       diagnostics = diagnosticsSnapshot(in: window)
       capturedLogPosition = hooks.sessionLog()
       screenshot = options.screenshot { window.map(Self.snapshot) }
@@ -534,7 +536,7 @@
           guard reporter.options.systemShake, let scene = probe.window?.windowScene,
                 (note.object as? UIWindow)?.windowScene === scene else { return }
           reporter.hooks.logger("shake", ["source": "system"])
-          reporter.open(from: .shake)
+          reporter.open(from: .shake, in: note.object as? UIWindow)
         }
         .onAppear { reporter.sceneActive(scenePhase == .active) }
         .onChange(of: scenePhase) { _, phase in reporter.sceneActive(phase == .active) }
