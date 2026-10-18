@@ -21,7 +21,7 @@ BugKit code. They live here because this is the global repo, not because they de
 | Building, signing, deploying and testing on real devices with agents | [docs/ops](docs/ops/README.md) |
 | Evidence, deduplication, crashes and debugging | [docs/principles.md](docs/principles.md) |
 | Fixing a shared bug once, here, not in each app | [Where a bug gets fixed](#where-a-bug-gets-fixed) |
-| The app checklist: report a problem, What's new, version and commit, session logs, crash capture, CloudKit opt-in | [#46](https://github.com/idvorkin/bug-kit/issues/46) |
+| The app checklist: report a problem, What's new, version and commit, session logs, crash capture, CloudKit opt-in | [docs/app-checklist.md](docs/app-checklist.md) |
 
 Link to this section from each app's AGENTS.md. When work in one app turns up a bug or a practice that applies to every app,
 file it here and link the app's issue to it.
@@ -228,6 +228,7 @@ scripts/deploy-all.sh my-app --dry-run        # inspect the configured deploymen
 | [App migrations](docs/migration.md) | Historical feature matrix and EA, CG and MM migration checklists |
 | [User stories](docs/stories/README.md) | Acceptance criteria and verification rungs |
 | [Operations](docs/ops/README.md) | Pulling, filing, signing, deployment, runners and simulators |
+| [App checklist](docs/app-checklist.md) | What every app that adopts BugKit sets up, each item linked to its doc |
 
 ## Where a bug gets fixed
 
