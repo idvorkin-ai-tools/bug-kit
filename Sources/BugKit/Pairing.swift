@@ -7,17 +7,20 @@
 import Foundation
 
 /// `<scheme>://pair?code=<code>&host=<https host, url-encoded>`, as the box's page opens it.
-public struct PairingLink: Equatable, Sendable {
+public struct PairingLink: Equatable, Sendable, CustomStringConvertible,
+  CustomDebugStringConvertible, CustomReflectable
+{
   public let code: String
   public let host: URL
 
-  /// Nil for any link that is not a pairing, or one whose host is not https.
-  public init?(_ url: URL) {
+  /// `box` is the box's host name the app trusts, as `box.tail1234.ts.net`. Nil for any link that is not a pairing,
+  /// or one whose host is not https on `box`: any page can open the link, and the redeem sends the device there.
+  public init?(_ url: URL, box: String) {
     guard url.host == "pair",
       let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems,
       let code = items.first(where: { $0.name == "code" })?.value, !code.isEmpty,
       let host = items.first(where: { $0.name == "host" })?.value.flatMap(URL.init(string:)),
-      host.scheme == "https"
+      Self.isBox(host, box)
     else { return nil }
     self.code = code
     self.host = host
@@ -34,6 +37,15 @@ public struct PairingLink: Equatable, Sendable {
     }
     return parts.string ?? "redacted"
   }
+
+  /// https on the host `box` names, any port.
+  static func isBox(_ url: URL, _ box: String) -> Bool {
+    url.scheme == "https" && url.host?.lowercased() == box.lowercased()
+  }
+
+  public var description: String { "PairingLink(\(host.absoluteString), code redacted)" }
+  public var debugDescription: String { description }
+  public var customMirror: Mirror { Mirror(self, children: ["host": host], displayStyle: .struct) }
 }
 
 /// This device as the box paired it: its key opens every service in `services` until `expiresAt`.
@@ -138,7 +150,8 @@ public struct PairingClient: Sendable {
   }
 
   /// `device` describes it for the box's list (model, os, app, build); `replacing` is the device this one was
-  /// paired as before, whose key the box then revokes. Throws `PairingError`.
+  /// paired as before, whose key the box then revokes. A service anywhere but https on the link's host is malformed.
+  /// Throws `PairingError`.
   public func redeem(_ link: PairingLink, device: [String: String], replacing: String?) async throws
     -> PairedDevice
   {
@@ -159,9 +172,11 @@ public struct PairingClient: Sendable {
     }
     switch (response as? HTTPURLResponse)?.statusCode ?? 0 {
     case 200..<300:
-      do { return try JSONDecoder().decode(PairedDevice.self, from: data) } catch {
-        throw PairingError.malformed
-      }
+      guard let paired = try? JSONDecoder().decode(PairedDevice.self, from: data),
+        let box = link.host.host,
+        paired.services.values.allSatisfy({ PairingLink.isBox($0, box) })
+      else { throw PairingError.malformed }
+      return paired
     case 410: throw PairingError.expired
     case 409: throw PairingError.used
     case 404: throw PairingError.unknown

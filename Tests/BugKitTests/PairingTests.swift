@@ -34,7 +34,8 @@ private let redeemed = Data(
   """.utf8)
 
 private let link = PairingLink(
-  URL(string: "thinkacard://pair?code=ABC234&host=https%3A%2F%2Fbox.example%3A8451")!)!
+  URL(string: "thinkacard://pair?code=ABC234&host=https%3A%2F%2Fbox.example%3A8451")!,
+  box: "box.example")!
 
 private let device = PairedDevice(
   deviceID: "dev_7", key: "dk_s3cret", name: "Igor's iPhone",
@@ -48,14 +49,39 @@ private let device = PairedDevice(
   }
 
   @Test func anyOtherLinkIsNotAPairing() {
-    #expect(PairingLink(URL(string: "thinkacard://think")!) == nil)
-    #expect(PairingLink(URL(string: "thinkacard://pair?code=ABC234")!) == nil, "no host")
+    #expect(PairingLink(URL(string: "thinkacard://think")!, box: "box.example") == nil)
     #expect(
-      PairingLink(URL(string: "thinkacard://pair?host=https%3A%2F%2Fbox.example")!) == nil,
+      PairingLink(URL(string: "thinkacard://pair?code=ABC234")!, box: "box.example") == nil,
+      "no host")
+    #expect(
+      PairingLink(
+        URL(string: "thinkacard://pair?host=https%3A%2F%2Fbox.example")!, box: "box.example")
+        == nil,
       "no code")
     #expect(
-      PairingLink(URL(string: "thinkacard://pair?code=A&host=http%3A%2F%2Fbox.example")!) == nil,
+      PairingLink(
+        URL(string: "thinkacard://pair?code=A&host=http%3A%2F%2Fbox.example")!, box: "box.example")
+        == nil,
       "not https")
+    #expect(
+      PairingLink(
+        URL(string: "thinkacard://pair?code=A&host=https%3A%2F%2Fattacker.example")!,
+        box: "box.example") == nil,
+      "not the box")
+    #expect(
+      PairingLink(
+        URL(string: "thinkacard://pair?code=A&host=https%3A%2F%2Fbox.example.attacker.example")!,
+        box: "box.example") == nil,
+      "a host that only starts with the box's name")
+  }
+
+  @Test func thePrintedLinkHasNoCode() {
+    #expect(!"\(link)".contains("ABC234"))
+    #expect(!String(reflecting: link).contains("ABC234"))
+    var dumped = ""
+    dump(link, to: &dumped)
+    #expect(!dumped.contains("ABC234"))
+    #expect(dumped.contains("box.example"))
   }
 
   @Test func theLoggedLinkHasNoCode() {
@@ -127,6 +153,19 @@ private let device = PairedDevice(
   @Test func anAnswerWithoutAKeyIsMalformed() async {
     let box = StubBox()
     box.body = Data(#"{"device_id": "dev_7"}"#.utf8)
+    await #expect(throws: PairingError.malformed) {
+      try await PairingClient(transport: box.transport).redeem(link, device: [:], replacing: nil)
+    }
+  }
+
+  @Test(arguments: ["https://attacker.example:8451", "http://box.example:8451"])
+  func aServiceOffTheBoxIsMalformed(service: String) async {
+    let box = StubBox()
+    box.body = Data(
+      """
+      {"device_id": "dev_7", "device_key": "dk_s3cret", "name": "Igor's iPhone",
+       "expires_at": "2026-11-17T10:00:00-08:00", "services": {"ledger": "\(service)"}}
+      """.utf8)
     await #expect(throws: PairingError.malformed) {
       try await PairingClient(transport: box.transport).redeem(link, device: [:], replacing: nil)
     }

@@ -13,8 +13,9 @@ public protocol PairedDeviceStore: AnyObject {
 
 /// The Keychain refused the paired device: the call and its status.
 public struct PairedDeviceStoreFailed: Error, CustomStringConvertible {
+  public let call: String
   public let status: OSStatus
-  public var description: String { "SecItemAdd \(status)" }
+  public var description: String { "\(call) \(status)" }
 }
 
 public final class KeychainPairedDeviceStore: PairedDeviceStore {
@@ -46,13 +47,19 @@ public final class KeychainPairedDeviceStore: PairedDeviceStore {
     return try? JSONDecoder().decode(PairedDevice.self, from: data)
   }
 
+  /// Updates the item in place, so a refused save leaves the device paired as it was.
   public func save(_ device: PairedDevice) throws {
-    SecItemDelete(query as CFDictionary)
-    var item = query
-    item[kSecValueData as String] = try JSONEncoder().encode(device)
-    item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    let status = SecItemAdd(item as CFDictionary, nil)
-    if status != errSecSuccess { throw PairedDeviceStoreFailed(status: status) }
+    let values: [String: Any] = [
+      kSecValueData as String: try JSONEncoder().encode(device),
+      kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+    ]
+    let updated = SecItemUpdate(query as CFDictionary, values as CFDictionary)
+    if updated == errSecSuccess { return }
+    guard updated == errSecItemNotFound else {
+      throw PairedDeviceStoreFailed(call: "SecItemUpdate", status: updated)
+    }
+    let added = SecItemAdd(query.merging(values) { $1 } as CFDictionary, nil)
+    if added != errSecSuccess { throw PairedDeviceStoreFailed(call: "SecItemAdd", status: added) }
   }
 
   public func remove() { SecItemDelete(query as CFDictionary) }
