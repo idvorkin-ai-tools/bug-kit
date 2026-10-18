@@ -587,20 +587,42 @@ Confirm a report saved before opt-in never uploads. `doctor --json` checks signi
 disabled cellular/iCloud or a sleeping/offline Mac must be treated as failed delivery, not hidden by an old
 download folder. This live device/cellular test has not been run; it requires Igor.
 
-### watchOS and #25
+### watchOS reporting
 
-The package declares watchOS 10 support. The model, local store, writer, logger and CloudKit sender compile
-with the watchOS SDK, allowing think-a-card's watch target to submit directly to the private container without
-waiting for its paired iPhone. Give that watch target its own authorized App ID/profile and the same shared
-container, and call `start()` when the watch app launches or becomes active.
+The package declares watchOS 10. The model, store, writer, session log and CloudKit sender build there, and
+`WatchBugReportView` is the watch's report form; there is no shake, screenshot or phone sheet on the watch. Retain
+one store, log and writer for the watch app's lifetime, and await `prepare(documents:)` before showing the form:
 
-From the app's own note input, `WatchBugReportSession(writer:screen:context:log:)` saves through that writer
-with no screenshot. Its `save(note:)` trims the note, flushes the log, and returns once `bugs.jsonl` holds the
-report. It throws `.emptyNote` for a blank note and `.indexNotWritten` when the index append failed; on
-either error the form should keep the note so the person can retry. CloudKit delivery remains asynchronous.
+```swift
+let delivery = CloudKitReportDelivery(
+  containerIdentifier: "iCloud.com.example.BugKitReports", store: store, logger: log.logger)
+try await delivery.prepare(documents: store.documents) // before exposing the form
+Task { await delivery.start() } // launch; repeat when the watch app becomes active
+let writer = BugReportWriter(store: store, info: info, logger: log.logger, copySessionLog: true, delivery: delivery)
+```
 
-The package does not add a watch report dialog, shake handling, dictation UI, screenshots, or a
-WatchConnectivity relay, so #25 remains open for those integration choices and real watch/cellular validation.
+Present the form from the watch app's own sheet or navigation:
+
+```swift
+WatchBugReportView(session: WatchBugReportSession(writer: writer, screen: "card", context: ["card": .int(7)], log: log))
+```
+
+- **The note** comes from the watch's system text input (`TextFieldLink`). The form refuses a blank note, closes
+  only once the report is in `bugs.jsonl`, and keeps the note when the save fails so the person can retry.
+- **An app with its own input** calls `try await session.save(note:)` directly. It throws `emptyNote` or
+  `indexNotWritten`, never reporting success for a report the listener cannot read.
+- **The report** has the phone's format: UUID, context, the copied session log, and no screenshot.
+- **Delivery without the phone:** authorize the watch app's own App ID for the same private container as the Mac
+  reader, and add the iCloud/CloudKit capability to the watch target. Keep the watch and Mac on one iCloud account.
+  No WatchConnectivity relay is needed.
+- **The listener** files a CloudKit report only when its bundle ID is in `apps.json`, so give the watch bundle ID its
+  own entry (its own `name`, the same `repo` as the phone app). Reports from an unlisted bundle are skipped.
+- **Not uploaded:** crash files and reports saved before opt-in stay local, as on the phone. Keep the app's existing
+  watch pull path for those.
+
+CI compiles this snippet against the watchOS SDK from `Tests/Adoption/WatchReportingAdoption.swift`; host tests
+cover the save. A real watch entry reaching an issue on the Mac still needs Igor's check (bug-6lt): don't retire an
+app's old watch reporter until it passes.
 
 
 ## About / version in Settings
