@@ -154,7 +154,14 @@ public struct WhatsNewSeen: @unchecked Sendable {
             seen.dismiss(feed, logger: logger)
             dismissed = true
           } label: {
-            Image(systemName: "xmark").font(.footnote.weight(.semibold))
+            // The screenshot ✕'s fixed colours read on light rows and on MM's black capsule over video (#35).
+            Image(systemName: "xmark.circle.fill")
+              .font(.title3).symbolRenderingMode(.palette)
+              .foregroundStyle(.white, .black.opacity(0.75))
+              #if os(iOS)
+                .frame(minWidth: 44, minHeight: 44)
+              #endif
+              .contentShape(Rectangle())
           }
           .buttonStyle(.borderless)
           .accessibilityLabel("Hide What's new until the next change")

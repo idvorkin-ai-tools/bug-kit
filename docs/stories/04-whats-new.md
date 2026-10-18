@@ -86,7 +86,7 @@ Part of the [BugKit stories](README.md). What's new was built in Context Grabber
 - **From:** CG story 148 (adfed5a, `WhatsNewSeenUITests`)
 - **Status:**
   - `WhatsNewSeen` and `WhatsNewRow`. Verified on the host by `testTheSeenStoreHidesTheRowUntilSomethingNewer` and `testHomeRowGoesOnceSeenAndComesBackForSomethingNewer`.
-  - The row is verified by typecheck.
+  - The row is verified by typecheck. On iOS its ✕ is a 44×44 pt touch target, verified in the simulator by `whatsNewDismissIsATouchSizedTarget` (#35).
 
 #### Use Case:
 - **As someone** who has read what is new
