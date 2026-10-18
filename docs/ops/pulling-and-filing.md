@@ -43,7 +43,7 @@ xcrun devicectl device copy from --device <id> --domain-type systemCrashLogs --s
   its `bug-id:` or `bug:` marker is in an issue. A report found on a device and in CloudKit (mirrored delivery) is
   listed and counted once, as the device line, matched by `id`, else by `reported_at`. With no paired device, the
   check still reads CloudKit.
-- The issue lookup reads up to 10,000 issues per repository, as the listener does. A repository that fills that read
+- The issue lookup reads up to 10,000 issues per repository. A repository that fills that read
   may have older issues cut off, so the check treats it as a failed lookup (exit 2) rather than trusting a partial
   marker list.
 - The exit code is 1 when there are new reports, 0 when clean, 2 when the issue lookup, the CloudKit config or the
