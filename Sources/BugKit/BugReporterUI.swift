@@ -46,6 +46,7 @@
   ///     let reporter = BugReporter(hooks: BugReporterHooks(logger: log.logger))
   ///     ContentView().bugReporting(reporter)
   @MainActor
+  @available(iOSApplicationExtension, unavailable, message: "Link BugKit only into the host app; extensions cannot present the app reporter.")
   public final class BugReporter: ObservableObject {
     @Published public var flow = BugReportFlow()
     /// The moment the dialog opened: the screen as it was, and the context then.
@@ -312,6 +313,7 @@
   }
 
   /// The dialog: a note (typed or spoken), the screenshot, what is attached, and "Log it" / "Log it and another".
+  @available(iOSApplicationExtension, unavailable)
   public struct BugReportSheet: View {
     @ObservedObject var reporter: BugReporter
     @ObservedObject private var dictation: NoteDictation
@@ -482,6 +484,7 @@
   }
 
   /// For when shaking is awkward (an iPad on a stand, a phone on a tripod).
+  @available(iOSApplicationExtension, unavailable)
   public struct BugReportButton: View {
     @ObservedObject var reporter: BugReporter
     let title: String
@@ -515,6 +518,7 @@
     func updateUIView(_ uiView: UIView, context: Context) {}
   }
 
+  @available(iOSApplicationExtension, unavailable)
   private struct BugReporting: ViewModifier {
     @ObservedObject var reporter: BugReporter
     @Environment(\.scenePhase) private var scenePhase
@@ -546,6 +550,7 @@
 
   extension View {
     /// A shake (hard or, with `gentleShake`, gentle) or ⌘I opens the report dialog.
+    @available(iOSApplicationExtension, unavailable)
     public func bugReporting(_ reporter: BugReporter) -> some View {
       modifier(BugReporting(reporter: reporter))
     }
