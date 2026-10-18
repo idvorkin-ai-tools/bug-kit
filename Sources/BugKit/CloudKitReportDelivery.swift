@@ -78,7 +78,35 @@ struct NativeCloudReportTransport: CloudReportTransport {
   let containerIdentifier: String
   var container: CKContainer { CKContainer(identifier: containerIdentifier) }
 
+  /// The iCloud containers this executable is signed for, read once. `CKContainer(identifier:)` traps in a build
+  /// without the container's entitlement (#87), and every CloudKit call goes through `accountID()` first.
+  static let signedContainers = containers(inExecutable: Bundle.main.executableURL)
+
+  /// The entitlements plist is in the executable on both: the code signature on a device, the `__entitlements`
+  /// section in a simulator build. The file is mapped, not read. The key also sits in BugKit's own string table,
+  /// so only a key followed by an `<array>` counts.
+  static func containers(inExecutable url: URL?) -> Set<String> {
+    guard let url, let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return [] }
+    let key = Data("<key>com.apple.developer.icloud-container-identifiers</key>".utf8)
+    var found: Set<String> = []
+    var from = data.startIndex
+    while let match = data.range(of: key, in: from..<data.endIndex) {
+      from = match.upperBound
+      let window = data[match.upperBound..<min(data.endIndex, match.upperBound + 4096)]
+      let text = String(decoding: window, as: UTF8.self).drop { $0.isWhitespace }
+      guard text.hasPrefix("<array>"), let end = text.range(of: "</array>") else { continue }
+      var rest = text[text.index(text.startIndex, offsetBy: 7)..<end.lowerBound]
+      while let open = rest.range(of: "<string>"),
+            let close = rest.range(of: "</string>", range: open.upperBound..<rest.endIndex) {
+        found.insert(String(rest[open.upperBound..<close.lowerBound]))
+        rest = rest[close.upperBound...]
+      }
+    }
+    return found
+  }
+
   func accountID() async throws -> String {
+    guard Self.signedContainers.contains(containerIdentifier) else { throw CloudDeliveryError.notEntitled }
     guard try await container.accountStatus() == .available else { throw CloudDeliveryError.accountUnavailable }
     return try await container.userRecordID().recordName
   }
