@@ -592,9 +592,15 @@ download folder. This live device/cellular test has not been run; it requires Ig
 The package declares watchOS 10 support. The model, local store, writer, logger and CloudKit sender compile
 with the watchOS SDK, allowing think-a-card's watch target to submit directly to the private container without
 waiting for its paired iPhone. Give that watch target its own authorized App ID/profile and the same shared
-container, and call `start()` when the watch app launches or becomes active. This does not add a watch report
-dialog, shake handling, dictation UI, screenshots, or a WatchConnectivity relay, so #25 remains open for those
-integration choices and real watch/cellular validation.
+container, and call `start()` when the watch app launches or becomes active.
+
+From the app's own note input, `WatchBugReportSession(writer:screen:context:log:)` saves through that writer
+with no screenshot. Its `save(note:)` trims the note, flushes the log, and returns once `bugs.jsonl` holds the
+report. It throws `.emptyNote` for a blank note and `.indexNotWritten` when the index append failed; on
+either error the form should keep the note so the person can retry. CloudKit delivery remains asynchronous.
+
+The package does not add a watch report dialog, shake handling, dictation UI, screenshots, or a
+WatchConnectivity relay, so #25 remains open for those integration choices and real watch/cellular validation.
 
 
 ## About / version in Settings
