@@ -30,6 +30,7 @@ targets:
       - ../BugKitTests/InteractionDiagnosticsTests.swift
       - ../BugKitTests/NoteDictationTests.swift
       - ../BugKitTests/ScreenshotPrivacyTests.swift
+      - ../BugKitTests/ShakeTests.swift
     dependencies:
       - target: BugKit
       - target: DiagnosticsHost

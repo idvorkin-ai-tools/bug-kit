@@ -106,7 +106,10 @@
 
     /// Captures the screen first, then presents the dialog from the topmost view controller, so it opens over any
     /// sheet, cover or dialog already up instead of replacing it or being swallowed (EA #41, CG #182).
-    public func open(from source: BugReportFlow.Source) {
+    public func open(from source: BugReportFlow.Source) { open(from: source, in: nil) }
+
+    /// Open over `window` (the one that was shaken), or over the key window when nil.
+    func open(from source: BugReportFlow.Source, in window: UIWindow?) {
       if source == .shake, !shakeEnabled {
         hooks.logger("bug_report_open", ["source": "shake", "ignored": true])
         return
@@ -115,11 +118,10 @@
         hooks.logger("bug_report_open", ["source": .string(source.rawValue), "already_open": true])
         return
       }
-      present(source: source)
+      present(source: source, in: window ?? Self.keyWindow())
     }
 
-    private func present(source: BugReportFlow.Source) {
-      let window = Self.keyWindow()
+    private func present(source: BugReportFlow.Source, in window: UIWindow?) {
       diagnostics = diagnosticsSnapshot(in: window)
       capturedLogPosition = hooks.sessionLog()
       screenshot = options.screenshot { window.map(Self.snapshot) }
@@ -161,12 +163,13 @@
       }
       guard !flow.isPresented else { return }  // keepMoment: the dialog stays, empty
       let host = presented
+      let window = host?.view.window  // the next report opens in the same window
       presented = nil
       screenshot = nil
       // The next report's picture is of the screen underneath, so it waits for this dialog to be gone.
       host?.dismiss(animated: true) { [weak self] in
         guard let self, self.flow.reopenIfPending() else { return }
-        self.present(source: .another)
+        self.present(source: .another, in: window ?? Self.keyWindow())
       }
     }
 
@@ -492,59 +495,49 @@
     }
   }
 
-  /// Calls `onShake` on iOS's own shake gesture. Sits invisibly in the view tree and holds first responder.
-  public struct ShakeDetector: UIViewControllerRepresentable {
-    let onShake: () -> Void
+  extension Notification.Name {
+    /// Posted on iOS's own shake gesture, whatever holds first responder.
+    static let bugKitShake = Notification.Name("BugKitShake")
+  }
 
-    public init(onShake: @escaping () -> Void) { self.onShake = onShake }
-
-    public final class Controller: UIViewController {
-      var onShake: (() -> Void)?
-      override public var canBecomeFirstResponder: Bool { true }
-      override public func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        becomeFirstResponder()
-      }
-      override public func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
-        if motion == .motionShake { onShake?() }
-        super.motionEnded(motion, with: event)
-      }
+  // Every responder chain, a presented sheet's or alert's included, ends at its window (#62).
+  extension UIWindow {
+    override open func motionEnded(_ motion: UIEvent.EventSubtype, with event: UIEvent?) {
+      if motion == .motionShake { NotificationCenter.default.post(name: .bugKitShake, object: self) }
+      super.motionEnded(motion, with: event)
     }
+  }
 
-    public func makeUIViewController(context: Context) -> Controller {
-      let controller = Controller()
-      controller.onShake = onShake
-      controller.view.isUserInteractionEnabled = false
-      return controller
-    }
-
-    public func updateUIViewController(_ controller: Controller, context: Context) {
-      controller.onShake = onShake
-    }
+  /// A view placed in the modifier's hierarchy, so the modifier knows which window, and so scene, it lives in.
+  private struct WindowProbe: UIViewRepresentable {
+    let view: UIView
+    func makeUIView(context: Context) -> UIView { view }
+    func updateUIView(_ uiView: UIView, context: Context) {}
   }
 
   private struct BugReporting: ViewModifier {
     @ObservedObject var reporter: BugReporter
     @Environment(\.scenePhase) private var scenePhase
+    @State private var probe = UIView()
 
     func body(content: Content) -> some View {
       content
         .background {
-          ZStack {
-            if reporter.options.systemShake {
-              ShakeDetector {
-                reporter.hooks.logger("shake", ["source": "system"])
-                reporter.open(from: .shake)
-              }
-            }
-            if reporter.options.commandI {
-              Button("Report a problem") { reporter.open(from: .key) }
-                .keyboardShortcut("i", modifiers: .command)
-                .opacity(0)
-                .accessibilityHidden(true)
-            }
+          if reporter.options.commandI {
+            Button("Report a problem") { reporter.open(from: .key) }
+              .keyboardShortcut("i", modifiers: .command)
+              .opacity(0)
+              .accessibilityHidden(true)
+              .frame(width: 0, height: 0)
           }
-          .frame(width: 0, height: 0)
+        }
+        .background(WindowProbe(view: probe).frame(width: 0, height: 0).accessibilityHidden(true))
+        .onReceive(NotificationCenter.default.publisher(for: .bugKitShake)) { note in
+          // Every scene's modifier hears every window's shake; answer only one from this scene.
+          guard reporter.options.systemShake, let scene = probe.window?.windowScene,
+                (note.object as? UIWindow)?.windowScene === scene else { return }
+          reporter.hooks.logger("shake", ["source": "system"])
+          reporter.open(from: .shake, in: note.object as? UIWindow)
         }
         .onAppear { reporter.sceneActive(scenePhase == .active) }
         .onChange(of: scenePhase) { _, phase in reporter.sceneActive(phase == .active) }

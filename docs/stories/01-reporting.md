@@ -39,9 +39,16 @@ Part of the [BugKit stories](README.md).
 - **Summary:** The report opens over whatever is on screen, sheets included
 - **From:** EA #41; CG #182 (story 142, "A shake over a dialog")
 - **Status:**
-  - `BugReporter.open` captures the key window, then presents from `BugReporter.topmost`. Verified by typecheck.
+  - `BugReporter.open` captures a window, then presents from `BugReporter.topmost`: a shake uses the shaken
+    window, a "report another" reopen uses the window of the dialog it just dismissed, and anything else uses
+    the key window. Verified by typecheck.
   - CG's `ShakeOverSheetUITests` covers the same design in CG.
-  - BugKit's own presentation over a sheet is a device check, still to do.
+  - iOS's shake is heard at `UIWindow`, so it reaches BugKit whatever holds first responder (#62). The
+    simulator's `ShakeTests` cover a sheet, a focused text field in a sheet and an alert
+    (`shakeOverASheetOpensTheReportOverThatSheet`, `shakeInAFocusedTextFieldInsideASheetOpensTheReport`,
+    `shakeOverAnAlertOpensTheReport`), the report opens over the shaken window rather than the key one
+    (`theReportOpensOverTheWindowThatWasShakenNotTheKeyOne`), and a shake in another scene's window leaves this
+    scene alone (`aShakeInAnotherScenesWindowLeavesThisSceneAlone`); a physical shake on a device is still to do.
 
 #### Use Case:
 - **As someone** reporting a problem with a settings sheet or a list open
