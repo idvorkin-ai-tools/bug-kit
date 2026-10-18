@@ -202,10 +202,11 @@ public enum PairingStatus: Equatable, Sendable {
       return
     }
     let left = device.expiresAt.timeIntervalSince(now)
-    if refused {
-      self = .refused(name: device.name)
-    } else if left <= 0 {
+    // An expired key is also refused by the box; "expired" says why.
+    if left <= 0 {
       self = .expired(name: device.name)
+    } else if refused {
+      self = .refused(name: device.name)
     } else if left <= 3 * 86_400 {
       self = .expiring(name: device.name, days: Int((left / 86_400).rounded(.up)))
     } else {

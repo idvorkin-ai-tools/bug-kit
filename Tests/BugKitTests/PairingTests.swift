@@ -235,6 +235,10 @@ private let device = PairedDevice(
       expired.message(locale: en, timeZone: pacific)
         == "Igor's iPhone's key has expired. Ask Larry to pair again.")
 
+    #expect(
+      PairingStatus(device: paired(inDays: -1), refused: true, now: now) == .expired(name: "Igor's iPhone"),
+      "an expired key the box also refused says expired")
+
     let refused = PairingStatus(device: paired(inDays: 20), refused: true, now: now)
     #expect(refused == .refused(name: "Igor's iPhone"))
     #expect(refused.needsPairing)
