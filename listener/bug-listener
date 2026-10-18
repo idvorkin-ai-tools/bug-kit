@@ -238,8 +238,28 @@ def probe(dev: dict) -> Optional[dict]:
     return state
 
 
-def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> bool:
-    """devicectl copy from the configured app or App Group container. Paths are relative to that container."""
+NOT_INSTALLED = "app_not_installed"
+
+
+def app_listed(dev: dict, a: dict) -> Optional[bool]:
+    """Whether devicectl's app list has the app's bundle on the device. None when the listing itself fails."""
+    with tempfile.TemporaryDirectory() as d:
+        out = Path(d) / "apps.json"
+        rc, _, err = run(["xcrun", "devicectl", "device", "info", "apps", "--device", dev["id"],
+                          "--bundle-id", a["bundle"], "--json-output", str(out), "--timeout", "30"], timeout=60)
+        try:
+            apps = json.loads(out.read_text())["result"]["apps"] if rc == 0 else None
+        except (OSError, ValueError, KeyError, TypeError):
+            apps = None
+    if not isinstance(apps, list):
+        log("apps", device=dev["dir"], app=a["name"], ok=False, rc=rc, stderr=tail(err))
+        return None
+    return bool(apps)
+
+
+def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_missing: bool = False) -> Any:
+    """devicectl copy from the configured app or App Group container. Paths are relative to that container.
+    With allow_missing, an app not installed on the device returns NOT_INSTALLED (truthy: not an error)."""
     if dev.get("type") == "Mac":
         return copy_mac(a, dev, source, dest, allow_missing=allow_missing)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -249,17 +269,31 @@ def copy(dev: dict, a: dict, source: str, dest: Path, locked: Any, *, allow_miss
                       "--domain-identifier", a.get("app_group") or a["bundle"],
                       "--source", source, "--destination", str(dest), "--timeout", "90"], timeout=120)
     ms = int((time.monotonic() - t0) * 1000)
-    missing = allow_missing and rc not in (0, 124, 127) and bool(re.search(
-        r"no such file|file[^\n]*(?:does not exist|not found)|directory[^\n]*(?:does not exist|not found)", err, re.I))
+    # Expected misses, not failures (#39): a file or folder the app never made (devicectl: "Failed to retrieve the
+    # file node", CoreDeviceError 7000), or an app not installed on this device (ContainerLookupErrorDomain, and
+    # devicectl's app list confirms the bundle is absent; otherwise the container lookup itself failed).
+    absent = lookup_failed = None
+    if allow_missing and rc not in (0, 124, 127):
+        if re.search(r"ContainerLookupErrorDomain", err):
+            if app_listed(dev, a) is False:
+                absent = "app_not_installed"
+            else:
+                lookup_failed = True
+        elif re.search(r"no such file|failed to retrieve the file node|file[^\n]*(?:does not exist|not found)"
+                       r"|directory[^\n]*(?:does not exist|not found)", err, re.I):
+            absent = "path"
+    missing = absent is not None
     ok = (rc == 0 and dest.exists()) or missing
     fields = dict(device=dev["dir"], app=a["name"], source=source, ok=ok, ms=ms, locked=locked,
                   domain="appGroupDataContainer" if a.get("app_group") else "appDataContainer")
     if missing:
-        fields["missing"] = True
+        fields.update(missing=True, absent=absent)
     if not ok:
         fields.update(rc=rc, stderr=tail(err))
+    if lookup_failed:
+        fields.update(error="container_lookup_failed")
     log("copy", **fields)
-    return ok
+    return NOT_INSTALLED if absent == "app_not_installed" else ok
 
 
 def copy_mac(a: dict, dev: dict, source: str, dest: Path, *, allow_missing: bool) -> bool:
@@ -704,9 +738,12 @@ def poll_reports(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
     # Read a fresh snapshot. A missing index must not replay a stale local copy.
     with tempfile.TemporaryDirectory() as tmp:
         index = Path(tmp) / "bugs.jsonl"
-        if not copy(dev, a, "Documents/bugs.jsonl", index, locked, allow_missing=True):
+        got = copy(dev, a, "Documents/bugs.jsonl", index, locked, allow_missing=True)
+        if not got:
             summary["errors"] += 1
             return
+        if got == NOT_INSTALLED:
+            return  # no first contact yet: an app installed later still baselines what it already has
         reports = read_index(index, ctx) if index.exists() else []
         if index.exists():
             local.mkdir(parents=True, exist_ok=True)
@@ -757,8 +794,11 @@ def poll_crashes(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
     pair = f"{a['bundle']}|{dev['id']}"
     with tempfile.TemporaryDirectory() as tmp:
         snapshot = Path(tmp) / "crashes"
-        if not copy(dev, a, a.get("crash_dir", "Documents/crashes"), snapshot, locked, allow_missing=True):
+        got = copy(dev, a, a.get("crash_dir", "Documents/crashes"), snapshot, locked, allow_missing=True)
+        if not got:
             summary["errors"] += 1
+            return
+        if got == NOT_INSTALLED:
             return
         records = {}
         for path in sorted(snapshot.glob("*")):
