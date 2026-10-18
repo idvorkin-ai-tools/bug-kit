@@ -57,9 +57,7 @@ struct MyApp: App {
     self.log = log
     CrashReports.shared.install(logger: log.logger)
     BugStore().pruneLogs(logger: log.logger)
-    var options = BugReporterOptions()
-    options.recordInteractions = true
-    options.captureAccessibility = true
+    let options = BugReporterOptions()  // rich diagnostics are on; `options.richDiagnostics = false` turns them off
     _reporter = StateObject(wrappedValue: BugReporter(
       hooks: BugReporterHooks(
         screen: { "home" },
@@ -82,18 +80,17 @@ struct MyApp: App {
 }
 ```
 
-The two diagnostic options attach recent interaction breadcrumbs and a public view/accessibility snapshot to each report. See [UI diagnostics](docs/integration.md#interaction-and-accessibility-diagnostics) for coverage and semantic action hooks.
+Rich diagnostics are on by default: each report gets recent interaction breadcrumbs and a public view/accessibility snapshot, and `options.richDiagnostics = false` turns both off. See [UI diagnostics](docs/integration.md#interaction-and-accessibility-diagnostics) for coverage and semantic action hooks.
 
 See [integration](docs/integration.md) for context, extra files, dictation, simulator hooks and What's new. Dictation is off by default; Apple Speech requires speech and microphone usage descriptions in Info.plist; a cloud provider needs the microphone description. Set `BugKitCommit` in Info.plist to include the app’s commit in reports.
 
 ## Enable each feature
 
-Set options **before** constructing `BugReporter(hooks: ..., options: options)`, and keep `.bugReporting(reporter)` on your root view as in the quick start. The quick start enables interaction and accessibility capture explicitly; both are off by default.
+Set options **before** constructing `BugReporter(hooks: ..., options: options)`, and keep `.bugReporting(reporter)` on your root view as in the quick start. Rich diagnostics (interaction breadcrumbs and the accessibility snapshot) are on by default; set `options.richDiagnostics = false` to turn both off.
 
 ### Clicks, touches and semantic actions
 
 ```swift
-options.recordInteractions = true
 options.interactionLimit = 200  // recent events per report; clamped to 1...1,000
 ```
 
@@ -107,11 +104,7 @@ Give views stable identifiers, such as `.accessibilityIdentifier("settings-butto
 
 ### Accessibility tree dump
 
-```swift
-options.captureAccessibility = true
-```
-
-Each report gets `accessibility.json`, captured before the report dialog opens. It contains the public UIKit view/accessibility hierarchy, identifiers, labels, hints, frames and traits, bounded to 500 nodes and depth 30. Text-entry subtrees and accessibility values are omitted. Some virtual SwiftUI elements may be absent. This option works independently of interaction recording. See [coverage and limitations](docs/integration.md#interaction-and-accessibility-diagnostics).
+Each report gets `accessibility.json`, captured before the report dialog opens. It contains the public UIKit view/accessibility hierarchy, identifiers, labels, hints, frames and traits, bounded to 500 nodes and depth 30. Text-entry subtrees and accessibility values are omitted. Some virtual SwiftUI elements may be absent. It comes with interaction recording; `richDiagnostics = false` turns off both. See [coverage and limitations](docs/integration.md#interaction-and-accessibility-diagnostics).
 
 ### Crash capture and automatic filing
 
@@ -160,7 +153,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 | Standalone report metadata | Set `options.writeReportJSON = true` to add `report.json` beside attachments. Default: `false`; the main `bugs.jsonl` index is always written. |
 | Dictate a note | Set `options.dictation = true` (default `false`). Apple Speech is the default and needs `NSSpeechRecognitionUsageDescription` and `NSMicrophoneUsageDescription` in Info.plist. |
 | Select a microphone | With dictation enabled, open the report's “Microphone” menu, choose “Refresh microphones” to load the inputs (and grant initial mic permission), then select Automatic, built-in, USB/wired, or a headset iOS offers. The preference is kept for later reports; picks apply before dictation starts. Opening a report does not query inputs or retune audio. |
-| Disable automatic screenshots | Set `options.captureScreenshots = false` (default `true`). Applies to the report sheet, recapture and launch-hook reports. For private-text apps, also keep `dictation`, `captureAccessibility` and `recordInteractions` off. [Privacy configuration](docs/integration.md#private-text-apps). |
+| Disable automatic screenshots | Set `options.captureScreenshots = false` (default `true`). Applies to the report sheet, recapture and launch-hook reports. For private-text apps, also set `richDiagnostics = false` (default `true`) and keep `dictation` off. [Privacy configuration](docs/integration.md#private-text-apps). |
 | Deepgram or another speech server | Set `hooks.dictationProvider` to a factory returning `DeepgramDictationProvider` or your own `BugDictationProvider`. Cloud providers need only the microphone usage description; the app owns credentials. See [voice input providers](docs/integration.md#voice-input-providers). |
 | Remove a report screenshot | Tap the ✕ on the screenshot in “Attached automatically.” Enabled by default. The choice persists for `.keepMoment`; `.recapture` takes a fresh image. Context stays attached. |
 | Fresh evidence for “Log it and another” | Set `options.another = .recapture`. The default `.keepMoment` reuses the captured screenshot and diagnostics. |

@@ -23,7 +23,7 @@ Observed integration: `ExerciseAnalyzer/BugReport.swift` imports BugKit, adapts 
 
 1. Update its BugKit resolution, then remove the local `foundation` extension in that file; the existing `fields.mapValues(\.foundation)` bridge can use the shared property. Keep EA's own `SessionLog`, context and frame-at-playhead hook.
 2. Preserve `gentleShake = false` and `.keepMoment`. These are deliberate exercise-app choices, not migration omissions. Keep the speech/microphone usage strings for its enabled dictation.
-3. If enabling the earlier UI diagnostics, set `recordInteractions` and `captureAccessibility` on these same options, and provide stable accessibility identifiers and semantic action hooks. Add a `flushLog` hook if the app's logger buffers writes.
+3. Rich diagnostics (breadcrumbs and the accessibility snapshot) are on by default from 0.3.9; `richDiagnostics = false` turns them off. Provide stable accessibility identifiers and semantic action hooks. Add a `flushLog` hook if the app's logger buffers writes.
 4. Route its log inspection and symbolication recipes to the shared tools after comparing results on an existing fixture. `pull_extra` can name its WatchConnectivity inbox using the real path under the container; do not substitute a guessed folder.
 5. Before a rebuild/relaunch recipe terminates the app, pull the latest session log and relevant rolling evidence. Preserve the app's signing lock and Watch installation behavior.
 6. Verify host tests, then the app's `SWING_BUG`/`SWING_SHAKE_AFTER` simulator checks, copied dictation errors and report frame. The historical PR #246 checklist below records earlier adoption; it is not proof these new options are enabled.

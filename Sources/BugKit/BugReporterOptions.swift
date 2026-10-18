@@ -28,11 +28,11 @@ public struct BugReporterOptions: Equatable, Sendable {
   /// Capture the screen before opening the report dialog and for launch-hook reports. Disable for apps whose
   /// screens contain private text. This does not filter files supplied by the app's extraFiles hook.
   public var captureScreenshots = true
-  /// Log touch/gesture, UIKit control and scene breadcrumbs, and attach the most recent ones to reports.
-  public var recordInteractions = false
-  /// Attach the app's public UIKit view/accessibility metadata before the report dialog opens.
-  /// Text-entry subtrees and accessibility values are excluded. SwiftUI's virtual AX tree may be incomplete.
-  public var captureAccessibility = false
+  /// Rich diagnostics, on in every app by default (VISION): log touch/gesture, UIKit control and scene breadcrumbs and
+  /// attach the most recent ones to reports (`interactions.jsonl`), and attach the app's public UIKit
+  /// view/accessibility metadata captured before the report dialog opens (`accessibility.json`). Text-entry subtrees
+  /// and accessibility values are excluded; SwiftUI's virtual AX tree may be incomplete. Off turns both off.
+  public var richDiagnostics = true
   /// Maximum recent interaction events per report (clamped to 1...1,000).
   public var interactionLimit = 200
   /// Errors in the dialog (dictation's) get a Copy error button that copies the message, where, the build and the

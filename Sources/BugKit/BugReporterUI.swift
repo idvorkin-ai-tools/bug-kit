@@ -222,7 +222,7 @@
     /// The gentle shake runs only while the scene is active (the `.bugReporting` modifier calls this).
     func sceneActive(_ active: Bool) {
       recordInteraction("ui_scene", fields: ["active": .bool(active)])
-      if options.recordInteractions {
+      if options.richDiagnostics {
         if active, let window = Self.keyWindow() { interactions.start(in: window) }
         else { interactions.stop() }
       }
@@ -234,7 +234,7 @@
     /// Add semantic actions for custom SwiftUI controls, keyboard shortcuts or accessibility activation.
     /// Automatic touch breadcrumbs describe physical input; they cannot identify every virtual SwiftUI action.
     public func recordInteraction(_ action: String, fields: [String: JSONValue] = [:]) {
-      guard options.recordInteractions else { return }
+      guard options.richDiagnostics else { return }
       var fields = fields
       fields["screen"] = .string(hooks.screen())
       let t = hooks.sessionLog()?.tMs ?? Int((ProcessInfo.processInfo.systemUptime - diagnosticsStarted) * 1_000)
@@ -244,8 +244,8 @@
 
     private func diagnosticsSnapshot(in window: UIWindow?) -> BugDiagnosticsSnapshot {
       BugDiagnosticsSnapshot(
-        interactions: options.recordInteractions ? breadcrumbs.jsonLines : nil,
-        accessibility: options.captureAccessibility ? window.map { AccessibilitySnapshot.capture($0) } : nil)
+        interactions: options.richDiagnostics ? breadcrumbs.jsonLines : nil,
+        accessibility: options.richDiagnostics ? window.map { AccessibilitySnapshot.capture($0) } : nil)
     }
 
     private func dismissedBySwipe() {

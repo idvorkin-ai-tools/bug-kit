@@ -152,16 +152,15 @@ an app's existing delivery path.
 
 ## Interaction and accessibility diagnostics
 
-Enable the options when constructing the reporter:
+Rich diagnostics are on by default in every app that adopts BugKit (VISION), and one option turns them off:
 
 ```swift
 var options = BugReporterOptions()
-options.recordInteractions = true
-options.captureAccessibility = true
 options.interactionLimit = 200  // 1...1,000 events retained per report
+// options.richDiagnostics = false  // no breadcrumbs and no accessibility snapshot
 ```
 
-Pass `options` to `BugReporter(hooks:options:)` and attach `.bugReporting(reporter)` to the app's root view. Both options default to false. Interaction events go to the existing logger and a bounded in-memory buffer. At report opening, BugKit freezes the buffer and the accessibility snapshot alongside the screenshot. `.keepMoment` reports reuse this evidence; `.recapture` takes a fresh snapshot. The report's log position now names the captured moment rather than the later save time.
+Pass `options` to `BugReporter(hooks:options:)` and attach `.bugReporting(reporter)` to the app's root view. Interaction events go to the existing logger and a bounded in-memory buffer. At report opening, BugKit freezes the buffer and the accessibility snapshot alongside the screenshot. `.keepMoment` reports reuse this evidence; `.recapture` takes a fresh snapshot. The report's log position now names the captured moment rather than the later save time.
 
 The report folder gains `interactions.jsonl` and `accessibility.json`, also listed in the report's `files`. These files are independent of the app's `extraFiles` hook. Their contents stay local when the listener files an issue; the issue lists their paths.
 
@@ -290,12 +289,11 @@ An app displaying transcripts or other private text can disable automatic screen
 var options = BugReporterOptions()
 options.captureScreenshots = false
 options.dictation = false
-options.captureAccessibility = false
-options.recordInteractions = false
+options.richDiagnostics = false
 let reporter = BugReporter(hooks: hooks, options: options, store: store)
 ```
 
-`captureScreenshots` defaults to `true`. Turning it off skips the renderer for the sheet, “Log it and another” recapture, and launch-hook reports. No screenshot is displayed or written by those paths. Automatic reports already have no screenshot. The other three capture features default to `false`; set them explicitly here so this privacy configuration is easy to audit. These options do not redact the user's note, app-provided context, session logs or `extraFiles`: the app must keep dictated text out of those hooks and logs. Apps calling `BugReportWriter.save` directly own their `screenshotPNG` argument.
+`captureScreenshots` defaults to `true`. Turning it off skips the renderer for the sheet, “Log it and another” recapture, and launch-hook reports. No screenshot is displayed or written by those paths. Automatic reports already have no screenshot. Rich diagnostics default to `true`, so a private-text app must turn them off as shown: breadcrumbs and the accessibility snapshot can name what is on screen. Dictation defaults to `false`; it is set here so the configuration is easy to audit. These options do not redact the user's note, app-provided context, session logs or `extraFiles`: the app must keep dictated text out of those hooks and logs. Apps calling `BugReportWriter.save` directly own their `screenshotPNG` argument.
 
 ## Private CloudKit delivery
 
