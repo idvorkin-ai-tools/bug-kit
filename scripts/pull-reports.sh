@@ -81,17 +81,24 @@ copy() {  # copy <udid> <bundle> <source under the container> <destination>
     --source "$3" --destination "$4" --timeout 90 >/dev/null 2>"$tmp/copy-err"
 }
 
+ISSUE_LIMIT=10000  # the listener's cap
 new_total=0
 lookup_failed=0
 while IFS=$'\t' read -r app bundle tracker repo group extra; do
   markers=""
   if [ "$check" = 1 ] && [ "$tracker" = github ]; then
-    if ! bodies=$(gh issue list -R "$repo" --state all --limit 1000 --json body --jq '.[].body' 2>"$tmp/gh-err"); then
+    if ! issues=$(gh issue list -R "$repo" --state all --limit "$ISSUE_LIMIT" --json body 2>"$tmp/gh-err"); then
       echo "$app: could not read $repo's issues ($(tail -1 "$tmp/gh-err")); not counting its reports" >&2
       lookup_failed=1
       continue
     fi
-    markers=$(grep -o -E 'bug(-id)?:[0-9A-Za-z:.-]*' <<<"$bodies" || true)
+    # A full page may have cut off older issues, so its markers aren't the complete list (as in the listener).
+    if [ "$(jq length <<<"$issues")" -ge "$ISSUE_LIMIT" ]; then
+      echo "$app: $repo has $ISSUE_LIMIT issues or more, past what one read covers; not counting its reports" >&2
+      lookup_failed=1
+      continue
+    fi
+    markers=$(jq -r '.[].body' <<<"$issues" | grep -o -E 'bug(-id)?:[0-9A-Za-z:.-]*' || true)
     printf '%s\n' "$markers" >"$tmp/markers-$app"
   fi
   while read -r dir udid type; do
