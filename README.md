@@ -2,7 +2,7 @@
 
 Bug reports, session logs and crash evidence for iOS apps, plus opt-in private CloudKit delivery and a Mac listener that pulls reports from CloudKit or paired iPhones and iPads and files them in GitHub, beads or a local inbox.
 
-BugKit requires **iOS 17+**. Its report model, storage and flow also support **macOS 14+**, and the model, store, writer and CloudKit sender compile for **watchOS 10+**; the reporting UI is iOS only. Building the package’s tests requires **Swift 6+** because they use Swift Testing.
+BugKit requires **iOS 17+**. Its report model, storage and flow also support **macOS 14+**, and the model, store, writer, CloudKit sender and a watch report form (`WatchBugReportView`) build for **watchOS 10+**; the shake and sheet reporting UI is iOS only. Building the package’s tests requires **Swift 6+** because they use Swift Testing.
 
 - Shake, tap a button or press ⌘I to report a problem. The dialog captures a screenshot before opening and supports “Log it and another.”
 - Each report carries a UUID, build, typed context, session log path and timestamp. Default files stay in app-container Documents on iOS/watchOS and app-specific Application Support on macOS; explicit directories remain supported. Optional CloudKit delivery uploads an immutable evidence copy.
