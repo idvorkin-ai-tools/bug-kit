@@ -83,8 +83,8 @@ their public repos. MM ids (`mmn-…`) and story numbers refer to its own repo. 
    - A screenshot taken after the sheet is up shows the sheet.
    - Presenting from the root replaced a sheet that was already up: a shake from EA's Workouts sheet closed that
      sheet ([#41]).
-   - `BugReporter.open` snapshots the key window, then walks `presentedViewController` to the top and presents
-     there.
+   - `BugReporter.open` snapshots the shaken window (the key window for other opens), then walks
+     `presentedViewController` to the top and presents there.
    - A second shake while the dialog is up does nothing, so it cannot wipe a half-typed note.
 
 10. **"Log it and another".**
