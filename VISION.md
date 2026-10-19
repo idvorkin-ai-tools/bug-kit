@@ -30,7 +30,7 @@ A fix is verified by a log line on a named rung, host, simulator or device, not 
 
 By default, reports stay in the app's Documents until the owner's Mac pulls them with `devicectl`, and the device holds no token.
 Filing straight from the device is an option an app can turn on, never the default, because a report can carry private information.
-Before a report is saved, its author sees a preview of every attachment and can remove any of them with the X in its corner.
+Before a report is saved, its author sees a preview of the screenshot and any app-supplied files and can remove any of them with the X in its corner. Diagnostic data, the breadcrumbs and the accessibility snapshot, needs no preview; one option turns it off.
 Screenshots reach the owner's Mac for triage, and go into a tracker only after a person scrubs private information from them, for example by drawing over it; an automatic scrubber never makes that call alone.
 Text entry and accessibility values never enter the diagnostics.
 Automatic reports are rate-limited per reason and capped in size, and they may capture the screen when the app is in front.
