@@ -6,7 +6,7 @@ Use Beads for all repository task tracking. Run `bd prime` at the start of a ses
 
 All git worktrees share the main checkout's Beads database. Issue data lives in Dolt, outside code branches; `.beads/config.yaml` and `.beads/metadata.json` are tracked configuration. Use `bd dolt pull` and `bd dolt push` to sync issue data. JSONL exports are optional interchange files, not backups or the source of truth.
 
-Every change, including docs-only changes, goes through no-mistakes before merge. Keep its pipeline fixes, follow its branch-sync instructions, and merge only after required checks pass and the user has authorized merging. Do not bypass it with a direct push or by merging a PR that skipped the pipeline.
+Every code or config change (including `.no-mistakes.yaml`, CI, entitlements and project settings) goes through no-mistakes before merge. Keep its pipeline fixes, follow its branch-sync instructions, and merge only after required checks pass and the user has authorized merging. Do not bypass it with a direct push. Docs-only changes skip the pipeline (Igor, 2026-10-18): README or docs text, a story Status line naming a commit, or a ledger row, whether a follow-up commit or its own PR, is pushed straight to the branch on `origin` (`git push origin <branch>`, not the no-mistakes remote). A follow-up that only names a commit or updates a status needs no new Codex round.
 
 Only one simulator on this Mac at a time: before booting, check xcrun simctl list devices booted and wait until it's empty; shut yours down when done.
 
