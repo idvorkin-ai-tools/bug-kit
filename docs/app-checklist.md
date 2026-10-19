@@ -7,7 +7,7 @@ stays short and the detail lives in one place. Link this page from each app's AG
 
 | Item | Done when | How |
 |---|---|---|
-| Report a problem | A shake (also over sheets and alerts), ⌘I on a hardware keyboard and a 🐞 button each open the report dialog | [Quick start](../README.md#quick-start): `.bugReporting(reporter)` on the root view and `BugReportButton` in a toolbar |
+| Report a problem | iOS: a shake (also over sheets and alerts), ⌘I on a hardware keyboard and a 🐞 button each open the report dialog. macOS: the app's own report action saves through `BugReportWriter` | iOS: [Quick start](../README.md#quick-start), `.bugReporting(reporter)` on the root view and `BugReportButton` in a toolbar. macOS: [macOS storage](integration.md#macos-storage-and-command-line-tools) |
 | Rich diagnostics | Reports carry interaction breadcrumbs and the accessibility snapshot, and the main controls have stable `.accessibilityIdentifier`s | [UI diagnostics](integration.md#interaction-and-accessibility-diagnostics) |
 | Private text | An app showing transcripts or other private text turns off screenshots, rich diagnostics and dictation | [Private-text apps](integration.md#private-text-apps) |
 | Session log | One `SessionLog` per launch; the report names its position; old logs pruned at launch | [Integration](integration.md), [logging conventions](ops/logging.md) |
