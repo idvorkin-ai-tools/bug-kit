@@ -29,7 +29,7 @@ macOS; see [macOS storage](integration.md#macos-storage-and-command-line-tools).
 | `screenshot`, `folder`, `files` | the screenshot, the report's folder `bugs/<yyyyMMdd-HHmmss>[-n]`, and the app's extra files |
 | `context` | whatever the app attaches, as JSON values |
 
-Optional UI diagnostics add `interactions.jsonl` and `accessibility.json` to the report folder and `files` array. Automatic listener crash records use a stable `crash:<sha256>` ID, `kind: crash`, and a local diagnostic-file path; they do not modify the device’s `bugs.jsonl`. See [listener operations](ops/listener.md#automatic-crash-discovery).
+UI diagnostics, on by default (`richDiagnostics = false` turns them off), add `interactions.jsonl` and `accessibility.json` to the report folder and `files` array. Automatic listener crash records use a stable `crash:<sha256>` ID, `kind: crash`, and a local diagnostic-file path; they do not modify the device’s `bugs.jsonl`. See [listener operations](ops/listener.md#automatic-crash-discovery).
 
 ## Optional CloudKit envelope
 
