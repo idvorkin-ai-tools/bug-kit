@@ -7,7 +7,7 @@
 
    ```yaml
    packages:
-     BugKit: { url: https://github.com/idvorkin/bug-kit, branch: main }
+     BugKit: { url: https://github.com/idvorkin/bug-kit, exactVersion: 0.3.8 }
    targets:
      MyApp:
        dependencies: [{ package: BugKit }]
