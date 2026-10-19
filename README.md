@@ -34,7 +34,7 @@ Add `https://github.com/idvorkin/bug-kit` through Xcode’s **File › Add Packa
 packages:
   BugKit:
     url: https://github.com/idvorkin/bug-kit
-    branch: main
+    exactVersion: 0.3.8  # an exact tag, never main
 targets:
   MyApp:
     dependencies:
