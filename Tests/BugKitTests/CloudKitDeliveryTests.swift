@@ -375,6 +375,31 @@ private extension CloudFixture {
   }
 }
 
+@Test func aReportThatCanNeverBeStagedIsSkippedOnceAndStopsAskingCloudKit() async throws {
+  // Over the limits forever: without a give-up marker every launch and foreground paid an account round trip.
+  let f = CloudFixture(); defer { f.clean() }
+  let transport = FakeCloudTransport()
+  let events = CloudEvents()
+  let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: events.logger)
+  #expect(try await queue.flush() == 0)  // opted in before the report
+  var huge = try f.report(); huge.files = (0...100).map { "bugs/sample/part-\($0).bin" }  // 101 > 100 attachments
+  try f.store.append(huge)
+  #expect(try await queue.flush() == 0)
+  let marker = f.outboxRoot.appendingPathComponent("skipped/\(huge.id.uuidString).json")
+  #expect(FileManager.default.fileExists(atPath: marker.path))
+  let skips = { events.all.filter { $0.0 == "bug_delivery_skipped" } }
+  #expect(skips().count == 1 && skips().first?.1["reason"] == .string("too_large"))
+  let checks = await transport.checks()
+  #expect(try await f.outbox(transport).flush() == 0)  // a later launch
+  #expect(await transport.checks() == checks)
+  #expect(skips().count == 1)
+  #expect(try f.store.readAll().reports.map(\.id) == [huge.id])  // the report itself stays local
+  let next = try f.report(); try f.store.append(next)
+  #expect(try await queue.flush() == 1)
+  #expect(await transport.data(next.id) != nil)
+  #expect(await transport.data(huge.id) == nil)
+}
+
 @Test func reportsSavedBeforeOptInStayLocalWhileLaterReportsRecoverAfterRestart() async throws {
   let f = CloudFixture(); defer { f.clean() }
   let transport = FakeCloudTransport()
