@@ -438,6 +438,18 @@ def issue_body(rec: dict, key: str, dev: dict, a: dict, local: Path) -> str:
 # --- trackers -----------------------------------------------------------------------------------------------
 
 
+def filed_from(issue: dict, rec: dict) -> bool:
+    """True when the marker-free issue was opened after the report was made: a person filed this report by hand.
+    A report made after the issue is the same bug seen again. Unknown times count as seen again."""
+    def when(value):
+        try:
+            return dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    made, opened = when(rec.get("reported_at")), when(issue.get("created"))
+    return bool(made and opened and made.tzinfo and opened.tzinfo and opened >= made)
+
+
 class Filer:
     """Files a report through its app's tracker. Returns the issue's url or id, or None on failure (left unseen,
     so the next poll tries again)."""
@@ -451,7 +463,7 @@ class Filer:
         """The bodies' markers, read once per poll. A failed read stops filing (CG 6fed157): better late than twice."""
         if repo not in self.filed_markers:
             rc, out, err = run(["gh", "issue", "list", "-R", repo, "--state", "all", "--limit", str(ISSUE_LIMIT),
-                                "--json", "body,number,state,url"], timeout=90)
+                                "--json", "body,number,state,stateReason,createdAt,url"], timeout=90)
             if rc != 0:
                 log("tracker_error", tracker="github", repo=repo, step="list", rc=rc, stderr=tail(err))
                 self.filed_markers[repo] = None
@@ -473,7 +485,8 @@ class Filer:
                             self.legacy_markers[repo].update(markers)
                         if not markers:
                             self.bodies[repo].append({"body": re.sub(r"\s+", " ", body), "number": issue.get("number"),
-                                                      "state": issue.get("state"), "url": issue.get("url")})
+                                                      "state": issue.get("state"), "reason": issue.get("stateReason"),
+                                                      "created": issue.get("createdAt"), "url": issue.get("url")})
                 except (ValueError, TypeError, AttributeError) as e:
                     log("tracker_error", tracker="github", repo=repo, step="list", message=str(e))
                     self.filed_markers[repo] = None
@@ -495,7 +508,10 @@ class Filer:
             timestamp_markers = set()  # a manual report at this second is a different event
         if (rec.get("id") and f"<!-- bug-id:{rec['id']} -->" in markers) or (at and f"<!-- bug:{at} -->" in timestamp_markers):
             return "already_filed", repo
-        if self.unmarked_match(repo, rec):
+        match = self.unmarked_match(repo, rec)
+        if match and filed_from(match, rec):
+            return "already_filed", repo  # someone pasted this very report's note into the issue
+        if match:
             return "seen_again", repo  # not this report's issue: pull its evidence, then `file` comments there
         return None
 
@@ -513,6 +529,8 @@ class Filer:
         that comment if it was closed. Idempotent through the delivery receipt, like `file`."""
         repo = a["tracker"]["repo"]
         number, closed = issue.get("number"), str(issue.get("state") or "").upper() == "CLOSED"
+        # Closed as not planned or a duplicate: the repeat is noted there, but the decision stands.
+        closed = closed and str(issue.get("reason") or "").upper() not in ("NOT_PLANNED", "DUPLICATE")
         log("possible_duplicate", repo=repo, reported_at=rec.get("reported_at"), issue=number, closed=closed)
         if number is None:
             log("tracker_error", tracker="github", repo=repo, step="seen_again", message="matched issue has no number")
@@ -542,7 +560,7 @@ class Filer:
             repo = a["tracker"]["repo"]
             at = rec.get("reported_at")
             match = self.unmarked_match(repo, rec)
-            if match:
+            if match and not filed_from(match, rec):
                 return self.seen_again(a, rec, key, dev, local, match)
             if DRY:
                 return "would_file", f"github {repo}: {title}"

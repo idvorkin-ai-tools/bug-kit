@@ -482,7 +482,7 @@ def test_marker_free_issues_still_match_the_note(listener_state, monkeypatch):
 SEEN_AGAIN_NOTE = "The timer stopped updating when I opened the settings screen"
 
 
-def seen_again_poll(listener_state, monkeypatch, state, *, backfill=True, comment_rc=0):
+def seen_again_poll(listener_state, monkeypatch, state, *, backfill=True, comment_rc=0, created=None, reason=None):
     """One device report whose note matches a marker-free issue #7 in `state`; returns the gh calls and copies."""
     dev = {"id": "device-id", "dir": "iphone", "type": "iPhone", "model": "phone"}
     a = {"name": "app", "bundle": "app.bundle", "tracker": {"kind": "github", "repo": "owner/app"},
@@ -504,7 +504,7 @@ def seen_again_poll(listener_state, monkeypatch, state, *, backfill=True, commen
         calls.append(cmd)
         if cmd[:3] == ["gh", "issue", "list"]:
             issue = {"body": f"Filed by hand.\n\n> {SEEN_AGAIN_NOTE}", "number": 7, "state": state,
-                     "url": "https://github.com/owner/app/issues/7"}
+                     "stateReason": reason, "createdAt": created, "url": "https://github.com/owner/app/issues/7"}
             return 0, json.dumps([issue]), ""
         if cmd[:3] == ["gh", "issue", "comment"]:
             return (0, "https://github.com/owner/app/issues/7#issuecomment-1\n", "") if comment_rc == 0 else (1, "", "HTTP 502")
@@ -541,6 +541,23 @@ def test_a_repeat_of_a_closed_hand_filed_issue_reopens_it(listener_state, monkey
     assert not any(cmd[:3] in (["gh", "issue", "create"], ["gh", "issue", "comment"]) for cmd in calls)
     assert summary["seen_again"] == 1
     assert json.loads(bl.INBOX.read_text())["ref"] == "https://github.com/owner/app/issues/7"
+
+
+def test_a_report_pasted_into_an_issue_by_hand_is_already_filed_not_seen_again(listener_state, monkeypatch):
+    # The issue opened after the report was made (10:00): someone filed this very report by hand.
+    summary, calls, _ = seen_again_poll(listener_state, monkeypatch, "CLOSED", created="2026-11-01T10:05:00Z")
+    assert not any(cmd[:3] in (["gh", "issue", "create"], ["gh", "issue", "comment"], ["gh", "issue", "reopen"])
+                   for cmd in calls)
+    assert summary["seen_again"] == 0
+
+
+def test_a_repeat_of_an_issue_closed_as_not_planned_is_commented_not_reopened(listener_state, monkeypatch):
+    summary, calls, _ = seen_again_poll(listener_state, monkeypatch, "CLOSED", created="2026-10-20T09:00:00Z",
+                                        reason="NOT_PLANNED")
+    assert not any(cmd[:3] == ["gh", "issue", "reopen"] for cmd in calls)
+    comment = next(cmd for cmd in calls if cmd[:3] == ["gh", "issue", "comment"])
+    assert "so it is reopened" not in comment[comment.index("--body") + 1]
+    assert summary["seen_again"] == 1
 
 
 def test_a_failed_seen_again_comment_stays_pending(listener_state, monkeypatch):
