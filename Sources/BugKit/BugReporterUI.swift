@@ -115,11 +115,24 @@
         hooks.logger("bug_report_open", ["source": "shake", "ignored": true])
         return
       }
-      guard flow.open(from: source) else {
+      let stale = flow.isPresented && !dialogOnScreen
+      if stale {
+        hooks.logger("bug_report_cancel", ["saved": .int(flow.savedThisTime), "stale": true])
+        presented = nil
+        screenshot = nil
+      }
+      guard flow.open(from: source, dialogOnScreen: !stale) else {
         hooks.logger("bug_report_open", ["source": .string(source.rawValue), "already_open": true])
         return
       }
       present(source: source, in: window ?? Self.keyWindow())
+    }
+
+    /// The open report's dialog is still up, or on its way up. A lock or scene teardown can remove it without a
+    /// cancel, save or swipe (BugKit #96).
+    private var dialogOnScreen: Bool {
+      guard let host = presented else { return false }
+      return host.viewIfLoaded?.window != nil || host.isBeingPresented
     }
 
     private func present(source: BugReportFlow.Source, in window: UIWindow?) {

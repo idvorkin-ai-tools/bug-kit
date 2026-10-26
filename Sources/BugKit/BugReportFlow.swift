@@ -29,9 +29,11 @@ public struct BugReportFlow: Equatable, Sendable {
   public var canLog: Bool { !note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
   /// Opens a fresh report. Returns false when one is already open (a second shake while typing must not wipe
-  /// the note).
+  /// the note). `dialogOnScreen: false` says the open report's dialog is gone without a cancel or save (the phone
+  /// locked with it up, BugKit #96): that report no longer blocks this one.
   @discardableResult
-  public mutating func open(from source: Source) -> Bool {
+  public mutating func open(from source: Source, dialogOnScreen: Bool = true) -> Bool {
+    if isPresented && !dialogOnScreen { cancel() }
     guard !isPresented else { return false }
     isPresented = true
     self.source = source
