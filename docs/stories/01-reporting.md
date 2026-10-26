@@ -72,7 +72,7 @@ Part of the [BugKit stories](README.md).
 - **Scenario:** The dialog went away without a cancel (BugKit #96, CG #425)
 - **Given:** a report was open and the phone locked, so the dialog is gone but was never cancelled or saved
 - **When:** I shake or press Report a problem
-- **Then:** a fresh report opens, and the log says `bug_report_cancel` with `stale: true` first (`aReportWhoseDialogIsGoneDoesNotBlockTheNext`, host; to verify on the phone)
+- **Then:** a fresh report opens, and the log says `bug_report_cancel` with `stale: true` first (`aReportWhoseDialogIsGoneDoesNotBlockTheNext`, host; `aReportSheetDismissedBehindBugKitsBackDoesNotBlockTheNext`, simulator; the lock itself to verify on the phone)
 
 ---
 
