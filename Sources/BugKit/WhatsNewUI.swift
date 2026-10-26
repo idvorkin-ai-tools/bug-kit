@@ -36,6 +36,21 @@ public struct WhatsNewSeen: @unchecked Sendable {
     logger?("ui", ["action": "dismiss_whats_new", "newest": .string(newest)])
   }
 
+  /// The reports an earlier build's feed already fixed, so the home row headlines a fix only in the build that
+  /// brought it, dismissed or not. Keeps the fixed reports of this build's feed and the build before it, by each
+  /// feed's newest change, under `<key>.fixed`.
+  public func fixedEarlier(_ feed: WhatsNewFeed?) -> Set<String> {
+    guard let feed, let newest = feed.newest else { return [] }
+    let store = key + ".fixed"
+    var state = defaults.dictionary(forKey: store) ?? [:]
+    if state["build"] as? String != newest {
+      let fixed = feed.days.flatMap(\.items).flatMap { $0.fixedReports ?? [] }.map { $0.uppercased() }
+      state = ["build": newest, "fixed": fixed, "earlier": state["fixed"] as? [String] ?? []]
+      defaults.set(state, forKey: store)
+    }
+    return Set(state["earlier"] as? [String] ?? [])
+  }
+
   /// The feed the build bundled as `whats-new.json` (scripts/whats-new.sh); nil when it is missing or unreadable.
   public static func bundledFeed(_ bundle: Bundle = .main, name: String = "whats-new") -> WhatsNewFeed? {
     WhatsNewFeed.decode(bundle.url(forResource: name, withExtension: "json").flatMap { try? Data(contentsOf: $0) })
@@ -59,11 +74,11 @@ public struct WhatsNewFix: Equatable, Sendable {
     return "Fixed in this build: “\(note)” (\(format.string(from: reportedAt)))"
   }
 
-  /// The home row's words after "What's new · " when this build fixed one of the person's reports. Only changes
-  /// newer than `seen` (the newest change the person has already seen) count, so a fix from an earlier build is not
-  /// announced again on every later one.
-  public static func homeLine(_ feed: WhatsNewFeed?, reports: [BugReport], seen: String? = nil) -> String {
-    feed?.fixes(in: reports, since: seen).first.map { "Fixed in this build: “\($0.note)”" } ?? WhatsNew.homeLine(feed)
+  /// The home row's words after "What's new · " when this build fixed one of the person's reports. Reports in
+  /// `fixedEarlier` (`WhatsNewSeen.fixedEarlier`) are not announced again on a later build.
+  public static func homeLine(_ feed: WhatsNewFeed?, reports: [BugReport], fixedEarlier: Set<String> = []) -> String {
+    let fresh = reports.filter { !fixedEarlier.contains($0.id.uuidString.uppercased()) }
+    return feed?.fixes(in: fresh).first.map { "Fixed in this build: “\($0.note)”" } ?? WhatsNew.homeLine(feed)
   }
 }
 
@@ -84,13 +99,10 @@ extension WhatsNewItem {
 }
 
 extension WhatsNewFeed {
-  /// Every fix of the person's reports in the feed, newest change first; with `since`, only changes newer than that
-  /// sha (all of them when it is not in the feed).
-  public func fixes(in reports: [BugReport], since seen: String? = nil) -> [WhatsNewFix] {
+  /// Every fix of the person's reports in the feed, newest change first.
+  public func fixes(in reports: [BugReport]) -> [WhatsNewFix] {
     guard !reports.isEmpty else { return [] }
-    let items = days.flatMap(\.items)
-    let unseen = seen.flatMap { sha in items.firstIndex { $0.sha == sha } }.map { Array(items[..<$0]) } ?? items
-    return unseen.flatMap { $0.fixes(in: reports) }
+    return days.flatMap(\.items).flatMap { $0.fixes(in: reports) }
   }
 }
 
@@ -208,7 +220,7 @@ extension WhatsNewFeed {
         HStack(alignment: .firstTextBaseline) {
           Button(action: open) {
             (Text(Image(systemName: "sparkles")) + Text("  What's new").fontWeight(.semibold)
-              + Text(" · \(WhatsNewFix.homeLine(feed, reports: reports, seen: seen.newestSeen))").foregroundStyle(.secondary))
+              + Text(" · \(WhatsNewFix.homeLine(feed, reports: reports, fixedEarlier: seen.fixedEarlier(feed)))").foregroundStyle(.secondary))
               .font(.subheadline)
               .lineLimit(2)
               .multilineTextAlignment(.leading)

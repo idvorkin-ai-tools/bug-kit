@@ -63,16 +63,35 @@ final class WhatsNewTests: XCTestCase {
     XCTAssertNil(without.first?.items.first?.fixedReports, "a build that did not look carries nothing")
   }
 
-  func testAFixFromAnEarlierBuildIsNotHeadlinedAgain() {
-    let fixed = WhatsNewItem(story: 147, text: "The timer keeps counting", sha: "d", fixedReports: [fixedID.uuidString])
-    let later = WhatsNewItem(story: 148, text: "Bigger digits", sha: "e")
-    let feed = WhatsNewFeed(generated: "", days: [.init(day: "2026-10-20", items: [later]), .init(day: "2026-10-12", items: [fixed])])
+  func testAFixFromAnEarlierBuildIsNotHeadlinedAgain() throws {
+    let seen = WhatsNewSeen(defaults: try XCTUnwrap(UserDefaults(suiteName: "bugkit-test-\(UUID().uuidString)")))
     let mine = report(fixedID, note: "the timer stopped", at: "2026-10-10T18:00:00Z")
-    // The person saw the build with the fix (newest "d"); the next build adds "e" and must not re-announce it.
-    XCTAssertEqual(WhatsNewFix.homeLine(feed, reports: [mine], seen: "d"), "Oct 20 — Bigger digits")
-    XCTAssertEqual(WhatsNewFix.homeLine(feed, reports: [mine], seen: "c"), "Fixed in this build: “the timer stopped”",
-                   "a seen sha the feed no longer holds counts every change as new")
-    XCTAssertEqual(feed.fixes(in: [mine]).count, 1, "the list still shows the fix under its change")
+    let other = report(otherID, note: "digits too small", at: "2026-10-11T18:00:00Z")
+    let a = fixedID.uuidString
+    // Build 1: "a" (story 147) fixes my report, then "b" (story 148) the same day.
+    let build1 = WhatsNewFeed(generated: "", days: [.init(day: "2026-10-12", items: [
+      .init(story: 148, text: "Bigger digits", sha: "b"),
+      .init(story: 147, text: "The timer keeps counting", sha: "a", fixedReports: [a]),
+    ])])
+    XCTAssertEqual(WhatsNewFix.homeLine(build1, reports: [mine], fixedEarlier: seen.fixedEarlier(build1)),
+                   "Fixed in this build: “the timer stopped”")
+    XCTAssertEqual(WhatsNewFix.homeLine(build1, reports: [mine], fixedEarlier: seen.fixedEarlier(build1)),
+                   "Fixed in this build: “the timer stopped”", "the whole build headlines it, not just its first look")
+    // Build 2, never dismissed: "c" on story 147 the same day folds "a"'s fix into a line now ahead of "b".
+    let build2 = WhatsNewFeed(generated: "", days: [.init(day: "2026-10-12", items: [
+      .init(story: 147, text: "The timer keeps counting", sha: "c", fixedReports: [a]),
+      .init(story: 148, text: "Bigger digits", sha: "b"),
+    ])])
+    XCTAssertEqual(WhatsNewFix.homeLine(build2, reports: [mine], fixedEarlier: seen.fixedEarlier(build2)),
+                   "Oct 12 — The timer keeps counting")
+    XCTAssertEqual(build2.fixes(in: [mine]).count, 1, "the list still shows the fix under its change")
+    // Build 3 fixes another of my reports: that one is headlined, the old one still is not.
+    let build3 = WhatsNewFeed(generated: "", days: [
+      .init(day: "2026-10-13", items: [.init(story: 149, text: "Larger type", sha: "d", fixedReports: [otherID.uuidString])]),
+      build2.days[0],
+    ])
+    XCTAssertEqual(WhatsNewFix.homeLine(build3, reports: [mine, other], fixedEarlier: seen.fixedEarlier(build3)),
+                   "Fixed in this build: “digits too small”")
   }
 
   func testTheDeviceShowsOnlyItsOwnFixedReports() {
