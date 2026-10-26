@@ -1315,6 +1315,21 @@ def test_a_failed_usage_pull_marks_the_line_partial_and_waits_a_week(usage_devic
     assert calls.count("Documents/logs") == 1 and len(usage_lines()) == 1
 
 
+def test_an_offline_device_or_mac_store_marks_the_usage_line_partial(usage_device, listener_state, monkeypatch, tmp_path):
+    cfg, copies = usage_device
+    iphone = {"id": "device-id", "dir": "iphone", "type": "iPhone", "model": "phone"}
+    ipad = {"id": "ipad-id", "dir": "ipad", "type": "iPad", "model": "tablet"}
+    monkeypatch.setattr(bl, "list_devices", lambda: [iphone, ipad])
+    monkeypatch.setattr(bl, "probe", lambda dev: {"locked": False} if dev is iphone else None)  # the iPad is asleep
+    cfg["apps"].append({"name": "macapp", "bundle": "mac.bundle", "tracker": {"kind": "none"},
+                        "mac_dir": str(tmp_path / "missing-store")})
+    bl.save_status({"usage_last": iso(8)})
+    bl.poll(cfg, False)
+    lines = {line["app"]: line for line in usage_lines()}
+    assert lines["app"]["unread_devices"] == ["ipad"]
+    assert lines["macapp"]["unread_devices"] == ["ipad", "mac"]
+
+
 def test_usage_days_zero_turns_the_summary_off(usage_device, listener_state):
     cfg, copies = usage_device
     cfg["usage_days"] = 0

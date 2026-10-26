@@ -962,12 +962,15 @@ def weekly_usage(cfg: dict, reached: list[tuple[dict, dict, Path, Any]], health:
         if not got:
             unread.setdefault(a["name"], []).append(dev["dir"])
         log("usage_pull", app=a["name"], device=dev["dir"], ok=bool(got))
+    offline = [d["device"] for d in health.get("devices", []) if not d["reachable"]]
     for a in cfg["apps"]:
         if a.get("usage") is False:
             continue
         line = {"t": now(), "kind": "usage", **app_usage(a, days)}
-        if a["name"] in unread:
-            line["unread_devices"] = unread[a["name"]]  # counted from older pulls only: the summary is partial
+        missed = unread.get(a["name"], []) + offline + [
+            "mac" for s in health.get("mac_stores", []) if s["app"] == a["name"] and not s["reachable"]]
+        if missed:
+            line["unread_devices"] = missed  # counted from older pulls only: the summary is partial
         log("usage", app=a["name"], sessions=line["sessions"], actions=line["actions"])
         if DRY:
             print(json.dumps(line, ensure_ascii=False), flush=True)
