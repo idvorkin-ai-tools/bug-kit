@@ -482,7 +482,8 @@ def test_marker_free_issues_still_match_the_note(listener_state, monkeypatch):
 SEEN_AGAIN_NOTE = "The timer stopped updating when I opened the settings screen"
 
 
-def seen_again_poll(listener_state, monkeypatch, state, *, backfill=True, comment_rc=0, created=None, reason=None):
+def seen_again_poll(listener_state, monkeypatch, state, *, backfill=True, comment_rc=0, created=None, reason=None,
+                    repeats=1):
     """One device report whose note matches a marker-free issue #7 in `state`; returns the gh calls and copies."""
     dev = {"id": "device-id", "dir": "iphone", "type": "iPhone", "model": "phone"}
     a = {"name": "app", "bundle": "app.bundle", "tracker": {"kind": "github", "repo": "owner/app"},
@@ -497,7 +498,7 @@ def seen_again_poll(listener_state, monkeypatch, state, *, backfill=True, commen
         copies.append(source)
         dest.parent.mkdir(parents=True, exist_ok=True)
         if source == "Documents/bugs.jsonl":
-            dest.write_text(json.dumps(rec) + "\n")
+            dest.write_text("".join(json.dumps({**rec, "id": f"B{i or ''}"}) + "\n" for i in range(repeats)))
         return source != "Documents/crashes"
 
     def run(cmd, **kwargs):
@@ -541,6 +542,13 @@ def test_a_repeat_of_a_closed_hand_filed_issue_reopens_it(listener_state, monkey
     assert not any(cmd[:3] in (["gh", "issue", "create"], ["gh", "issue", "comment"]) for cmd in calls)
     assert summary["seen_again"] == 1
     assert json.loads(bl.INBOX.read_text())["ref"] == "https://github.com/owner/app/issues/7"
+
+
+def test_a_second_repeat_in_the_same_poll_comments_on_the_issue_it_reopened(listener_state, monkeypatch):
+    summary, calls, _ = seen_again_poll(listener_state, monkeypatch, "CLOSED", repeats=2)
+    assert [cmd[:4] for cmd in calls if cmd[:3] in (["gh", "issue", "reopen"], ["gh", "issue", "comment"])] == [
+        ["gh", "issue", "reopen", "7"], ["gh", "issue", "comment", "7"]]
+    assert summary["seen_again"] == 2
 
 
 def test_a_report_pasted_into_an_issue_by_hand_is_already_filed_not_seen_again(listener_state, monkeypatch):

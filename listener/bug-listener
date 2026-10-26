@@ -544,6 +544,8 @@ class Filer:
         if rc != 0:
             log("tracker_error", tracker="github", repo=repo, step=verb, issue=number, rc=rc, stderr=tail(err))
             return "error", None
+        if closed:
+            issue["state"] = "OPEN"
         lines = [line for line in out.strip().splitlines() if line.startswith("http")]
         ref = lines[-1] if lines else issue.get("url") or f"{repo}#{number}"
         markers = self.filed_markers.get(repo)
