@@ -94,10 +94,13 @@ public final class SessionLog: @unchecked Sendable {
   private func append(_ data: Data, t: Int, stamps: [String: JSONValue]) {
     guard let handle else { return }
     if droppedLines > 0 {
-      var note = Self.line(
-        type: "error", t: t,
-        fields: ["where": "session_log", "dropped": .int(droppedLines), "message": "lines lost to a failed write"],
-        stamps: stamps)
+      // A failed write can leave a partial line behind, so the note starts on a fresh line; readers skip blanks.
+      var note = Data([0x0A])
+      note.append(
+        Self.line(
+          type: "error", t: t,
+          fields: ["where": "session_log", "dropped": .int(droppedLines), "message": "lines lost to a failed write"],
+          stamps: stamps))
       note.append(0x0A)
       guard (try? handle.write(contentsOf: note)) != nil else {
         droppedLines += 1
