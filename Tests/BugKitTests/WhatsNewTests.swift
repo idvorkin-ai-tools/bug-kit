@@ -63,6 +63,18 @@ final class WhatsNewTests: XCTestCase {
     XCTAssertNil(without.first?.items.first?.fixedReports, "a build that did not look carries nothing")
   }
 
+  func testAFixFromAnEarlierBuildIsNotHeadlinedAgain() {
+    let fixed = WhatsNewItem(story: 147, text: "The timer keeps counting", sha: "d", fixedReports: [fixedID.uuidString])
+    let later = WhatsNewItem(story: 148, text: "Bigger digits", sha: "e")
+    let feed = WhatsNewFeed(generated: "", days: [.init(day: "2026-10-20", items: [later]), .init(day: "2026-10-12", items: [fixed])])
+    let mine = report(fixedID, note: "the timer stopped", at: "2026-10-10T18:00:00Z")
+    // The person saw the build with the fix (newest "d"); the next build adds "e" and must not re-announce it.
+    XCTAssertEqual(WhatsNewFix.homeLine(feed, reports: [mine], seen: "d"), "Oct 20 — Bigger digits")
+    XCTAssertEqual(WhatsNewFix.homeLine(feed, reports: [mine], seen: "c"), "Fixed in this build: “the timer stopped”",
+                   "a seen sha the feed no longer holds counts every change as new")
+    XCTAssertEqual(feed.fixes(in: [mine]).count, 1, "the list still shows the fix under its change")
+  }
+
   func testTheDeviceShowsOnlyItsOwnFixedReports() {
     let item = WhatsNewItem(
       story: 147, text: "The timer keeps counting", sha: "d", fixedReports: [fixedID.uuidString, UUID().uuidString])

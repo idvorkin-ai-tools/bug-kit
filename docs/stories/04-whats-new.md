@@ -120,7 +120,7 @@ Part of the [BugKit stories](README.md). What's new was built in Context Grabber
 - **When:** I open What's new on the device that made the report
 - **Then:**
   - the change shows "Fixed in this build: “<my note's first line>” (<the day I reported it>)";
-  - the home row reads "What's new · Fixed in this build: “<my note>”";
+  - the home row reads "What's new · Fixed in this build: “<my note>”", for the build that fixed it only: once I have seen that change, a later build's row names its own newest change (`testAFixFromAnEarlierBuildIsNotHeadlinedAgain`);
   - `ui` open_whats_new logs `fixed_reports`;
   - another device, without that report, shows the change as usual;
   - nothing leaves the device: the match is against its own `bugs.jsonl`.
