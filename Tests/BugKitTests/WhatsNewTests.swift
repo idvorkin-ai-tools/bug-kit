@@ -36,10 +36,10 @@ final class WhatsNewTests: XCTestCase {
   }
 
   func testTheIssueListGivesEachIssuesReportIDs() {
-    let json = """
+    let json = #"""
       [{"number": 12, "body": "> note\n<!-- bug:2026-10-10T15:00:00Z -->\n<!-- bug-id:6f1c2a3b-0000-4000-8000-00000000000a -->"},
        {"number": 13, "body": null}, {"number": 14, "body": "<!-- bug:2026-10-10T15:00:00Z -->"}]
-      """
+      """#
     XCTAssertEqual(WhatsNew.reportsByIssue(fromIssueList: Data(json.utf8)), [12: [fixedID.uuidString]])
     XCTAssertEqual(WhatsNew.reportsByIssue(fromIssueList: Data("not json".utf8)), [:])
   }
