@@ -168,6 +168,17 @@ private func sample(note: String = "counted 1 rep, there were 13", date: Date = 
   #expect(flow.note == "half typed")
 }
 
+// BugKit #96: the phone locked with the report up; the dialog went away without a cancel or save.
+@Test func aReportWhoseDialogIsGoneDoesNotBlockTheNext() {
+  var flow = BugReportFlow()
+  flow.open(from: .shake)
+  flow.note = "lost with the lock"
+  let opened = flow.open(from: .button, dialogOnScreen: false)
+  #expect(opened)
+  #expect(flow.isPresented && flow.source == .button)
+  #expect(flow.note.isEmpty && flow.savedThisTime == 0)
+}
+
 @Test func cancelClosesAndSavesNothing() {
   var flow = BugReportFlow()
   flow.open(from: .key)

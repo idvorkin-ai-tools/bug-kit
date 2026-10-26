@@ -139,6 +139,25 @@ private final class OtherWindowRoot: UIViewController {}
     #expect(app.events.opens().isEmpty)
   }
 
+  // BugKit #96: the report sheet went away with no cancel, save or swipe (a phone lock, or the app dismissing
+  // everything it presented). Before the fix, every later shake logged already_open and showed nothing.
+  @Test func aReportSheetDismissedBehindBugKitsBackDoesNotBlockTheNext() async throws {
+    let app = try await appWithSheet()
+    defer { app.restore() }
+    app.sheet.motionEnded(.motionShake, with: nil)
+    try await waitForOpen(app.events)
+    #expect(app.reporter.flow.isPresented)
+    await withCheckedContinuation { done in app.sheet.dismiss(animated: false) { done.resume() } }
+    #expect(app.reporter.flow.isPresented)  // BugKit was not told
+    app.sheet.motionEnded(.motionShake, with: nil)
+    for _ in 0..<50 where app.events.opens().count < 2 { try await Task.sleep(for: .milliseconds(20)) }
+    #expect(app.events.opens().count == 2)
+    #expect(app.events.opens().last?["already_open"] == nil)
+    #expect(app.events.opens().last?["over"] == "Sheet")
+    app.reporter.cancel()
+    try await Task.sleep(for: .milliseconds(500))  // the report sheet's dismissal animation
+  }
+
   @Test func systemShakeOffIgnoresTheShake() async throws {
     let app = try await appWithSheet(systemShake: false)
     defer { app.restore() }
