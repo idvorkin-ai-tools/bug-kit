@@ -243,7 +243,7 @@ actor CloudReportOutbox: BugReportDelivery {
 
   /// Staging errors no retry can fix. A missing file is not one: it may still be written (a report can name
   /// evidence that lands after it).
-  private static func skipReason(_ error: any Error) -> String? {
+  static func skipReason(_ error: any Error) -> String? {
     switch error as? CloudDeliveryError {
     case .tooLarge: return "too_large"
     case .invalidPath: return "invalid_path"
