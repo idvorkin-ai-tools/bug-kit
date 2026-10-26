@@ -942,26 +942,38 @@ def weekly_usage(cfg: dict, reached: list[tuple[dict, dict, Path, Any]], health:
         return
     if dt.datetime.now(dt.timezone.utc) - last < dt.timedelta(days=days) or not reached:
         return
+    # Start the next week's clock first: a pull or inbox write that fails waits a week, not one poll, before it
+    # pulls every device's whole log folder again.
+    health["usage_last"] = now()
+    unread: dict[str, list[str]] = {}
     for a, dev, local, locked in reached:
         if a.get("usage") is False:
             continue
-        with tempfile.TemporaryDirectory() as tmp:
-            logs = Path(tmp) / "logs"
-            got = copy(dev, a, a.get("log_dir", "Documents/logs"), logs, locked, allow_missing=True)
-            if got and got != NOT_INSTALLED and logs.is_dir():
-                shutil.copytree(logs, local / "logs", dirs_exist_ok=True)
-            log("usage_pull", app=a["name"], device=dev["dir"], ok=bool(got))
+        got = False
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                logs = Path(tmp) / "logs"
+                got = copy(dev, a, a.get("log_dir", "Documents/logs"), logs, locked, allow_missing=True)
+                if got and got != NOT_INSTALLED and logs.is_dir():
+                    shutil.copytree(logs, local / "logs", dirs_exist_ok=True)
+        except OSError as error:
+            got = False
+            log("usage_error", app=a["name"], device=dev["dir"], message=str(error))
+        if not got:
+            unread.setdefault(a["name"], []).append(dev["dir"])
+        log("usage_pull", app=a["name"], device=dev["dir"], ok=bool(got))
     for a in cfg["apps"]:
         if a.get("usage") is False:
             continue
         line = {"t": now(), "kind": "usage", **app_usage(a, days)}
+        if a["name"] in unread:
+            line["unread_devices"] = unread[a["name"]]  # counted from older pulls only: the summary is partial
         log("usage", app=a["name"], sessions=line["sessions"], actions=line["actions"])
         if DRY:
             print(json.dumps(line, ensure_ascii=False), flush=True)
             continue
         with INBOX.open("a") as f:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
-    health["usage_last"] = now()
 
 
 # --- poll health --------------------------------------------------------------------------------------------

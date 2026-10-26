@@ -1297,6 +1297,24 @@ def test_the_weekly_usage_line_waits_a_week_then_pulls_the_logs_once(usage_devic
     assert copies.count("Documents/logs") == 1 and len(usage_lines()) == 1
 
 
+def test_a_failed_usage_pull_marks_the_line_partial_and_waits_a_week(usage_device, listener_state, monkeypatch):
+    cfg, copies = usage_device
+    calls = []
+
+    def timed_out(dev, a, source, dest, locked, **kwargs):
+        calls.append(source)
+        return source != "Documents/logs"  # the log folder copy times out; reports still copy
+
+    monkeypatch.setattr(bl, "copy", timed_out)
+    bl.save_status({"usage_last": iso(8)})
+    bl.poll(cfg, False)
+    (line,) = usage_lines()
+    assert line["unread_devices"] == ["iphone"]
+    assert calls.count("Documents/logs") == 1
+    bl.poll(cfg, False)  # the next poll does not pull every log folder again
+    assert calls.count("Documents/logs") == 1 and len(usage_lines()) == 1
+
+
 def test_usage_days_zero_turns_the_summary_off(usage_device, listener_state):
     cfg, copies = usage_device
     cfg["usage_days"] = 0
