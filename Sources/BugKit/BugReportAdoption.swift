@@ -9,10 +9,11 @@ extension BugReportWriter {
   /// (the listener files by bundle) and keeps the extension's bundle as `context["extension"]`. Its files and session
   /// log are copied into a new folder in this store. A report this store already holds is not added again.
   ///
-  /// The source folder is first renamed aside with one atomic move, so an extension saving meanwhile starts a fresh
-  /// store and never writes into one half taken; a move left from a take that was killed is finished first. The
-  /// taken folder is then deleted; the extension's `bugs-auto.json` (its rate-limit state) is put back first, so its
-  /// window holds across takes. Logs `bug_report_adopted` for each report and returns them.
+  /// The source's `bugs/` and `bugs.jsonl` are first moved aside into a sibling folder, so an extension saving
+  /// meanwhile starts a fresh index; a move left from a take that was killed is finished first. The source's `logs/`
+  /// and `bugs-auto.json` (its rate-limit state) stay in place, so a running extension keeps writing its session log
+  /// and its window holds across takes; a report's session log is copied from the live store. The aside folder is
+  /// then deleted. Logs `bug_report_adopted` for each report and returns them.
   @discardableResult
   public func adopt(from source: BugStore) async -> [BugReport] {
     let fm = FileManager.default
@@ -20,17 +21,13 @@ extension BugReportWriter {
     let prefix = source.documents.lastPathComponent + ".taking-"
     let left = ((try? fm.contentsOfDirectory(atPath: parent.path)) ?? []).filter { $0.hasPrefix(prefix) }.sorted()
     var staged = left.map { parent.appendingPathComponent($0, isDirectory: true) }
-    if fm.fileExists(atPath: source.documents.path) {
+    let parts = [source.bugsFolder, source.index].filter { fm.fileExists(atPath: $0.path) }
+    if !parts.isEmpty {
       let aside = parent.appendingPathComponent(prefix + UUID().uuidString, isDirectory: true)
       do {
-        try fm.moveItem(at: source.documents, to: aside)
+        try fm.createDirectory(at: aside, withIntermediateDirectories: true)
         staged.append(aside)
-        // The extension's rate-limit state stays with it, so its window holds across takes.
-        let state = aside.appendingPathComponent("bugs-auto.json")
-        if fm.fileExists(atPath: state.path) {
-          try? fm.createDirectory(at: source.documents, withIntermediateDirectories: true)
-          try? fm.copyItem(at: state, to: source.documents.appendingPathComponent("bugs-auto.json"))
-        }
+        for part in parts { try fm.moveItem(at: part, to: aside.appendingPathComponent(part.lastPathComponent)) }
       } catch {
         logger("error", ["where": "bug_adopt_move", "message": .string("\(error)")])
       }
@@ -53,7 +50,7 @@ extension BugReportWriter {
         reports = []
       }
       for original in reports where !held.contains(original.id) {
-        guard let report = take(original, from: folder) else { continue }
+        guard let report = take(original, from: folder, logs: source.documents) else { continue }
         held.insert(report.id)
         taken.append(report)
         logger(
@@ -75,8 +72,9 @@ extension BugReportWriter {
     return taken
   }
 
-  /// Copies one report's files and log into a new folder here and appends its line; nil when the line is not written.
-  private func take(_ original: BugReport, from root: URL) -> BugReport? {
+  /// Copies one report's files (from `root`) and log (from `logs`, the live store) into a new folder here and appends
+  /// its line; nil when the line is not written.
+  private func take(_ original: BugReport, from root: URL, logs: URL) -> BugReport? {
     var report = original
     report.app = info.app
     report.bundle = info.bundle
@@ -88,13 +86,13 @@ extension BugReportWriter {
       let made = try store.makeFolder(for: original.reportedAt)
       report.folder = made.relative
       var names: Set<String> = []
-      func copy(_ path: String, as wanted: String) -> String? {
+      func copy(_ path: String, in dir: URL, as wanted: String) -> String? {
         var name = wanted, n = 2
         let base = (wanted as NSString).deletingPathExtension, ext = (wanted as NSString).pathExtension
         while names.contains(name) { name = ext.isEmpty ? "\(base)-\(n)" : "\(base)-\(n).\(ext)"; n += 1 }
         do {
           try FileManager.default.copyItem(
-            at: root.appendingPathComponent(path), to: made.url.appendingPathComponent(name))
+            at: dir.appendingPathComponent(path), to: made.url.appendingPathComponent(name))
           names.insert(name)
           return "\(made.relative)/\(name)"
         } catch {
@@ -103,9 +101,9 @@ extension BugReportWriter {
           return nil
         }
       }
-      if let shot = original.screenshot { report.screenshot = copy(shot, as: (shot as NSString).lastPathComponent) }
-      report.files = original.files.compactMap { copy($0, as: ($0 as NSString).lastPathComponent) }
-      if let log = original.log { report.log = copy(log, as: "session-log.jsonl") }
+      if let shot = original.screenshot { report.screenshot = copy(shot, in: root, as: (shot as NSString).lastPathComponent) }
+      report.files = original.files.compactMap { copy($0, in: root, as: ($0 as NSString).lastPathComponent) }
+      if let log = original.log { report.log = copy(log, in: logs, as: "session-log.jsonl") }
     } catch {
       report.folder = ""
       logger("error", ["where": "bug_folder", "id": .string(original.id.uuidString), "message": .string("\(error)")])

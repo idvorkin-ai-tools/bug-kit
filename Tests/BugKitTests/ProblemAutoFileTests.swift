@@ -168,8 +168,11 @@ private let problem = BugProblem(
     #expect(await delivery.enqueued == [saved.id])
     #expect(log.fields("bug_report_adopted").first?["id"] == .string(saved.id.uuidString))
     #expect(try shared.readAll().reports.isEmpty)
+    #expect(FileManager.default.fileExists(
+      atPath: shared.documents.appendingPathComponent("logs/share.jsonl").path))
     #expect(await writer.adopt(from: shared).isEmpty)
     #expect(try writer.store.readAll().reports.count == 1)
+    #expect(try FileManager.default.contentsOfDirectory(atPath: group.path) == ["bugkit-share"])
     // The extension's window survives the take: the same context, a minute later, files nothing.
     let relaunched = BugAutoReporter(writer: BugReportWriter(store: shared, info: extensionInfo, logger: log.logger))
     #expect(await relaunched.report(problem: problem) == nil)
