@@ -269,6 +269,57 @@ Part of the [BugKit stories](README.md).
 - **Then:** the report keeps the log's tail, starting at a whole line, and the log has `bug_report_auto_cut` with the
   bytes kept and dropped.
 
+---
+
+### User Story 019:
+
+- **Summary:** An error shown to the person files a report by itself
+- **From:** context-grabber#876: Igor had to copy a share sheet's dictation error and file it by hand ("Failures
+  anywhere should auto log bugs"). Igor decided on 2026-11-14 (#119): every error shown on screen files a report by
+  itself, at most once per context every 10 minutes, and an app can opt a context out.
+- **Issues:** #119
+- **Status:**
+  - Host tests in `ProblemAutoFileTests` verify the report a shown problem files, the 10-minute window per context,
+    the opt-out, and an extension's report moved into the app's store and handed to delivery. The view hook is
+    verified by the iOS typecheck; an error on a real phone filing its report, and an extension's report reaching the
+    Mac over CloudKit, are device checks still to do.
+
+#### Use Case:
+- **As the** person using the app, who sees an error and moves on
+- **I want to** have the error reach the agents without copying it and filing it myself
+- **so that** every failure I see is fixed, not only the ones I had the time to report
+
+#### Acceptance Criteria:
+- **Scenario:** An error appears
+- **Given:** the app shows an error with its message, where it happened (its context) and the state then
+- **When:** it first appears on screen
+- **Then:**
+  - a report is saved with no dialog and no screenshot, `source: "auto"` and `reason` set to the context;
+  - its note is what Copy error would have copied (the message, the context, the build and the state), and its
+    context holds the same fields;
+  - it carries the screen's name, its session log and, when rich diagnostics are on, the screen's accessibility tree;
+  - what the person sees does not change, and the listener files it like any automatic report.
+
+- **Scenario:** The same error again
+- **Given:** an error with that context filed a report less than 10 minutes ago, even before a relaunch
+- **When:** it appears again, or another error with the same context does
+- **Then:** nothing is saved, and the log has `bug_report_auto_skipped` with the context. An error with another
+  context still files.
+
+- **Scenario:** An error the app expects
+- **Given:** the app marks a context as expected (being offline, say) so it does not file
+- **When:** that error appears
+- **Then:** nothing is saved, and the log has `bug_report_auto_skipped` with the context and `auto_file: false`.
+
+- **Scenario:** An error in an extension
+- **Given:** a share or keyboard extension, which has no reporter of its own and no network, shows an error
+- **When:** it appears
+- **Then:**
+  - the extension saves the report in a store in the app group it shares with its app;
+  - the next time the app runs, it takes that report into its own store, under its own app name and bundle (the
+    extension's bundle is kept in the report's context), uploads it like its own, and logs `bug_report_adopted`;
+  - the report is taken once: it is gone from the extension's store, and a report already taken is never added twice.
+
 ### Multiline watchdog termination reasons
 
 **Issues:** #18

@@ -19,7 +19,7 @@ macOS; see [macOS storage](integration.md#macos-storage-and-command-line-tools).
 
 | Field | Meaning |
 |---|---|
-| `source`, `reason` | Optional automatic-report fields: `source: "auto"` and a stable app-defined reason. Omitted from manual reports. Automatic reports have no screenshot by default. |
+| `source`, `reason` | Optional automatic-report fields: `source: "auto"` and a stable app-defined reason. Omitted from manual reports. Automatic reports have no screenshot by default. For an error shown on screen (`BugProblemView`), `reason` is the problem's context and `context` holds `message`, `where`, `build` and its extra fields. A report an app took from its extension (`adopt(from:)`) has the app's `app` and `bundle` and the extension's bundle in `context.extension`. |
 | `id` | UUID; the key for the seen-store, the issue marker and the inbox |
 | `reported_at` | ISO 8601 UTC with milliseconds |
 | `app`, `bundle`, `build`, `commit` | which build; `commit` is from `BugKitCommit`, else "unknown" |

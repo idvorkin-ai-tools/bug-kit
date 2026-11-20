@@ -11,3 +11,12 @@ func extensionEvidence(root: URL, info: BugAppInfo) async throws -> BugReport {
   return await writer.save(note: "Extension evidence", screen: "keyboard", context: [:],
                            screenshotPNG: nil, log: log.position, extraFiles: nil)
 }
+
+/// Story 019: an extension's errors on screen file into a store in its app group, which the app adopts and uploads.
+@MainActor
+func extensionProblemFiling(group: URL, info: BugAppInfo) {
+  let log = SessionLog(prefix: "share", documents: group)
+  let auto = BugAutoReporter(
+    writer: BugReportWriter(store: BugStore(documents: group), info: info, logger: log.logger))
+  BugProblemFiler.current = .auto(auto, screen: { "share" }, sessionLog: { log.position }, flushLog: { log.flush() })
+}
