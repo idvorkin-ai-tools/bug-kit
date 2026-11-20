@@ -150,8 +150,54 @@ are kept as `call.jsonl`, `call-2.jsonl`. Manual reports still copy the whole se
 
 The updated Mac listener files an automatic report with a reason-based title and `bug,auto` labels (beads:
 `from-app,auto`), deduplicated by report ID. If GitHub labels do not exist, filing retries without labels.
-Delivery waits for a reachable device. Automatic reports do not implicitly capture the manual report's
-interaction/accessibility snapshot; the manual diagnostic options below remain independent.
+Delivery waits for a reachable device. `autoReport(reason:)` does not capture the manual report's
+interaction/accessibility snapshot; the manual diagnostic options below remain independent. An error shown on screen
+(below) does attach it when `richDiagnostics` is on.
+
+### Errors on screen file themselves
+
+Every `BugProblemView` files an automatic report when it first appears, and again when its context or message
+changes (story 019, #119). Nothing at the call site changes: a `BugReporter` sets itself as
+`BugProblemFiler.current` when it is created, and the view hands its problem to it. The report has `reason` set to
+the problem's `context`, the note is the problem's `copyText`, and its context holds the message, `where`, `build` and
+each extra field. The screen and session log come from the reporter's hooks, and with `richDiagnostics` the recent
+interactions and the accessibility tree are attached; there is no screenshot. What the person sees does not change.
+
+The per-reason window limits it: a context files at most once per `options.auto.window` (10 minutes), whatever its
+message, and a skip is logged as `bug_report_auto_skipped`. Use a stable context ("Screen.operation"), never one with
+an id in it. A context the app expects to fail (being offline, say) opts out:
+
+```swift
+BugProblem(message: "The Mac is not reachable", context: "Chat.offline", build: info.buildLine, autoFile: false)
+```
+
+An opted-out problem saves nothing and logs `bug_report_auto_skipped` with `auto_file: false`. A Foundation-only
+caller can await `BugAutoReporter.report(problem:screen:log:diagnostics:)` itself.
+
+**Extensions.** A share or keyboard extension has no `BugReporter`, so it sets the filer itself, on a reporter whose
+store is in the app group (see [App Group storage](#app-group-storage)). The app takes those reports at launch and
+on each foreground, and its own delivery (CloudKit) uploads them:
+
+```swift
+// In the extension, once, before its UI appears:
+let shared = BugStore(documents: group.appendingPathComponent("bugkit-share", isDirectory: true))
+let log = SessionLog(prefix: "share", documents: shared.documents)
+BugProblemFiler.current = .auto(
+  BugAutoReporter(writer: BugReportWriter(store: shared, info: info, logger: log.logger)),
+  screen: { "share" }, sessionLog: { log.position }, flushLog: { log.flush() })
+
+// In the app, at launch and when it comes to the foreground:
+await reporter.writer.adopt(from: BugStore(documents: group.appendingPathComponent("bugkit-share", isDirectory: true)))
+```
+
+`adopt(from:)` moves the extension's `bugs.jsonl` aside with one rename (an extension saving meanwhile starts a fresh
+index), copies each report's files and session log into a new folder in the app's store, gives it the app's `app` and
+`bundle` (the listener files by bundle) with the extension's bundle kept as `context.extension`, appends its line,
+hands it to `delivery`, logs `bug_report_adopted`, and deletes the report's folder in the extension's store and the
+index it moved aside. A report the app's store already
+holds is never added twice, and a take that was killed is finished on the next call. Use a folder of the group for
+the extension alone. The extension's `logs/` and rate-limit state (`bugs-auto.json`) stay where they are, so a
+running extension keeps its session log and the window holds.
 
 See [per-app adoption](migration.md#adopting-the-merged-features) before replacing a diagnostics gist or removing
 an app's existing delivery path.

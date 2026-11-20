@@ -26,7 +26,7 @@ The rungs are described in [../ops/test-ladder.md](../ops/test-ladder.md):
 | File | Stories |
 |---|---|
 | [01-reporting.md](01-reporting.md) | 001–009: the shake, the dialog, "Log it and another", dictation, the keyboard |
-| [02-evidence.md](02-evidence.md) | 010–018: the report on disk, session logs, retention, extra files, crashes, UI diagnostics and automatic reports |
+| [02-evidence.md](02-evidence.md) | 010–019: the report on disk, session logs, retention, extra files, crashes, UI diagnostics, automatic reports and errors that file themselves |
 | [03-off-the-device.md](03-off-the-device.md) | 020–027: pulling, filing once, the listener, never uploading pictures |
 | [04-whats-new.md](04-whats-new.md) | 030–034: What's new, built from git and the stories, and "Fixed in this build" |
 | [05-pairing.md](05-pairing.md) | 040–041: pairing a device from Larry's link, one key for every app, re-pairing when it expires |

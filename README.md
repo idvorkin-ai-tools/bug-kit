@@ -140,6 +140,7 @@ These commands need no feature flag. Run the listener at least once to populate 
 |---|---|
 | Automatic app-triggered reports | Call `reporter.autoReport(reason: "call_failed", files: [callLog])`. Configure `options.auto.window` (600 seconds per reason) and `options.auto.maxBytes` (5 MB) before creating the reporter. No dialog or screenshot; see [automatic reports](docs/integration.md#automatic-reports). |
 | Copyable error context | `options.copyableErrors` defaults to `true` for dictation errors. App error screens can use `BugProblem` and `BugProblemView`. |
+| Errors on screen file themselves | On by default: every `BugProblemView` saves an automatic report (`reason` = its context), at most one per context per `options.auto.window`. Opt a context the app expects out with `BugProblem(..., autoFile: false)`. An extension sets `BugProblemFiler.current = .auto(...)` on a store in its app group, and the app calls `reporter.writer.adopt(from:)` at launch to take and upload those reports. See [errors on screen](docs/integration.md#errors-on-screen-file-themselves). |
 | Wall and host-clock timestamps | Create `SessionLog(prefix: "app", clocks: [.wall, .mono])`. Both are off by default. |
 | Memory on status lines | Use `log.status(every: 5, memory: true) { ... }` to include `rss_mb`. Default: off. |
 | Bridge an existing logger | Convert fields with `fields.mapValues(\.foundation)` when the app's logger accepts `[String: Any]`. |

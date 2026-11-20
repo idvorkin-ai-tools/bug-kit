@@ -4,6 +4,11 @@
 
   /// An error on screen with a Copy error button (CG's ProblemView, bug-kit#7). Copy puts `problem.copyText` on the
   /// pasteboard and logs `ui` with action `copy_error`, so the log shows the person took it.
+  ///
+  /// It also files itself (story 019, #119): when it first appears, and when its context or message changes, it
+  /// hands the problem to `BugProblemFiler.current` (the app's `BugReporter`), which saves an automatic report
+  /// unless the problem has `autoFile: false` or its context filed one within the window. What the person sees does
+  /// not change.
   public struct BugProblemView: View {
     let problem: BugProblem
     let logger: BugLogger?
@@ -28,6 +33,12 @@
         .accessibilityIdentifier("copy-error")
       }
       .onChange(of: problem) { copied = false }
+      // Keyed on what the problem is, not its state: a count in `extra` ticking does not file it again.
+      .task(id: Filing(context: problem.context, message: problem.message)) {
+        await BugProblemFiler.current?.file(problem)
+      }
     }
+
+    private struct Filing: Equatable { let context: String, message: String }
   }
 #endif

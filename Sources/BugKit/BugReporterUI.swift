@@ -74,6 +74,20 @@
       Task { await auto.report(reason: reason, screen: screen, context: context, files: files, log: log) }
     }
 
+    /// Saves the automatic report for an error shown on screen (story 019): what `BugProblemView` files through
+    /// `BugProblemFiler.current`, which this reporter sets when it is created. The screen and session log come from
+    /// the hooks, and with `richDiagnostics` the recent interactions and the screen's accessibility tree are attached.
+    /// No screenshot.
+    public func autoReport(problem: BugProblem) async {
+      hooks.flushLog()
+      let auto = auto, screen = hooks.screen(), log = hooks.sessionLog()
+      var tree: (@MainActor @Sendable () -> BugDiagnosticsSnapshot)?
+      if options.richDiagnostics {
+        tree = { [weak self] in self?.diagnosticsSnapshot(in: Self.keyWindow()) ?? BugDiagnosticsSnapshot() }
+      }
+      await auto.report(problem: problem, screen: screen, log: log, diagnostics: tree)
+    }
+
     /// Set false to ignore shakes (EA's instrumented run, story 037: a phone in a pocket shakes).
     public var shakeEnabled = true
     private var screen = ""
@@ -103,6 +117,7 @@
         store: store, info: info ?? .fromMainBundle(device: device), logger: hooks.logger,
         copySessionLog: options.copySessionLog, writeReportJSON: options.writeReportJSON, delivery: delivery)
       dismissWatcher.onDismiss = { [weak self] in self?.dismissedBySwipe() }
+      BugProblemFiler.current = BugProblemFiler { [weak self] problem in await self?.autoReport(problem: problem) }
     }
 
     /// Captures the screen first, then presents the dialog from the topmost view controller, so it opens over any

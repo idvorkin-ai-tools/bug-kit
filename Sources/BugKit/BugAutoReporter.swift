@@ -47,6 +47,35 @@ public actor BugAutoReporter {
     reason: String, note: String? = nil, screen: String = "", context: [String: JSONValue] = [:], files: [URL] = [],
     log: (path: String, tMs: Int)? = nil
   ) async -> BugReport? {
+    await save(
+      reason: reason, note: note ?? "Automatic report: \(reason)", screen: screen, context: context, files: files,
+      log: log, diagnostics: nil)
+  }
+
+  /// Saves the report for an error shown on screen (story 019): `reason` is the problem's context, the note is what
+  /// Copy error copies, and the context holds the problem's fields and its build. Nil when the problem opts out
+  /// (`autoFile: false`, logged as `bug_report_auto_skipped` with `auto_file: false`) or its context already filed
+  /// within the window. `diagnostics` (the screen's accessibility tree) is captured only for a report that is saved.
+  @discardableResult
+  public func report(
+    problem: BugProblem, screen: String = "", log: (path: String, tMs: Int)? = nil,
+    diagnostics: (@MainActor @Sendable () -> BugDiagnosticsSnapshot)? = nil
+  ) async -> BugReport? {
+    guard problem.autoFile else {
+      writer.logger("bug_report_auto_skipped", ["reason": .string(problem.context), "auto_file": false])
+      return nil
+    }
+    var context = problem.fields
+    context["build"] = .string(problem.build)
+    return await save(
+      reason: problem.context, note: problem.copyText, screen: screen, context: context, files: [], log: log,
+      diagnostics: diagnostics)
+  }
+
+  private func save(
+    reason: String, note: String, screen: String, context: [String: JSONValue], files: [URL],
+    log: (path: String, tMs: Int)?, diagnostics: (@MainActor @Sendable () -> BugDiagnosticsSnapshot)?
+  ) async -> BugReport? {
     let date = now()
     if let previous = last[reason], date.timeIntervalSince(previous) < options.window, date >= previous {
       writer.logger(
@@ -64,12 +93,14 @@ public actor BugAutoReporter {
         sources.append((url: session, name: "session.jsonl"))
       }
     }
+    var snapshot = BugDiagnosticsSnapshot()
+    if let diagnostics { snapshot = await MainActor.run(body: diagnostics) }
     let maxBytes = options.maxBytes, logger = writer.logger
     let copy: BugExtraFiles = { [sources] folder in Self.copy(sources, into: folder, maxBytes: maxBytes, logger: logger) }
     return await writer.save(
-      note: note ?? "Automatic report: \(reason)", screen: screen, context: context, screenshotPNG: nil, log: log,
-      extraFiles: sources.isEmpty ? nil : copy, date: date, source: "auto", reason: reason, event: "bug_report_auto",
-      copySessionLog: false)
+      note: note, screen: screen, context: context, screenshotPNG: nil, log: log,
+      extraFiles: sources.isEmpty ? nil : copy, date: date, diagnostics: snapshot, source: "auto", reason: reason,
+      event: "bug_report_auto", copySessionLog: false)
   }
 
   private func saveState() {
@@ -77,6 +108,8 @@ public actor BugAutoReporter {
     enc.dateEncodingStrategy = .iso8601
     enc.outputFormatting = [.sortedKeys]
     do {
+      // The root may not exist before a store's first report (an extension's folder in its app group).
+      try FileManager.default.createDirectory(at: writer.store.documents, withIntermediateDirectories: true)
       try enc.encode(last).write(to: stateFile, options: .atomic)
     } catch {
       writer.logger("error", ["where": "bug_auto_state", "message": .string("\(error)")])
