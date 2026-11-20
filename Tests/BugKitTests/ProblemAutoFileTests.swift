@@ -173,6 +173,7 @@ private let problem = BugProblem(
     #expect(await writer.adopt(from: shared).isEmpty)
     #expect(try writer.store.readAll().reports.count == 1)
     #expect(try FileManager.default.contentsOfDirectory(atPath: group.path) == ["bugkit-share"])
+    #expect(!FileManager.default.fileExists(atPath: shared.documents.appendingPathComponent(saved.folder).path))
     // The extension's window survives the take: the same context, a minute later, files nothing.
     let relaunched = BugAutoReporter(writer: BugReportWriter(store: shared, info: extensionInfo, logger: log.logger))
     #expect(await relaunched.report(problem: problem) == nil)
@@ -192,6 +193,37 @@ private let problem = BugProblem(
     #expect(await writer.adopt(from: shared).isEmpty)
     #expect(try appStore.readAll().reports.map(\.id) == [saved.id])
     #expect(try shared.readAll().reports.isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: shared.documents.appendingPathComponent(saved.folder).path))
+  }
+
+  @Test func anIndexLeftAsideByAKilledTakeIsAdoptedWithItsFiles() async throws {
+    let group = try temporaryFolder("group-killed")
+    let shared = BugStore(documents: group.appendingPathComponent("bugkit-share"))
+    let tree: @MainActor @Sendable () -> BugDiagnosticsSnapshot = {
+      BugDiagnosticsSnapshot(accessibility: Data("{\"role\":\"window\"}".utf8))
+    }
+    let saved = try #require(
+      await BugAutoReporter(writer: BugReportWriter(store: shared, info: extensionInfo, logger: log.logger))
+        .report(problem: problem, diagnostics: tree))
+    #expect(!saved.files.isEmpty)
+    // The take was killed right after its rename: the index is aside, the report's folder is still in the store.
+    let aside = group.appendingPathComponent("bugkit-share.taking-killed")
+    try FileManager.default.createDirectory(at: aside, withIntermediateDirectories: true)
+    try FileManager.default.moveItem(at: shared.index, to: BugStore(documents: aside).index)
+
+    let appDocs = try temporaryFolder("app-killed")
+    let writer = BugReportWriter(store: BugStore(documents: appDocs), info: appInfo, logger: log.logger)
+    let taken = await writer.adopt(from: shared)
+    let report = try #require(taken.first)
+    #expect(taken.map(\.id) == [saved.id])
+    #expect(report.files.count == saved.files.count)
+    for path in report.files {
+      #expect(
+        try String(contentsOf: appDocs.appendingPathComponent(path), encoding: .utf8).contains("window"), "\(path)")
+    }
+    #expect(log.fields("error").isEmpty)
+    #expect(!FileManager.default.fileExists(atPath: shared.documents.appendingPathComponent(saved.folder).path))
+    #expect(try FileManager.default.contentsOfDirectory(atPath: group.path) == ["bugkit-share"])
   }
 
   @Test func aStoreFolderNotMadeYetStillKeepsTheWindow() async throws {

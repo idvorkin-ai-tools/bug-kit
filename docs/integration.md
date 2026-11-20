@@ -190,10 +190,11 @@ BugProblemFiler.current = .auto(
 await reporter.writer.adopt(from: BugStore(documents: group.appendingPathComponent("bugkit-share", isDirectory: true)))
 ```
 
-`adopt(from:)` moves the extension's `bugs/` and `bugs.jsonl` aside (an extension saving meanwhile starts a fresh
+`adopt(from:)` moves the extension's `bugs.jsonl` aside with one rename (an extension saving meanwhile starts a fresh
 index), copies each report's files and session log into a new folder in the app's store, gives it the app's `app` and
 `bundle` (the listener files by bundle) with the extension's bundle kept as `context.extension`, appends its line,
-hands it to `delivery`, logs `bug_report_adopted`, and deletes what it moved aside. A report the app's store already
+hands it to `delivery`, logs `bug_report_adopted`, and deletes the report's folder in the extension's store and the
+index it moved aside. A report the app's store already
 holds is never added twice, and a take that was killed is finished on the next call. Use a folder of the group for
 the extension alone. The extension's `logs/` and rate-limit state (`bugs-auto.json`) stay where they are, so a
 running extension keeps its session log and the window holds.
