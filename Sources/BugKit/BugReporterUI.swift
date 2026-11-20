@@ -181,8 +181,8 @@
 
     /// "Log it" or "Log it and another". The save runs in a Task; the dialog closes, empties, or (`.recapture`)
     /// closes and reopens over a fresh picture of the screen.
-    public func log(another: Bool) {
-      guard let note = flow.log(another: another, style: options.another) else { return }
+    public func log(another: Bool, dictating: Bool = false) {
+      guard let note = flow.log(another: another, style: options.another, dictating: dictating) else { return }
       let png = screenshot?.pngData()
       let screenshotDropped = flow.screenshotDropped
       let screen = screen, context = context, sessionLog = capturedLogPosition
@@ -470,6 +470,7 @@
         }
         .onAppear {
           noteFocused = true
+          dictateIfCarried()  // `.recapture`: the fresh dialog of a "Log it and another" said while dictating
         }
         .onDisappear { dictation.stop(why: "closed") }  // a swipe down
       }
@@ -499,12 +500,21 @@
         return
       }
       let draft = reporter.flow.draft
+      let dictating = dictation.listening
       Task { @MainActor in
         guard await dictation.finish(why: "log_it"), reporter.flow.isPresented,
               reporter.flow.draft == draft else { return }
-        reporter.log(another: another)
+        reporter.log(another: another, dictating: dictating)
         if another { noteFocused = true }
+        dictateIfCarried()  // `.keepMoment`: this dialog is the fresh report
       }
+    }
+
+    /// #121 (CG #341): "Log it and another" while dictating keeps listening, into the fresh report's empty note.
+    private func dictateIfCarried() {
+      guard reporter.options.dictation, reporter.flow.takeDictateNext() else { return }
+      reporter.hooks.logger("dictation_carried", [:])
+      dictation.toggle(note: reporter.flow.note) { reporter.flow.note = $0 }
     }
   }
 

@@ -85,6 +85,7 @@ Part of the [BugKit stories](README.md).
   - `.recapture` waits for the closed dialog to leave before capturing (BugKit #107, CG #740), verified on the simulator by `anotherWaitsForTheClosedDialogToLeave`; Mac Catalyst itself is still to verify on the Mac.
   - Unique folders within one second are verified by `folderNamesAreUniqueWithinOneSecond`.
   - Two saves at once are verified by `sixtyFourConcurrentAppendsGiveSixtyFourValidLines`.
+  - Still dictating into the next report (#121, CG #341): `BugReportFlow`'s carried dictation, verified on the host by `anotherWhileDictatingDictatesTheNextReport`, `anotherWhileTypingLeavesTheMicOff` and `recaptureCarriesTheMicToTheReopenedReport`; the sheet restarting the mic is verified by typecheck, and a real voice across two reports is a phone check still to do.
 
 #### Use Case:
 - **As someone** who noticed several things wrong at once
@@ -106,6 +107,16 @@ Part of the [BugKit stories](README.md).
   - the dialog closes;
   - once it is off screen, the screen underneath is captured again;
   - a fresh, empty dialog opens with `source` "another".
+
+- **Scenario:** Still dictating (#121, Igor via CG #341: *"If I'm recording with my microphone and I said log another start logging with the microphone again"*)
+- **Given:** I am speaking the note, the microphone recording
+- **When:** I tap *Log it and another* (or press ⇧⌘Return)
+- **Then:**
+  - my last words are kept and the report is saved with them, as now;
+  - the fresh, empty report starts listening again by itself, in either style, so I go on speaking the next problem;
+  - had I been typing, not dictating, the fresh report opens with the microphone off, as before;
+  - *Log it*, Cancel and a swipe down never start the microphone again;
+  - if it can't start again (the app holds the microphone, a permission was withdrawn), the dictation problem shows as for a tap, and I can still type.
 
 - **Scenario:** Two in one second
 - **Given:** two reports are saved within the same second
