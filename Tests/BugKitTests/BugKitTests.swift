@@ -149,6 +149,60 @@ private func sample(note: String = "counted 1 rep, there were 13", date: Date = 
   #expect(flow.savedThisTime == 2)
 }
 
+// #121 (CG #341): "Log it and another" while speaking the note keeps the mic on for the next report.
+@Test func anotherWhileDictatingDictatesTheNextReport() {
+  var flow = BugReportFlow()
+  flow.open(from: .shake)
+  flow.note = "the timer skipped a rest"
+  #expect(flow.log(another: true, dictating: true) == "the timer skipped a rest")
+  #expect(flow.isPresented && flow.note.isEmpty)
+  let first = flow.takeDictateNext(), again = flow.takeDictateNext()
+  #expect(first && !again)  // once
+  flow.note = "and the count was late"
+  #expect(flow.log(another: false, dictating: true) == "and the count was late")
+  #expect(!flow.isPresented && !flow.dictateNext)  // "Log it" never restarts the mic
+}
+
+@Test func anotherWhileTypingLeavesTheMicOff() {
+  var flow = BugReportFlow()
+  flow.open(from: .shake)
+  flow.note = "typed"
+  _ = flow.log(another: true)
+  let typedCarries = flow.takeDictateNext()
+  #expect(!typedCarries)
+  flow.note = "spoken"
+  _ = flow.log(another: true, dictating: true)
+  flow.cancel()
+  #expect(!flow.dictateNext)
+  flow.open(from: .shake)
+  let shakeCarries = flow.takeDictateNext()
+  #expect(!shakeCarries)
+}
+
+@Test func recaptureCarriesTheMicToTheReopenedReport() {
+  var flow = BugReportFlow()
+  flow.open(from: .shake)
+  flow.note = "first"
+  _ = flow.log(another: true, style: .recapture, dictating: true)
+  #expect(!flow.isPresented)
+  let early = flow.takeDictateNext()
+  #expect(!early)  // not until the fresh dialog is up
+  let reopenedDialog = flow.reopenIfPending()
+  #expect(reopenedDialog)
+  #expect(flow.source == .another)
+  let reopened = flow.takeDictateNext()
+  #expect(reopened)
+  // A shake after a carried mic that was never taken does not inherit it.
+  var other = BugReportFlow()
+  other.open(from: .shake)
+  other.note = "x"
+  _ = other.log(another: true, style: .recapture, dictating: true)
+  other.cancel()
+  other.open(from: .button)
+  let inherited = other.takeDictateNext()
+  #expect(!inherited)
+}
+
 @Test func anEmptyNoteSavesNothingAndKeepsTheDialogUp() {
   var flow = BugReportFlow()
   flow.open(from: .button)

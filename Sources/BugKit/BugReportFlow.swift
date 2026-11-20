@@ -8,6 +8,8 @@ import Foundation
 ///     report keeps the moment that opened the dialog (its screenshot), since the dialog now covers the screen.
 ///   - `.recapture` (CG story 142, a85e228): the dialog closes, the screen underneath is captured again, and a fresh
 ///     dialog opens (`reopenPending`, then `reopenIfPending()`), so each report has its own picture.
+/// - "Log it and another" while the note is being dictated carries the dictation into the fresh report
+///   (`dictateNext`, then `takeDictateNext()`), in either style (#121, CG #341).
 /// - An empty or blank note saves nothing.
 public struct BugReportFlow: Equatable, Sendable {
   public enum Source: String, Sendable { case shake, button, key, hook, another }
@@ -23,6 +25,8 @@ public struct BugReportFlow: Equatable, Sendable {
   public private(set) var savedThisTime = 0
   /// `.recapture`: the dialog closed after "Log it and another" and a fresh one should open once it is gone.
   public private(set) var reopenPending = false
+  /// "Log it and another" was tapped while dictating: the fresh report should start listening by itself.
+  public private(set) var dictateNext = false
 
   public init() {}
 
@@ -36,6 +40,7 @@ public struct BugReportFlow: Equatable, Sendable {
     if isPresented && !dialogOnScreen { cancel() }
     guard !isPresented else { return false }
     isPresented = true
+    if source != .another { dictateNext = false }  // only a "Log it and another" reopen carries the mic
     self.source = source
     note = ""
     draft = UUID()
@@ -45,12 +50,14 @@ public struct BugReportFlow: Equatable, Sendable {
   }
 
   /// "Log it" (`another: false`) or "Log it and another" (`another: true`). Returns the trimmed note to save, or
-  /// nil when there is nothing to save; the caller saves it.
-  public mutating func log(another: Bool, style: AnotherStyle = .keepMoment) -> String? {
+  /// nil when there is nothing to save; the caller saves it. `dictating`: the note was being spoken, so the fresh
+  /// report of "Log it and another" should listen again (`dictateNext`).
+  public mutating func log(another: Bool, style: AnotherStyle = .keepMoment, dictating: Bool = false) -> String? {
     guard isPresented, canLog else { return nil }
     let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
     savedThisTime += 1
     note = ""
+    dictateNext = another && dictating
     if another && style == .keepMoment {
       draft = UUID()
     } else {
@@ -68,6 +75,13 @@ public struct BugReportFlow: Equatable, Sendable {
     return open(from: .another)
   }
 
+  /// The fresh report is on screen: returns whether it should start dictating, once.
+  public mutating func takeDictateNext() -> Bool {
+    guard isPresented, dictateNext else { return false }
+    dictateNext = false
+    return true
+  }
+
   /// Exclude the captured screenshot from every report about this moment.
   public mutating func dropScreenshot() {
     guard isPresented else { return }
@@ -77,6 +91,7 @@ public struct BugReportFlow: Equatable, Sendable {
   public mutating func cancel() {
     isPresented = false
     reopenPending = false
+    dictateNext = false
     note = ""
   }
 }

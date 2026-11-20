@@ -150,6 +150,17 @@ import Testing
 }
 
 @MainActor
+@Test func dictationCarriedStartWhileHostRecordsShowsTheProblem() async throws {
+  let fixture = try DictationFixture(hostMicrophoneBusy: { true })
+  defer { fixture.cleanup() }
+  #expect(fixture.dictation.startCarried(note: "") { fixture.note.value = $0 })
+  try await fixture.until { !fixture.dictation.busy }
+  #expect(fixture.dictation.problem == "The microphone is in use by this app")
+  #expect(fixture.capture.starts == 0)
+  #expect(await fixture.provider.starts == 0)
+}
+
+@MainActor
 @Test func dictationHostRecordingStartedDuringStartupNeverCaptures() async throws {
   for waitForProvider in [false, true] {
     let gate = MicrophonePermissionGate()
