@@ -214,6 +214,13 @@ public struct DictationJoin: Equatable, Sendable {
       else if !busy, !hostMicrophoneBusy() { start(note: note, onText: onText) }
     }
 
+    /// Restarts a carried dictation; a busy host surfaces `start`'s usual problem instead of doing nothing.
+    func startCarried(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) -> Bool {
+      guard !busy else { return false }
+      start(note: note, onText: onText)
+      return true
+    }
+
     private func start(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
       problem = nil; problemState = [:]
       owner = UUID()

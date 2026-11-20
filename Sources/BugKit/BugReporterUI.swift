@@ -513,8 +513,8 @@
     /// #121 (CG #341): "Log it and another" while dictating keeps listening, into the fresh report's empty note.
     private func dictateIfCarried() {
       guard reporter.options.dictation, reporter.flow.takeDictateNext() else { return }
+      guard dictation.startCarried(note: reporter.flow.note, onText: { reporter.flow.note = $0 }) else { return }
       reporter.hooks.logger("dictation_carried", [:])
-      dictation.toggle(note: reporter.flow.note) { reporter.flow.note = $0 }
     }
   }
 
