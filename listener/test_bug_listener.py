@@ -710,6 +710,25 @@ def test_crash_session_uses_preceding_start_not_relaunch(crash_device, listener_
     assert records[0]["context"]["session_match"].startswith("inferred")
 
 
+def test_a_fresh_crash_keeps_its_old_session_log_on_the_mac(crash_device, listener_state, monkeypatch):
+    cfg, files, _ = crash_device
+    epoch = int(bl.parse_time("2026-10-10T00:01:00Z").timestamp())
+    files[f"signal-{epoch}.txt"] = "signal 11\n"
+    device_copy = bl.copy
+
+    def copy(dev, a, source, dest, locked, **kwargs):
+        ok = device_copy(dev, a, source, dest, locked, **kwargs)
+        if source == "Documents/logs":
+            for name in ("previous.jsonl", "relaunch.jsonl"):
+                aged(dest / name, 40, (dest / name).read_text())
+        return ok
+    monkeypatch.setattr(bl, "copy", copy)
+    bl.poll(cfg, backfill=True)
+    logs = listener_state / "app" / "iphone" / "logs"
+    assert (logs / "previous.jsonl").exists()
+    assert not (logs / "relaunch.jsonl").exists()
+
+
 def test_metrickit_hangs_file_without_claiming_delivery_is_crash_time(crash_device, listener_state, monkeypatch):
     cfg, files, _ = crash_device
     files["20261010-020000.json"] = json.dumps({"hangDiagnostics": [{"callStackTree": {}}]})

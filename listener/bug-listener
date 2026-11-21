@@ -919,7 +919,6 @@ def poll_crashes(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
                 logs_ready = copy(dev, a, a.get("log_dir", "Documents/logs"), logs, locked, allow_missing=True)
                 if logs_ready and logs.exists():
                     shutil.copytree(logs, local / "logs", dirs_exist_ok=True)
-                    prune_local_logs(local)
             if not logs_ready:
                 summary["errors"] += 1
                 pending(entry, rec, "crash_logs", a, dev)
@@ -933,6 +932,8 @@ def poll_crashes(a: dict, dev: dict, local: Path, locked: Any, seen: dict, filer
             rec["files"].append(metadata)
             (local / metadata).write_text(json.dumps(rec, indent=2, sort_keys=True) + "\n")
             deliver(filer, a, rec, dev, local, entry, "crash_keys", seen, summary)
+        if logs_ready:
+            prune_local_logs(local)
 
 
 def prune_local_logs(local: Path, days: int = LOG_RETENTION_DAYS) -> None:
