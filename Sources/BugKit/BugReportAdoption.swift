@@ -137,6 +137,11 @@ extension BugReportWriter {
       return report
     } catch {
       logger("error", ["where": "bug_index", "id": .string(original.id.uuidString), "message": .string("\(error)")])
+      if !report.folder.isEmpty {
+        do { try FileManager.default.removeItem(at: store.documents.appendingPathComponent(report.folder)) } catch {
+          logger("error", ["where": "bug_adopt_remove", "message": .string("\(error)")])
+        }
+      }
       return nil
     }
   }

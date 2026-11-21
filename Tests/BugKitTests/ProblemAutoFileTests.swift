@@ -277,7 +277,10 @@ private let problem = BugProblem(
     #expect(try asides(in: group).count == 1)
     try FileManager.default.removeItem(at: appStore.index)
     #expect(await writer.adopt(from: shared).map(\.id) == [saved.id])
+    let report = try #require(try appStore.readAll().reports.first)
     #expect(try appStore.readAll().reports.map(\.id) == [saved.id])
+    #expect(try FileManager.default.contentsOfDirectory(atPath: appDocs.appendingPathComponent("bugs").path)
+      .map { "bugs/\($0)" } == [report.folder])
     #expect(try asides(in: group).isEmpty)
   }
 
