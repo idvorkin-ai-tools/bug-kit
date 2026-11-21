@@ -12,7 +12,8 @@ public enum BugReportOutcome: Equatable, Sendable {
   case saved(id: UUID, queued: Bool)
   /// bugs.jsonl did not take the report: only the session log has it, and nothing will file it.
   case failed(id: UUID)
-  /// The dialog closed (Cancel, a swipe down, or a dialog the system removed) without saving its current note.
+  /// The dialog closed (Cancel, a swipe down, or a dialog the system removed) without saving its current note, or an
+  /// open could not show it (no window, or the presentation was dropped).
   /// It says nothing about reports already logged from the dialog: each gets its own `saved` or `failed`, which can
   /// arrive after this `cancelled` because saves finish asynchronously.
   case cancelled
