@@ -54,10 +54,13 @@
     @Published public private(set) var context: [String: JSONValue] = [:]
     /// What the last save says, for a status line or a toast.
     @Published public private(set) var lastStatus: String?
-    /// What became of the last report opened: saved (and queued for upload), failed, or cancelled (#120).
+    /// The most recent outcome to arrive: saved (and queued for upload), failed, or cancelled (#120). It is the latest
+    /// event, not the state of the current dialog: a save that finishes after a later cancel leaves this `.saved`.
     @Published public private(set) var lastOutcome: BugReportOutcome?
     /// Called on the main actor after each save, and when the dialog closes without saving, with what became of the
-    /// report: an app's "Sent ✓" waits for `.saved` rather than for the dialog to close.
+    /// report: an app's "Sent ✓" waits for `.saved` rather than for the dialog to close. Saves finish asynchronously,
+    /// so a `.saved` or `.failed` can arrive after a later `.cancelled`; show "Sent ✓" on any `.saved` rather than
+    /// resolving on the first outcome.
     public var onOutcome: (@MainActor (BugReportOutcome) -> Void)?
 
     public let hooks: BugReporterHooks

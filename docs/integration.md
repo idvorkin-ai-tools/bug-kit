@@ -91,7 +91,10 @@ NavigationStack { WhatsNewView(feed: whatsNew, logger: log.logger) }
   (#120): `.saved(id:queued:)` once bugs.jsonl holds it (`queued` when the CloudKit delivery took it to upload; the
   upload itself is later and not reported), `.failed(id:)` when bugs.jsonl did not take it, `.cancelled` when the
   dialog closed without saving. Show "Sent ✓" on `.saved`, not when the dialog closes. "Log it and another" gives one
-  `.saved` per report.
+  `.saved` per report. Outcomes arrive as they finish: a save is asynchronous, so a report's `.saved` or `.failed`
+  can arrive after a later `.cancelled` (for example "Log it and another" then Cancel), and `lastOutcome` is the most
+  recent outcome, not the state of the open dialog. Show "Sent ✓" on any `.saved` rather than resolving on the first
+  outcome after `open`.
 - `log.status(every: 5) { [...] }` writes a periodic status line.
 - Add `memory: true` to include resident memory (`rss_mb`); create the logger with `clocks: [.wall, .mono]`
   to include wall-clock and host-uptime timestamps. See [logging conventions](ops/logging.md).
