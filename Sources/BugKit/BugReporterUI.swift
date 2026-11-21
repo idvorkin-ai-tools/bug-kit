@@ -54,6 +54,11 @@
     @Published public private(set) var context: [String: JSONValue] = [:]
     /// What the last save says, for a status line or a toast.
     @Published public private(set) var lastStatus: String?
+    /// What became of the last report opened: saved (and queued for upload), failed, or cancelled (#120).
+    @Published public private(set) var lastOutcome: BugReportOutcome?
+    /// Called on the main actor after each save, and when the dialog closes without saving, with what became of the
+    /// report: an app's "Sent ✓" waits for `.saved` rather than for the dialog to close.
+    public var onOutcome: (@MainActor (BugReportOutcome) -> Void)?
 
     public let hooks: BugReporterHooks
     public let options: BugReporterOptions
@@ -135,6 +140,7 @@
         hooks.logger("bug_report_cancel", ["saved": .int(flow.savedThisTime), "stale": true])
         presented = nil
         screenshot = nil
+        finish(.cancelled)
       }
       guard flow.open(from: source, dialogOnScreen: !stale) else {
         hooks.logger("bug_report_open", ["source": .string(source.rawValue), "already_open": true])
@@ -159,6 +165,7 @@
       guard let top = window?.rootViewController.map(Self.topmost) else {
         hooks.logger("error", ["where": "bug_report_open", "message": "no window to present from"])
         flow.cancel()
+        finish(.cancelled)
         return
       }
       let host = UIHostingController(rootView: BugReportSheet(reporter: self))
@@ -184,6 +191,7 @@
         presented = nil
         screenshot = nil
         flow.cancel()
+        finish(.cancelled)
         return
       }
       hooks.logger(
@@ -205,10 +213,11 @@
       let writer = writer, extra = hooks.extraFiles
       if options.copySessionLog { hooks.flushLog() }
       Task { @MainActor in
-        let report = await writer.save(
+        let saved = await writer.write(
           note: note, screen: screen, context: context, screenshotPNG: png, log: sessionLog, extraFiles: extra,
           diagnostics: diagnostics, screenshotDropped: screenshotDropped)
-        self.lastStatus = report.folder.isEmpty ? "Problem noted in the log only" : "Problem logged. Thanks."
+        self.lastStatus = saved.report.folder.isEmpty ? "Problem noted in the log only" : "Problem logged. Thanks."
+        self.finish(saved.outcome)
       }
       guard !flow.isPresented else { return }  // keepMoment: the dialog stays, empty
       let host = presented
@@ -250,6 +259,12 @@
       presented?.dismiss(animated: true)
       presented = nil
       screenshot = nil
+      finish(.cancelled)
+    }
+
+    private func finish(_ outcome: BugReportOutcome) {
+      lastOutcome = outcome
+      onOutcome?(outcome)
     }
 
     /// Runs the simulator hooks once, at launch: `<PREFIX>_BUG` saves reports, `<PREFIX>_SHAKE_AFTER` opens the
@@ -317,6 +332,7 @@
       flow.cancel()
       presented = nil
       screenshot = nil
+      finish(.cancelled)
     }
 
     static func keyWindow() -> UIWindow? {
