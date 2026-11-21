@@ -310,7 +310,7 @@ On Linux, `just test-linux` (`scripts/test-linux.sh` says what it needs) runs th
 
 Swift tests cover storage, concurrent writes, report flow, dictation merging and the dictation controller, logs, crashes and What's new. Python tests cover listener parsing, deduplication, independent crash discovery, evidence retries, doctor/status JSON and deployment commands with fake tools.
 
-With XcodeGen and a selected iOS simulator, run `scripts/test-ios-diagnostics.sh <simulator-udid>` to check accessibility redaction, traversal limits and control capture.
+With XcodeGen and a selected iOS simulator, run `scripts/test-ios-diagnostics.sh <simulator-udid>` to check accessibility redaction, traversal limits and control capture. With `xcbeautify` installed (`brew install xcbeautify`) the console shows its summary; without it, the raw output. The whole xcodebuild output is kept in `DerivedData/BugKitDiagnostics/test.log` (or `$BUG_KIT_TEST_LOG`), and the exit status is xcodebuild's.
 
 Host tests do not exercise the iOS UI. Typecheck it with an installed iOS SDK:
 
