@@ -342,8 +342,9 @@ private let problem = BugProblem(
     let taken = await first.value + second.value
     #expect(Set(taken.map(\.id)) == [a.id, b.id])
     #expect(taken.count == 2)
-    #expect(try appStore.readAll().reports.map(\.id).sorted { $0.uuidString < $1.uuidString }
-      == [a.id, b.id].sorted { $0.uuidString < $1.uuidString })
+    let held: [String] = try appStore.readAll().reports.map(\.id.uuidString).sorted()
+    let expected: [String] = [a.id.uuidString, b.id.uuidString].sorted()
+    #expect(held == expected)
     #expect(await delivery.enqueued.count == 2)
   }
 
