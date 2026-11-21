@@ -12,9 +12,11 @@ struct CloudKitSyncFailure {
     code = (error as? CKError)?.errorCode ?? ns.code
     let details = ns.localizedDescription
     if ns.domain == CKErrorDomain, code == CKError.Code.invalidArguments.rawValue,
-       details.contains("recordName"), details.localizedCaseInsensitiveContains("not marked queryable") {
+      details.contains("recordName"), details.localizedCaseInsensitiveContains("not marked queryable")
+    {
       reason = "missing_query_index"
-      hint = "CloudKit Console: select the configured container and environment, Schema > Indexes > BugKitReport > Add Basic Index > recordName > Queryable > Save."
+      hint =
+        "CloudKit Console: select the configured container and environment, Schema > Indexes > BugKitReport > Add Basic Index > recordName > Queryable > Save."
     } else {
       reason = "sync_failed"
       hint = nil
@@ -25,5 +27,6 @@ struct CloudKitSyncFailure {
 /// Explicit local diagnostics may contain private server/account identifiers; do not publish this output.
 func cloudKitErrorDetails(_ error: any Error) -> String {
   let ns = error as NSError
-  return "CloudKit error: \(String(reflecting: error))\nNSError domain=\(ns.domain) code=\(ns.code)\nServer message: \(ns.localizedDescription)\nUser info: \(ns.userInfo)"
+  return
+    "CloudKit error: \(String(reflecting: error))\nNSError domain=\(ns.domain) code=\(ns.code)\nServer message: \(ns.localizedDescription)\nUser info: \(ns.userInfo)"
 }

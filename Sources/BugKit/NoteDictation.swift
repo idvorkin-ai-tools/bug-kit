@@ -38,7 +38,9 @@ public struct DictationJoin: Equatable, Sendable {
   /// result is observed; it bounds an untimed transcript. Without either word timing or this bound,
   /// results are treated as revisions. Returns true when a new stretch begins.
   @discardableResult
-  public mutating func update(text: String, firstStart: Double, lastEnd: Double, isFinal: Bool = false, observedAudioEnd: Double? = nil) -> Bool {
+  public mutating func update(
+    text: String, firstStart: Double, lastEnd: Double, isFinal: Bool = false, observedAudioEnd: Double? = nil
+  ) -> Bool {
     let text = Self.once(text.trimmingCharacters(in: .whitespacesAndNewlines))
     // Empty terminal results carry no replacement words.
     guard !text.isEmpty else { return false }
@@ -57,7 +59,8 @@ public struct DictationJoin: Equatable, Sendable {
         // inside that audio is not evidence of a new stretch, even if the first word changes.
         after = firstStart >= bound && firstStart > start
       }
-      let restarted = !isFinal && timed
+      let restarted =
+        !isFinal && timed
         && text.count < current.count && Self.firstWord(text) != Self.firstWord(current)
       fresh = after || restarted
     }
@@ -66,13 +69,16 @@ public struct DictationJoin: Equatable, Sendable {
     // it replaces the stretches it overlaps; earlier untouched ones stay. After a clock reset or without
     // ranges the overlap is ambiguous, so completed speech is kept and the final revises the current stretch.
     if isFinal, !after, let start = currentStart, firstStart < start, lastEnd >= currentEnd - 0.05,
-       Self.ordered(completed + [Stretch(text: current, start: start, end: max(currentEnd, start))]),
-       let covered = completed.firstIndex(where: { $0.end > firstStart }) {
+      Self.ordered(completed + [Stretch(text: current, start: start, end: max(currentEnd, start))]),
+      let covered = completed.firstIndex(where: { $0.end > firstStart })
+    {
       completed.removeSubrange(covered...)
     }
     if fresh, let start = currentStart {
-      completed.append(Stretch(text: current, start: start,
-        end: currentEnd > start ? currentEnd : currentObservedAudioEnd ?? start))
+      completed.append(
+        Stretch(
+          text: current, start: start,
+          end: currentEnd > start ? currentEnd : currentObservedAudioEnd ?? start))
     }
     current = text
     currentStart = firstStart
@@ -166,9 +172,11 @@ public struct DictationJoin: Equatable, Sendable {
     private var typed = ""
     private var onText: (@MainActor @Sendable (String) -> Void)?
 
-    init(logger: @escaping BugLogger, providerFactory: @escaping @MainActor @Sendable () -> any BugDictationProvider,
-         capture: any DictationCapture, permissions: DictationPermissions, defaults: UserDefaults,
-         hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) {
+    init(
+      logger: @escaping BugLogger, providerFactory: @escaping @MainActor @Sendable () -> any BugDictationProvider,
+      capture: any DictationCapture, permissions: DictationPermissions, defaults: UserDefaults,
+      hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }
+    ) {
       self.logger = logger; self.factory = providerFactory; self.capture = capture
       self.permissions = permissions; self.defaults = defaults
       self.hostMicrophoneBusy = hostMicrophoneBusy
@@ -210,8 +218,11 @@ public struct DictationJoin: Equatable, Sendable {
     }
 
     public func toggle(note: String, onText: @escaping @MainActor @Sendable (String) -> Void) {
-      if listening { Task { _ = await finish(why: "tap") } }
-      else if !busy, !hostMicrophoneBusy() { start(note: note, onText: onText) }
+      if listening {
+        Task { _ = await finish(why: "tap") }
+      } else if !busy, !hostMicrophoneBusy() {
+        start(note: note, onText: onText)
+      }
     }
 
     /// Restarts a carried dictation; a busy host surfaces `start`'s usual problem instead of doing nothing.
@@ -249,9 +260,13 @@ public struct DictationJoin: Equatable, Sendable {
           guard !self.hostMicrophoneBusy() else { throw DictationPermissionError.microphoneBusy }
           let audio = try self.capture.start(preferredInputID: self.selectedMicrophoneID)
           self.starting = false; self.listening = true
-          self.logger("dictation_start", ["provider": .string(backend.name),
-            "input": self.capture.currentInputID.map(JSONValue.string) ?? .null,
-            "on_device": onDevice.map(JSONValue.bool) ?? .null])
+          self.logger(
+            "dictation_start",
+            [
+              "provider": .string(backend.name),
+              "input": self.capture.currentInputID.map(JSONValue.string) ?? .null,
+              "on_device": onDevice.map(JSONValue.bool) ?? .null,
+            ])
           self.audioTask = Task { [weak self] in
             do {
               for await chunk in audio {
@@ -344,7 +359,8 @@ public struct DictationJoin: Equatable, Sendable {
 
     private func hear(_ chunk: Data, _ generation: UUID) {
       guard owner == generation, listening,
-            let value = meter.hear(pcm16: chunk, at: ProcessInfo.processInfo.systemUptime) else { return }
+        let value = meter.hear(pcm16: chunk, at: ProcessInfo.processInfo.systemUptime)
+      else { return }
       level.set(value)
     }
 
@@ -391,23 +407,30 @@ public struct DictationJoin: Equatable, Sendable {
   import Speech
 
   extension NoteDictation {
-    public convenience init(logger: @escaping BugLogger,
+    public convenience init(
+      logger: @escaping BugLogger,
       providerFactory: (@MainActor @Sendable () -> any BugDictationProvider)? = nil,
       defaults: UserDefaults = .standard,
-      hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }) {
-      self.init(logger: logger, providerFactory: providerFactory ?? { AppleDictationProvider(logger: logger) },
-                capture: AVDictationCapture(logger: logger), permissions: .system, defaults: defaults,
-                hostMicrophoneBusy: hostMicrophoneBusy)
+      hostMicrophoneBusy: @escaping @MainActor () -> Bool = { false }
+    ) {
+      self.init(
+        logger: logger, providerFactory: providerFactory ?? { AppleDictationProvider(logger: logger) },
+        capture: AVDictationCapture(logger: logger), permissions: .system, defaults: defaults,
+        hostMicrophoneBusy: hostMicrophoneBusy)
     }
   }
 
   extension DictationPermissions {
     static let system = Self(
-      speech: { await withCheckedContinuation { continuation in
-        SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
-      } },
-      microphone: { await withCheckedContinuation { continuation in
-        AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
-      } })
+      speech: {
+        await withCheckedContinuation { continuation in
+          SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
+        }
+      },
+      microphone: {
+        await withCheckedContinuation { continuation in
+          AVAudioApplication.requestRecordPermission { continuation.resume(returning: $0) }
+        }
+      })
   }
 #endif

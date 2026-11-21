@@ -9,7 +9,11 @@ import Testing
 private final class Log: @unchecked Sendable {
   private let lock = NSLock()
   private var items: [(String, [String: JSONValue])] = []
-  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var logger: BugLogger {
+    { [self] e, f in
+      lock.lock(); items.append((e, f)); lock.unlock()
+    }
+  }
   func fields(_ name: String) -> [[String: JSONValue]] {
     lock.lock(); defer { lock.unlock() }
     return items.filter { $0.0 == name }.map(\.1)
@@ -197,8 +201,9 @@ private let problem = BugProblem(
     #expect(await delivery.enqueued == [saved.id])
     #expect(log.fields("bug_report_adopted").first?["id"] == .string(saved.id.uuidString))
     #expect(try shared.readAll().reports.isEmpty)
-    #expect(FileManager.default.fileExists(
-      atPath: shared.documents.appendingPathComponent("logs/share.jsonl").path))
+    #expect(
+      FileManager.default.fileExists(
+        atPath: shared.documents.appendingPathComponent("logs/share.jsonl").path))
     #expect(await writer.adopt(from: shared).isEmpty)
     #expect(try writer.store.readAll().reports.count == 1)
     #expect(try FileManager.default.contentsOfDirectory(atPath: group.path) == ["bugkit-share"])
@@ -279,8 +284,9 @@ private let problem = BugProblem(
     #expect(await writer.adopt(from: shared).map(\.id) == [saved.id])
     let report = try #require(try appStore.readAll().reports.first)
     #expect(try appStore.readAll().reports.map(\.id) == [saved.id])
-    #expect(try FileManager.default.contentsOfDirectory(atPath: appDocs.appendingPathComponent("bugs").path)
-      .map { "bugs/\($0)" } == [report.folder])
+    #expect(
+      try FileManager.default.contentsOfDirectory(atPath: appDocs.appendingPathComponent("bugs").path)
+        .map { "bugs/\($0)" } == [report.folder])
     #expect(try asides(in: group).isEmpty)
   }
 

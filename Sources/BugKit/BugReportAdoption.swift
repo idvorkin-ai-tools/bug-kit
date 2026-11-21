@@ -41,10 +41,13 @@ extension BugReportWriter {
     }
     guard !staged.isEmpty else { return [] }
     if let delivery {
-      do { try await delivery.prepare(documents: store.documents) }
-      catch {
-        logger("error", ["where": "bug_delivery_prepare",
-                         "message": "Cloud delivery activation failed; saving the report locally."])
+      do { try await delivery.prepare(documents: store.documents) } catch {
+        logger(
+          "error",
+          [
+            "where": "bug_delivery_prepare",
+            "message": "Cloud delivery activation failed; saving the report locally.",
+          ])
       }
     }
     // Without this store's index nothing tells a report already taken, so every aside waits for the next take.
@@ -77,13 +80,18 @@ extension BugReportWriter {
         taken.append(report)
         logger(
           "bug_report_adopted",
-          ["id": .string(report.id.uuidString), "from": .string(original.bundle), "folder": .string(report.folder),
-           "files": .array(report.files.map(JSONValue.string))])
+          [
+            "id": .string(report.id.uuidString), "from": .string(original.bundle), "folder": .string(report.folder),
+            "files": .array(report.files.map(JSONValue.string)),
+          ])
         if let delivery {
-          do { try await delivery.enqueue(report, documents: store.documents) }
-          catch {
-            logger("error", ["where": "bug_delivery_enqueue", "id": .string(report.id.uuidString),
-                             "message": "Cloud delivery is pending; the report remains local."])
+          do { try await delivery.enqueue(report, documents: store.documents) } catch {
+            logger(
+              "error",
+              [
+                "where": "bug_delivery_enqueue", "id": .string(report.id.uuidString),
+                "message": "Cloud delivery is pending; the report remains local.",
+              ])
           }
         }
       }
@@ -120,8 +128,12 @@ extension BugReportWriter {
           names.insert(name)
           return "\(made.relative)/\(name)"
         } catch {
-          logger("error", ["where": "bug_adopt_file", "id": .string(original.id.uuidString),
-                           "file": .string(path), "message": .string("\(error)")])
+          logger(
+            "error",
+            [
+              "where": "bug_adopt_file", "id": .string(original.id.uuidString),
+              "file": .string(path), "message": .string("\(error)"),
+            ])
           return nil
         }
       }
@@ -154,7 +166,9 @@ private actor AdoptionQueue {
 
   func run(_ work: @escaping @Sendable () async -> [BugReport]) async -> [BugReport] {
     let before = last
-    let task = Task { await before?.value; return await work() }
+    let task = Task {
+      await before?.value; return await work()
+    }
     last = Task { _ = await task.value }
     return await task.value
   }

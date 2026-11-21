@@ -42,12 +42,17 @@ public struct BugKitAboutInfo: Equatable, Sendable {
 
   private static func repository(_ value: String) -> URL? {
     guard let url = URL(string: value), url.scheme == "https", url.host?.lowercased() == "github.com",
-          url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil else { return nil }
+      url.user == nil, url.password == nil, url.port == nil, url.query == nil, url.fragment == nil
+    else { return nil }
     var parts = url.path.split(separator: "/").map(String.init)
     guard parts.count == 2 else { return nil }
     if parts[1].hasSuffix(".git") { parts[1] = String(parts[1].dropLast(4)) }
-    guard parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." &&
-      $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) } }) else { return nil }
+    guard
+      parts.allSatisfy({
+        !$0.isEmpty && $0 != "." && $0 != ".."
+          && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) }
+      })
+    else { return nil }
     return URL(string: "https://github.com/\(parts[0])/\(parts[1])")
   }
 }

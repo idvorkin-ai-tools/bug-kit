@@ -40,7 +40,8 @@ import Testing
 
 @Test func deepgramCancelEndsResultsAndReleasesSocket() async throws {
   let socket = DictationTestSocket()
-  let provider = DeepgramDictationProvider(credential: { .accessToken("test-token") }, socketFactory: { _, _ in socket })
+  let provider = DeepgramDictationProvider(
+    credential: { .accessToken("test-token") }, socketFactory: { _, _ in socket })
   let stream = try await provider.start()
   let completion = Task { for try await _ in stream {} }
   await provider.cancel()
@@ -51,8 +52,9 @@ import Testing
 @Test func deepgramMissingCredentialFailsBeforeOpeningSocket() async {
   let socket = DictationTestSocket()
   let provider = DeepgramDictationProvider(credential: { .apiKey("  ") }, socketFactory: { _, _ in socket })
-  do { _ = try await provider.start(); Issue.record("missing credential started a socket") }
-  catch { #expect(error as? DictationProviderError == .missingCredential) }
+  do { _ = try await provider.start(); Issue.record("missing credential started a socket") } catch {
+    #expect(error as? DictationProviderError == .missingCredential)
+  }
   #expect(await socket.opens == 0)
 }
 
@@ -68,8 +70,9 @@ import Testing
   #expect(await gate.waiting)
   await provider.cancel()
   await gate.release()
-  do { _ = try await start.value; Issue.record("canceled credential request opened a socket") }
-  catch { #expect(error is CancellationError) }
+  do { _ = try await start.value; Issue.record("canceled credential request opened a socket") } catch {
+    #expect(error is CancellationError)
+  }
   #expect(await socket.opens == 0)
 }
 
@@ -78,20 +81,25 @@ import Testing
   let provider = DeepgramDictationProvider(credential: { .apiKey("test-only") }, socketFactory: { _, _ in socket })
   let stream = try await provider.start()
   await socket.push(.string("not json"))
-  do { for try await _ in stream {}; Issue.record("unreadable response was accepted") }
-  catch { #expect(error is DecodingError) }
+  do { for try await _ in stream {}; Issue.record("unreadable response was accepted") } catch {
+    #expect(error is DecodingError)
+  }
   await provider.cancel()
 }
 
 @Test func deepgramHandshakeCarriesCredentialsOnlyInTheSubprotocol() async throws {
-  for (credential, scheme) in [(DeepgramDictationCredential.apiKey("test-key"), "token"),
-                               (.accessToken("test-token"), "bearer")] {
+  for (credential, scheme) in [
+    (DeepgramDictationCredential.apiKey("test-key"), "token"),
+    (.accessToken("test-token"), "bearer"),
+  ] {
     let opened = DictationOpenedSocket()
-    let provider = DeepgramDictationProvider(credential: { credential }, socketFactory: { url, credential in
-      let socket = URLSessionDictationSocket(url: url, credential: credential)
-      opened.socket = socket
-      return DictationTestSocket()
-    })
+    let provider = DeepgramDictationProvider(
+      credential: { credential },
+      socketFactory: { url, credential in
+        let socket = URLSessionDictationSocket(url: url, credential: credential)
+        opened.socket = socket
+        return DictationTestSocket()
+      })
     _ = try await provider.start()
     await provider.cancel()
     let socket = try #require(opened.socket)
@@ -108,8 +116,10 @@ import Testing
 private final class DictationOpenedSocket: @unchecked Sendable { var socket: URLSessionDictationSocket? }
 
 private func result(start: Double, text: String, final: Bool) -> URLSessionWebSocketTask.Message {
-  let body: [String: Any] = ["type": "Results", "start": start, "is_final": final,
-    "channel": ["alternatives": [["transcript": text]]]]
+  let body: [String: Any] = [
+    "type": "Results", "start": start, "is_final": final,
+    "channel": ["alternatives": [["transcript": text]]],
+  ]
   return .data(try! JSONSerialization.data(withJSONObject: body))
 }
 
@@ -139,8 +149,7 @@ private actor DictationTestSocket: DictationSocket {
     return try await withCheckedThrowingContinuation { waiter = $0 }
   }
   func push(_ value: URLSessionWebSocketTask.Message) {
-    if let waiter { self.waiter = nil; waiter.resume(returning: value) }
-    else { queue.append(value) }
+    if let waiter { self.waiter = nil; waiter.resume(returning: value) } else { queue.append(value) }
   }
   func close() async {
     closed = true

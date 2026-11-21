@@ -60,7 +60,8 @@ extension BugStore {
         return (url.lastPathComponent, now.timeIntervalSince(modified), values.fileSize ?? 0)
       }
     let ages = files.map { (name: $0.name, age: $0.age) }
-    let victims = Set(LogRetention.prune(files: ages, referenced: referenced, retention: retention, keepNewest: keepNewest))
+    let victims = Set(
+      LogRetention.prune(files: ages, referenced: referenced, retention: retention, keepNewest: keepNewest))
     // Due to go by age or count, spared because a report names them.
     let due = Set(LogRetention.prune(files: ages, referenced: [], retention: retention, keepNewest: keepNewest))
     var deleted: [String] = []

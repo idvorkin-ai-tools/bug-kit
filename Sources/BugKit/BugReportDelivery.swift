@@ -23,7 +23,8 @@ struct CloudReportPayload: Codable, Sendable {
   static func fileURL(_ path: String, under root: URL) throws -> URL {
     let parts = path.split(separator: "/", omittingEmptySubsequences: false)
     guard !parts.isEmpty, !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }),
-          !path.contains("\\"), !path.contains("\0") else { throw CloudDeliveryError.invalidPath }
+      !path.contains("\\"), !path.contains("\0")
+    else { throw CloudDeliveryError.invalidPath }
     let base = root.resolvingSymlinksInPath().standardizedFileURL
     let url = base.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
     guard url.path.hasPrefix(base.path + "/") else { throw CloudDeliveryError.invalidPath }
@@ -66,7 +67,8 @@ struct CloudReportPayload: Codable, Sendable {
     guard data.count <= maxEncodedBytes else { throw CloudDeliveryError.tooLarge }
     let value = try JSONDecoder().decode(Self.self, from: data)
     guard value.version == 1, value.files.count <= 100,
-          value.files.values.reduce(0, { $0 + $1.count }) <= maxFileBytes else {
+      value.files.values.reduce(0, { $0 + $1.count }) <= maxFileBytes
+    else {
       throw CloudDeliveryError.invalidPayload
     }
     let expected = Set(value.report.files + [value.report.screenshot, value.report.log].compactMap { $0 })
@@ -95,8 +97,7 @@ struct CloudReportPayload: Codable, Sendable {
     let backup = root.appendingPathComponent(".old-\(UUID().uuidString)")
     let existed = FileManager.default.fileExists(atPath: destination.path)
     if existed { try FileManager.default.moveItem(at: destination, to: backup) }
-    do { try FileManager.default.moveItem(at: stage, to: destination) }
-    catch {
+    do { try FileManager.default.moveItem(at: stage, to: destination) } catch {
       if existed { try? FileManager.default.moveItem(at: backup, to: destination) }
       throw error
     }
@@ -107,10 +108,14 @@ struct CloudReportPayload: Codable, Sendable {
   static func isComplete(_ destination: URL) -> Bool {
     do {
       guard try destination.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true,
-            try destination.appendingPathComponent("Documents").resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink != true else { return false }
-      let report = try JSONDecoder().decode(BugReport.self, from: Data(contentsOf: destination.appendingPathComponent("report.json")))
+        try destination.appendingPathComponent("Documents").resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink
+          != true
+      else { return false }
+      let report = try JSONDecoder().decode(
+        BugReport.self, from: Data(contentsOf: destination.appendingPathComponent("report.json")))
       guard destination.lastPathComponent == report.id.uuidString else { return false }
-      let sizes = try JSONDecoder().decode([String: Int].self, from: Data(contentsOf: destination.appendingPathComponent("files.json")))
+      let sizes = try JSONDecoder().decode(
+        [String: Int].self, from: Data(contentsOf: destination.appendingPathComponent("files.json")))
       let expected = Set(report.files + [report.screenshot, report.log].compactMap { $0 })
       guard expected == Set(sizes.keys) else { return false }
       for (path, size) in sizes {
@@ -155,10 +160,12 @@ actor CloudReportOutbox: BugReportDelivery {
   private var retrying: Task<Void, Never>?
   private let sleep: @Sendable (TimeInterval) async throws -> Void
 
-  init(store: BugStore, root: URL, transport: any CloudReportTransport, logger: @escaping BugLogger,
-       sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
-         try await Task.sleep(for: .seconds(seconds))
-       }) {
+  init(
+    store: BugStore, root: URL, transport: any CloudReportTransport, logger: @escaping BugLogger,
+    sleep: @escaping @Sendable (TimeInterval) async throws -> Void = { seconds in
+      try await Task.sleep(for: .seconds(seconds))
+    }
+  ) {
     self.store = store; self.root = root; self.transport = transport; self.logger = logger
     self.sleep = sleep
   }
@@ -182,8 +189,9 @@ actor CloudReportOutbox: BugReportDelivery {
 
   /// Retain one outbox per store. Start at launch/foreground to recover after suspension or termination.
   func start() {
-    do { _ = try preexistingReports() }
-    catch { logger("bug_delivery_pending", ["transport": "cloudkit", "reason": "opt-in boundary could not be recorded"]) }
+    do { _ = try preexistingReports() } catch {
+      logger("bug_delivery_pending", ["transport": "cloudkit", "reason": "opt-in boundary could not be recorded"])
+    }
     guard retrying == nil else { return }
     retrying = Task { await self.retryUntilIdle() }
   }
@@ -197,17 +205,22 @@ actor CloudReportOutbox: BugReportDelivery {
       do {
         _ = try await flush()
         // Unstageable evidence stays local and logged; enqueue or the next start() stages it again.
-        let queued = (try? FileManager.default.contentsOfDirectory(at: pending, includingPropertiesForKeys: nil))?
+        let queued =
+          (try? FileManager.default.contentsOfDirectory(at: pending, includingPropertiesForKeys: nil))?
           .contains { $0.pathExtension == "json" } ?? false
         if !queued { return }
         attempt = 0
       } catch {
         if Task.isCancelled { return }
         guard let delay = transport.retryDelay(for: error, attempt: attempt) else {
-          logger("bug_delivery_stopped", ["transport": "cloudkit", "reason": "configuration, account or evidence requires attention"])
+          logger(
+            "bug_delivery_stopped",
+            ["transport": "cloudkit", "reason": "configuration, account or evidence requires attention"])
           return
         }
-        logger("bug_delivery_retry", ["transport": "cloudkit", "after_seconds": .double(delay), "attempt": .int(attempt + 1)])
+        logger(
+          "bug_delivery_retry",
+          ["transport": "cloudkit", "after_seconds": .double(delay), "attempt": .int(attempt + 1)])
         attempt += 1
         do { try await sleep(delay) } catch { return }
       }
@@ -254,17 +267,21 @@ actor CloudReportOutbox: BugReportDelivery {
   private func stage(_ report: BugReport) throws {
     let name = report.id.uuidString + ".json"
     guard !FileManager.default.fileExists(atPath: sent.appendingPathComponent(name).path),
-          !FileManager.default.fileExists(atPath: pending.appendingPathComponent(name).path),
-          !isSkipped(report.id) else { return }
+      !FileManager.default.fileExists(atPath: pending.appendingPathComponent(name).path),
+      !isSkipped(report.id)
+    else { return }
     let data: Data
-    do { data = try CloudReportPayload.capture(report, documents: store.documents).encoded() }
-    catch {
+    do { data = try CloudReportPayload.capture(report, documents: store.documents).encoded() } catch {
       if let reason = Self.skipReason(error) {
         try? FileManager.default.createDirectory(at: skipped, withIntermediateDirectories: true)
         try? JSONEncoder().encode(["reason": reason, "at": BugReport.formatDate(Date())])
           .write(to: skipped.appendingPathComponent(name), options: .atomic)
-        logger("bug_delivery_skipped", ["id": .string(report.id.uuidString), "transport": "cloudkit",
-                                        "reason": .string(reason)])
+        logger(
+          "bug_delivery_skipped",
+          [
+            "id": .string(report.id.uuidString), "transport": "cloudkit",
+            "reason": .string(reason),
+          ])
       }
       throw error
     }
@@ -305,13 +322,18 @@ actor CloudReportOutbox: BugReportDelivery {
       guard try String(contentsOf: binding, encoding: .utf8) == account else {
         throw CloudDeliveryError.accountChanged
       }
-    } else { try Data(account.utf8).write(to: binding, options: .atomic) }
+    } else {
+      try Data(account.utf8).write(to: binding, options: .atomic)
+    }
     let preexisting = try preexistingReports()
     for report in try store.readAll().reports where !preexisting.contains(report.id.uuidString) {
-      do { try stage(report) }
-      catch let error where Self.skipReason(error) == nil {
-        logger("bug_delivery_pending", ["id": .string(report.id.uuidString), "transport": "cloudkit",
-                                        "reason": "evidence could not be staged"])
+      do { try stage(report) } catch let error where Self.skipReason(error) == nil {
+        logger(
+          "bug_delivery_pending",
+          [
+            "id": .string(report.id.uuidString), "transport": "cloudkit",
+            "reason": "evidence could not be staged",
+          ])
       } catch {}  // given up on: `stage` wrote the marker and logged `bug_delivery_skipped`
     }
     var count = 0
@@ -323,11 +345,14 @@ actor CloudReportOutbox: BugReportDelivery {
         continue
       }
       let payload: CloudReportPayload
-      do { payload = try CloudReportPayload.read(url) }
-      catch {
+      do { payload = try CloudReportPayload.read(url) } catch {
         evidenceError = error
-        logger("bug_delivery_pending", ["id": .string(url.deletingPathExtension().lastPathComponent),
-                                        "transport": "cloudkit", "reason": "invalid queued evidence"])
+        logger(
+          "bug_delivery_pending",
+          [
+            "id": .string(url.deletingPathExtension().lastPathComponent),
+            "transport": "cloudkit", "reason": "invalid queued evidence",
+          ])
         continue
       }
       guard url.lastPathComponent == payload.report.id.uuidString + ".json" else {
@@ -336,8 +361,7 @@ actor CloudReportOutbox: BugReportDelivery {
       }
       guard try await transport.accountID() == account else { throw CloudDeliveryError.accountChanged }
       logger("bug_delivery_uploading", ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"])
-      do { try await transport.upload(payload.report, payload: url) }
-      catch {
+      do { try await transport.upload(payload.report, payload: url) } catch {
         var fields: [String: JSONValue] = ["id": .string(payload.report.id.uuidString), "transport": "cloudkit"]
         if error as? CloudDeliveryError == .invalidAcknowledgement {
           fields["reason"] = "server acknowledgment missing or invalid"
@@ -386,7 +410,9 @@ actor CloudReportInbox {
     let binding = inbox.appendingPathComponent("account.txt")
     if FileManager.default.fileExists(atPath: binding.path) {
       guard try String(contentsOf: binding, encoding: .utf8) == account else { throw CloudDeliveryError.accountChanged }
-    } else { try Data(account.utf8).write(to: binding, options: .atomic) }
+    } else {
+      try Data(account.utf8).write(to: binding, options: .atomic)
+    }
     var count = 0
     var failure: (any Error)?
     for record in try await source.reports() {
@@ -403,7 +429,8 @@ actor CloudReportInbox {
         let asset = try await source.asset(for: id)
         let payload = try CloudReportPayload.read(asset.file)
         guard payload.report.id == id, payload.report.bundle == bundle,
-              asset.bundle == bundle else { throw CloudDeliveryError.invalidPayload }
+          asset.bundle == bundle
+        else { throw CloudDeliveryError.invalidPayload }
         // Recheck after the asset request too; account may change during a network wait.
         guard try await source.accountID() == account else { throw CloudDeliveryError.accountChanged }
         _ = try payload.install(in: inbox)
@@ -412,7 +439,8 @@ actor CloudReportInbox {
       } catch {
         if error as? CloudDeliveryError == .accountChanged { throw error }
         failure = error
-        logger("cloudkit_report_pending", ["id": .string(id.uuidString), "reason": "download or evidence validation failed"])
+        logger(
+          "cloudkit_report_pending", ["id": .string(id.uuidString), "reason": "download or evidence validation failed"])
       }
     }
     // Valid reports still arrive in the same poll even when another report is malformed/unavailable.

@@ -145,21 +145,23 @@ public final class SessionLog: @unchecked Sendable {
     #if !canImport(Darwin)
       return nil
     #else
-    var info = mach_task_basic_info()
-    var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
-    let result = withUnsafeMutablePointer(to: &info) {
-      $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-        task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+      var info = mach_task_basic_info()
+      var count = mach_msg_type_number_t(MemoryLayout<mach_task_basic_info>.size / MemoryLayout<natural_t>.size)
+      let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+          task_info(mach_task_self_, task_flavor_t(MACH_TASK_BASIC_INFO), $0, &count)
+        }
       }
-    }
-    guard result == KERN_SUCCESS else { return nil }
-    return Int(info.resident_size / 1_048_576)
+      guard result == KERN_SUCCESS else { return nil }
+      return Int(info.resident_size / 1_048_576)
     #endif
   }
 
   /// The wall-clock time of a host-clock (`mono`) time: a camera frame's or a recorded segment's time as the moment
   /// a person would name. `now` and `nowMono` are for tests.
-  public static func wall(ofMono mono: Double, now: Date = Date(), nowMono: Double = ProcessInfo.processInfo.systemUptime) -> Date {
+  public static func wall(
+    ofMono mono: Double, now: Date = Date(), nowMono: Double = ProcessInfo.processInfo.systemUptime
+  ) -> Date {
     now.addingTimeInterval(mono - nowMono)
   }
 
@@ -180,7 +182,8 @@ public final class SessionLog: @unchecked Sendable {
 
   /// One line, no newline. `type`, `t` and the clock stamps come after the fields, so a field cannot replace them;
   /// a non-finite number becomes null rather than losing the whole line.
-  public static func line(type: String, t: Int, fields: [String: JSONValue], stamps: [String: JSONValue] = [:]) -> Data {
+  public static func line(type: String, t: Int, fields: [String: JSONValue], stamps: [String: JSONValue] = [:]) -> Data
+  {
     var record = fields.mapValues(sanitize)
     record.merge(stamps) { _, stamp in stamp }
     record["type"] = .string(type)

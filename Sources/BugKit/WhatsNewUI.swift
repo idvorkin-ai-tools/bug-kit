@@ -9,10 +9,12 @@ public struct WhatsNewSeen: @unchecked Sendable {
   let key: String
 
   /// Construct once in app initialization, before home reads `showsRow`, to apply the reset launch hook.
-  public init(defaults: UserDefaults = .standard, key: String = defaultKey,
-              launchHookPrefix: String? = nil,
-              environment: [String: String] = ProcessInfo.processInfo.environment,
-              logger: BugLogger? = nil) {
+  public init(
+    defaults: UserDefaults = .standard, key: String = defaultKey,
+    launchHookPrefix: String? = nil,
+    environment: [String: String] = ProcessInfo.processInfo.environment,
+    logger: BugLogger? = nil
+  ) {
     self.defaults = defaults; self.key = key
     if let prefix = launchHookPrefix, BugLaunchHooks.parse(environment, prefix: prefix).whatsNewReset {
       reset(logger: logger)
@@ -133,7 +135,8 @@ extension WhatsNewFeed {
               ForEach(day.items, id: \.sha) { item in
                 if let link = item.link.flatMap(URL.init(string:)) {
                   Button {
-                    logger("ui", ["action": "open_story", "story": .int(item.story), "url": .string(link.absoluteString)])
+                    logger(
+                      "ui", ["action": "open_story", "story": .int(item.story), "url": .string(link.absoluteString)])
                     openURL(link)
                   } label: {
                     HStack {
@@ -220,7 +223,8 @@ extension WhatsNewFeed {
         HStack(alignment: .firstTextBaseline) {
           Button(action: open) {
             (Text(Image(systemName: "sparkles")) + Text("  What's new").fontWeight(.semibold)
-              + Text(" · \(WhatsNewFix.homeLine(feed, reports: reports, fixedEarlier: seen.fixedEarlier(feed)))").foregroundStyle(.secondary))
+              + Text(" · \(WhatsNewFix.homeLine(feed, reports: reports, fixedEarlier: seen.fixedEarlier(feed)))")
+              .foregroundStyle(.secondary))
               .font(.subheadline)
               .lineLimit(2)
               .multilineTextAlignment(.leading)

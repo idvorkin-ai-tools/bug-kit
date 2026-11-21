@@ -5,7 +5,7 @@ import Testing
 @Test func foundationContextRoundTripsRecursively() throws {
   let original: JSONValue = .object([
     "null": .null, "bool": .bool(true), "int": .int(1), "double": .double(1.25),
-    "string": .string("watch"), "array": .array([.int(-42), .bool(false), .object(["key": .string("value")])])
+    "string": .string("watch"), "array": .array([.int(-42), .bool(false), .object(["key": .string("value")])]),
   ])
   #expect(try JSONValue(foundation: original.foundation) == original)
   let data = try JSONSerialization.data(withJSONObject: original.foundation)
@@ -30,12 +30,16 @@ import Testing
   #expect(throws: JSONValue.FoundationConversionError.self) { try JSONValue(foundation: NSNumber(value: UInt64.max)) }
   #expect(throws: JSONValue.FoundationConversionError.self) { try JSONValue(foundation: Double.infinity) }
   #expect(throws: JSONValue.FoundationConversionError.self) { try JSONValue(foundation: Double.nan) }
-  #expect(throws: JSONValue.FoundationConversionError.self) { try JSONValue(foundation: NSDictionary(object: "bad", forKey: NSNumber(value: 3))) }
+  #expect(throws: JSONValue.FoundationConversionError.self) {
+    try JSONValue(foundation: NSDictionary(object: "bad", forKey: NSNumber(value: 3)))
+  }
 }
 
 @Test func plainSwiftValuesInAnAnyDictionaryConvert() throws {
   // Think a Card's shape: a [String: Any] of Swift String and Int values, not NSNumbers.
   let context: [String: Any] = ["prompt": "card 3", "attempt": 2, "flipped": true, "seconds": 1.5]
-  #expect(try context.mapValues { try JSONValue(foundation: $0) } == [
-    "prompt": .string("card 3"), "attempt": .int(2), "flipped": .bool(true), "seconds": .double(1.5)])
+  #expect(
+    try context.mapValues { try JSONValue(foundation: $0) } == [
+      "prompt": .string("card 3"), "attempt": .int(2), "flipped": .bool(true), "seconds": .double(1.5),
+    ])
 }

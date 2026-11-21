@@ -5,22 +5,28 @@ import Testing
 // The audio session's category and options, as AVDictationCapture.keepsDiscoveryActivation reads them.
 @Test func discoveryKeepsActivationOnlyForPlainMixingHosts() {
   // .playback with .mixWithOthers; .ambient with no options
-  #expect(DictationRules.keepsDiscoveryActivation(
-    ambient: false, mixesWithOthers: true, ducksOthers: false, interruptsSpokenAudio: false))
-  #expect(DictationRules.keepsDiscoveryActivation(
-    ambient: true, mixesWithOthers: false, ducksOthers: false, interruptsSpokenAudio: false))
+  #expect(
+    DictationRules.keepsDiscoveryActivation(
+      ambient: false, mixesWithOthers: true, ducksOthers: false, interruptsSpokenAudio: false))
+  #expect(
+    DictationRules.keepsDiscoveryActivation(
+      ambient: true, mixesWithOthers: false, ducksOthers: false, interruptsSpokenAudio: false))
   // .playback with [.mixWithOthers, .duckOthers]
-  #expect(!DictationRules.keepsDiscoveryActivation(
-    ambient: false, mixesWithOthers: true, ducksOthers: true, interruptsSpokenAudio: false))
+  #expect(
+    !DictationRules.keepsDiscoveryActivation(
+      ambient: false, mixesWithOthers: true, ducksOthers: true, interruptsSpokenAudio: false))
   // .playback with .interruptSpokenAudioAndMixWithOthers, which also holds .mixWithOthers' bit
-  #expect(!DictationRules.keepsDiscoveryActivation(
-    ambient: false, mixesWithOthers: true, ducksOthers: false, interruptsSpokenAudio: true))
+  #expect(
+    !DictationRules.keepsDiscoveryActivation(
+      ambient: false, mixesWithOthers: true, ducksOthers: false, interruptsSpokenAudio: true))
   // .ambient with .duckOthers
-  #expect(!DictationRules.keepsDiscoveryActivation(
-    ambient: true, mixesWithOthers: false, ducksOthers: true, interruptsSpokenAudio: false))
+  #expect(
+    !DictationRules.keepsDiscoveryActivation(
+      ambient: true, mixesWithOthers: false, ducksOthers: true, interruptsSpokenAudio: false))
   // .soloAmbient or .playback with no options
-  #expect(!DictationRules.keepsDiscoveryActivation(
-    ambient: false, mixesWithOthers: false, ducksOthers: false, interruptsSpokenAudio: false))
+  #expect(
+    !DictationRules.keepsDiscoveryActivation(
+      ambient: false, mixesWithOthers: false, ducksOthers: false, interruptsSpokenAudio: false))
 }
 
 @Test func appleNoSpeechEndsQuietlyOnlyAfterFinish() {

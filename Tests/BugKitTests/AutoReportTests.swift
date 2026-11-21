@@ -6,7 +6,11 @@ import Testing
 private final class Log: @unchecked Sendable {
   private let lock = NSLock()
   private var items: [(String, [String: JSONValue])] = []
-  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var logger: BugLogger {
+    { [self] e, f in
+      lock.lock(); items.append((e, f)); lock.unlock()
+    }
+  }
   var all: [(String, [String: JSONValue])] { lock.lock(); defer { lock.unlock() }; return items }
   func fields(_ name: String) -> [[String: JSONValue]] { all.filter { $0.0 == name }.map(\.1) }
 }
@@ -26,7 +30,8 @@ private struct Setup {
   var writer: BugReportWriter {
     BugReportWriter(
       store: BugStore(documents: docs),
-      info: BugAppInfo(app: "Demo", bundle: "com.example.demo", build: "1.0 (1)", commit: "abc1234", device: "Mac16,12"),
+      info: BugAppInfo(
+        app: "Demo", bundle: "com.example.demo", build: "1.0 (1)", commit: "abc1234", device: "Mac16,12"),
       logger: log.logger, copySessionLog: copySessionLog)
   }
   func reporter(_ options: BugAutoReportOptions = BugAutoReportOptions()) -> BugAutoReporter {
@@ -72,7 +77,8 @@ private struct Setup {
   }
 
   @Test func aPersonsReportHasNoSourceOrReasonKeys() throws {
-    let report = BugReport(app: "A", bundle: "b", build: "1", commit: "c", device: "d", screen: "s", note: "n", folder: "f")
+    let report = BugReport(
+      app: "A", bundle: "b", build: "1", commit: "c", device: "d", screen: "s", note: "n", folder: "f")
     let line = try String(decoding: report.jsonLine(), as: UTF8.self)
     #expect(!line.contains("source") && !line.contains("reason"))
   }

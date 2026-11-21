@@ -119,79 +119,81 @@ public final class CrashReports: NSObject, @unchecked Sendable {
 #endif
 
 #if canImport(Darwin)
-// MARK: - The last-resort handlers. Only async-signal-safe calls inside the signal handler: no allocation, no locks.
+  // MARK: - The last-resort handlers. Only async-signal-safe calls inside the signal handler: no allocation, no locks.
 
-/// The folder's path, copied once at install into a fixed buffer the handler can read.
-private nonisolated(unsafe) var crashFolderPath = [CChar](repeating: 0, count: 1024)
-/// Set once the exception file is on disk: the abort that follows is the same crash and writes no second file.
-private nonisolated(unsafe) var exceptionFileWritten: sig_atomic_t = 0
-/// The same path as a String, for the exception handler (which, unlike the signal handler, may allocate).
-private nonisolated(unsafe) var crashFolderString = ""
+  /// The folder's path, copied once at install into a fixed buffer the handler can read.
+  private nonisolated(unsafe) var crashFolderPath = [CChar](repeating: 0, count: 1024)
+  /// Set once the exception file is on disk: the abort that follows is the same crash and writes no second file.
+  private nonisolated(unsafe) var exceptionFileWritten: sig_atomic_t = 0
+  /// The same path as a String, for the exception handler (which, unlike the signal handler, may allocate).
+  private nonisolated(unsafe) var crashFolderString = ""
 
-private func installSignalHandlers(folder: URL) {
-  crashFolderString = folder.path
-  folder.path.utf8CString.withUnsafeBufferPointer { src in
-    for i in 0..<min(src.count, crashFolderPath.count - 64) { crashFolderPath[i] = src[i] }
-  }
-  for sig in [SIGSEGV, SIGBUS, SIGABRT, SIGILL, SIGTRAP, SIGFPE] { signal(sig, crashSignalHandler) }
-  // An Objective-C exception aborts through SIGABRT and the signal backtrace never says which one; this runs first,
-  // on the throwing thread.
-  NSSetUncaughtExceptionHandler { exception in
-    let text = "exception \(exception.name.rawValue)\n\(exception.reason ?? "")\n"
-      + exception.callStackSymbols.joined(separator: "\n") + "\n"
-    let file = URL(fileURLWithPath: crashFolderString).appendingPathComponent("exception-\(Int(Date().timeIntervalSince1970)).txt")
-    if (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil { exceptionFileWritten = 1 }
-  }
-}
-
-private func crashSignalHandler(_ sig: Int32) {
-  if exceptionFileWritten == 0 { writeSignalFile(sig) }
-  // Back to the default action, so the crash still reaches the system's own report (CG 509da33).
-  signal(sig, SIG_DFL)
-  raise(sig)
-}
-
-/// Writes `<folder>/signal-<epoch>.txt` with stack buffers (`withUnsafeTemporaryAllocation`) and raw syscalls.
-private func writeSignalFile(_ sig: Int32) {
-  withUnsafeTemporaryAllocation(of: CChar.self, capacity: 1100) { path in
-    var n = 0
-    crashFolderPath.withUnsafeBufferPointer { folder in
-      while n < folder.count, folder[n] != 0 { path[n] = folder[n]; n += 1 }
+  private func installSignalHandlers(folder: URL) {
+    crashFolderString = folder.path
+    folder.path.utf8CString.withUnsafeBufferPointer { src in
+      for i in 0..<min(src.count, crashFolderPath.count - 64) { crashFolderPath[i] = src[i] }
     }
-    n = appendASCII("/signal-", to: path, at: n)
-    n = appendDecimal(Int(time(nil)), to: path, at: n)
-    n = appendASCII(".txt", to: path, at: n)
-    path[n] = 0
-    let fd = open(path.baseAddress!, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
-    guard fd >= 0 else { return }
-    withUnsafeTemporaryAllocation(of: CChar.self, capacity: 32) { head in
-      var h = appendASCII("signal ", to: head, at: 0)
-      h = appendDecimal(Int(sig), to: head, at: h)
-      head[h] = 0x0A
-      _ = write(fd, head.baseAddress!, h + 1)
+    for sig in [SIGSEGV, SIGBUS, SIGABRT, SIGILL, SIGTRAP, SIGFPE] { signal(sig, crashSignalHandler) }
+    // An Objective-C exception aborts through SIGABRT and the signal backtrace never says which one; this runs first,
+    // on the throwing thread.
+    NSSetUncaughtExceptionHandler { exception in
+      let text =
+        "exception \(exception.name.rawValue)\n\(exception.reason ?? "")\n"
+        + exception.callStackSymbols.joined(separator: "\n") + "\n"
+      let file = URL(fileURLWithPath: crashFolderString).appendingPathComponent(
+        "exception-\(Int(Date().timeIntervalSince1970)).txt")
+      if (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil { exceptionFileWritten = 1 }
     }
-    withUnsafeTemporaryAllocation(of: UnsafeMutableRawPointer?.self, capacity: 128) { frames in
-      let count = backtrace(frames.baseAddress!, 128)
-      backtrace_symbols_fd(frames.baseAddress!, count, fd)
+  }
+
+  private func crashSignalHandler(_ sig: Int32) {
+    if exceptionFileWritten == 0 { writeSignalFile(sig) }
+    // Back to the default action, so the crash still reaches the system's own report (CG 509da33).
+    signal(sig, SIG_DFL)
+    raise(sig)
+  }
+
+  /// Writes `<folder>/signal-<epoch>.txt` with stack buffers (`withUnsafeTemporaryAllocation`) and raw syscalls.
+  private func writeSignalFile(_ sig: Int32) {
+    withUnsafeTemporaryAllocation(of: CChar.self, capacity: 1100) { path in
+      var n = 0
+      crashFolderPath.withUnsafeBufferPointer { folder in
+        while n < folder.count, folder[n] != 0 { path[n] = folder[n]; n += 1 }
+      }
+      n = appendASCII("/signal-", to: path, at: n)
+      n = appendDecimal(Int(time(nil)), to: path, at: n)
+      n = appendASCII(".txt", to: path, at: n)
+      path[n] = 0
+      let fd = open(path.baseAddress!, O_WRONLY | O_CREAT | O_TRUNC, 0o644)
+      guard fd >= 0 else { return }
+      withUnsafeTemporaryAllocation(of: CChar.self, capacity: 32) { head in
+        var h = appendASCII("signal ", to: head, at: 0)
+        h = appendDecimal(Int(sig), to: head, at: h)
+        head[h] = 0x0A
+        _ = write(fd, head.baseAddress!, h + 1)
+      }
+      withUnsafeTemporaryAllocation(of: UnsafeMutableRawPointer?.self, capacity: 128) { frames in
+        let count = backtrace(frames.baseAddress!, 128)
+        backtrace_symbols_fd(frames.baseAddress!, count, fd)
+      }
+      close(fd)
     }
-    close(fd)
   }
-}
 
-/// ASCII from a static string, without allocating.
-private func appendASCII(_ text: StaticString, to buffer: UnsafeMutableBufferPointer<CChar>, at start: Int) -> Int {
-  var i = start
-  text.withUTF8Buffer { bytes in
-    for b in bytes { buffer[i] = CChar(bitPattern: b); i += 1 }
+  /// ASCII from a static string, without allocating.
+  private func appendASCII(_ text: StaticString, to buffer: UnsafeMutableBufferPointer<CChar>, at start: Int) -> Int {
+    var i = start
+    text.withUTF8Buffer { bytes in
+      for b in bytes { buffer[i] = CChar(bitPattern: b); i += 1 }
+    }
+    return i
   }
-  return i
-}
 
-private func appendDecimal(_ value: Int, to buffer: UnsafeMutableBufferPointer<CChar>, at start: Int) -> Int {
-  var divisor = 1
-  while value / divisor >= 10 { divisor *= 10 }
-  var i = start
-  repeat { buffer[i] = CChar(48 + (value / divisor) % 10); i += 1; divisor /= 10 } while divisor > 0
-  return i
-}
+  private func appendDecimal(_ value: Int, to buffer: UnsafeMutableBufferPointer<CChar>, at start: Int) -> Int {
+    var divisor = 1
+    while value / divisor >= 10 { divisor *= 10 }
+    var i = start
+    repeat { buffer[i] = CChar(48 + (value / divisor) % 10); i += 1; divisor /= 10 } while divisor > 0
+    return i
+  }
 #endif

@@ -60,12 +60,12 @@ public struct BugAppInfo: Equatable, Sendable {
     #if !canImport(Darwin)
       return nil
     #else
-    var size = 0
-    guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
-    var bytes = [CChar](repeating: 0, count: size)
-    guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
-    let value = String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
-    return value.isEmpty ? nil : value
+      var size = 0
+      guard sysctlbyname(name, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+      var bytes = [CChar](repeating: 0, count: size)
+      guard sysctlbyname(name, &bytes, &size, nil, 0) == 0 else { return nil }
+      let value = String(decoding: bytes.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
+      return value.isEmpty ? nil : value
     #endif
   }
 }
@@ -103,9 +103,11 @@ public struct BugReportWriter: Sendable {
     diagnostics: BugDiagnosticsSnapshot = BugDiagnosticsSnapshot(), source: String? = nil,
     reason: String? = nil, event: String = "bug_report", copySessionLog: Bool? = nil, screenshotDropped: Bool = false
   ) async -> BugReport {
-    await write(note: note, screen: screen, context: context, screenshotPNG: screenshotPNG, log: log,
-                extraFiles: extraFiles, date: date, diagnostics: diagnostics, source: source, reason: reason,
-                event: event, copySessionLog: copySessionLog, screenshotDropped: screenshotDropped).report
+    await write(
+      note: note, screen: screen, context: context, screenshotPNG: screenshotPNG, log: log,
+      extraFiles: extraFiles, date: date, diagnostics: diagnostics, source: source, reason: reason,
+      event: event, copySessionLog: copySessionLog, screenshotDropped: screenshotDropped
+    ).report
   }
 
   /// `save`, also saying whether bugs.jsonl took the report (the watch form keeps the note when it did not).
@@ -118,10 +120,13 @@ public struct BugReportWriter: Sendable {
     // This must precede all report work, especially append: a launch Task may not have run yet,
     // and termination after append must not classify this report as pre-opt-in on restart.
     if let delivery {
-      do { try await delivery.prepare(documents: store.documents) }
-      catch {
-        logger("error", ["where": "bug_delivery_prepare",
-                         "message": "Cloud delivery activation failed; saving the report locally."])
+      do { try await delivery.prepare(documents: store.documents) } catch {
+        logger(
+          "error",
+          [
+            "where": "bug_delivery_prepare",
+            "message": "Cloud delivery activation failed; saving the report locally.",
+          ])
       }
     }
     var report = BugReport(
@@ -141,14 +146,16 @@ public struct BugReportWriter: Sendable {
         try png.write(to: folderURL.appendingPathComponent("screen.png"))
         report.screenshot = "\(report.folder)/screen.png"
       } catch {
-        logger("error", ["where": "bug_screenshot", "id": .string(report.id.uuidString), "message": .string("\(error)")])
+        logger(
+          "error", ["where": "bug_screenshot", "id": .string(report.id.uuidString), "message": .string("\(error)")])
       }
     }
     if let folderURL, let extraFiles {
       do {
         report.files = try await extraFiles(folderURL).map { "\(report.folder)/\($0)" }
       } catch {
-        logger("error", ["where": "bug_extra_files", "id": .string(report.id.uuidString), "message": .string("\(error)")])
+        logger(
+          "error", ["where": "bug_extra_files", "id": .string(report.id.uuidString), "message": .string("\(error)")])
       }
     }
     if let folderURL {
@@ -167,7 +174,8 @@ public struct BugReportWriter: Sendable {
           at: store.documents.appendingPathComponent(path), to: folderURL.appendingPathComponent("session.jsonl"))
         report.files.append("\(report.folder)/session.jsonl")
       } catch {
-        logger("error", ["where": "bug_session_log", "id": .string(report.id.uuidString), "message": .string("\(error)")])
+        logger(
+          "error", ["where": "bug_session_log", "id": .string(report.id.uuidString), "message": .string("\(error)")])
       }
     }
     if let folderURL, writeReportJSON {
@@ -176,7 +184,8 @@ public struct BugReportWriter: Sendable {
         enc.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         try enc.encode(report).write(to: folderURL.appendingPathComponent("report.json"))
       } catch {
-        logger("error", ["where": "bug_report_json", "id": .string(report.id.uuidString), "message": .string("\(error)")])
+        logger(
+          "error", ["where": "bug_report_json", "id": .string(report.id.uuidString), "message": .string("\(error)")])
       }
     }
     var indexWritten = true
@@ -203,10 +212,14 @@ public struct BugReportWriter: Sendable {
         try await delivery.enqueue(report, documents: store.documents)
         queued = true
       } catch {
-        logger("error", ["where": "bug_delivery_enqueue", "id": .string(report.id.uuidString),
-                         "message": CloudReportOutbox.skipReason(error) == nil
-                           ? "Cloud delivery is pending; the report remains local."
-                           : "Cloud delivery gave up on this report (bug_delivery_skipped); it remains local."])
+        logger(
+          "error",
+          [
+            "where": "bug_delivery_enqueue", "id": .string(report.id.uuidString),
+            "message": CloudReportOutbox.skipReason(error) == nil
+              ? "Cloud delivery is pending; the report remains local."
+              : "Cloud delivery gave up on this report (bug_delivery_skipped); it remains local.",
+          ])
       }
     }
     return (report, indexWritten, indexWritten ? .saved(id: report.id, queued: queued) : .failed(id: report.id))

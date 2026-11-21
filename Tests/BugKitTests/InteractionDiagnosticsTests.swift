@@ -23,33 +23,43 @@ import Testing
 @Test func diagnosticsAreWrittenAndIndexedAlongsideExtraFiles() async throws {
   let docs = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   defer { try? FileManager.default.removeItem(at: docs) }
-  let writer = BugReportWriter(store: BugStore(documents: docs),
+  let writer = BugReportWriter(
+    store: BugStore(documents: docs),
     info: BugAppInfo(app: "test", bundle: "test", build: "1", commit: "c", device: "host"),
     logger: { _, _ in }, writeReportJSON: true)
-  let diagnostics = BugDiagnosticsSnapshot(interactions: Data("{\"type\":\"ui_tap\"}\n".utf8),
-                                           accessibility: Data("{\"nodes\":[]}".utf8))
-  let report = await writer.save(note: "test", screen: "home", context: [:], screenshotPNG: nil, log: nil,
+  let diagnostics = BugDiagnosticsSnapshot(
+    interactions: Data("{\"type\":\"ui_tap\"}\n".utf8),
+    accessibility: Data("{\"nodes\":[]}".utf8))
+  let report = await writer.save(
+    note: "test", screen: "home", context: [:], screenshotPNG: nil, log: nil,
     extraFiles: { folder in
       try Data("clip".utf8).write(to: folder.appendingPathComponent("clip.txt"))
       return ["clip.txt"]
     }, diagnostics: diagnostics)
-  #expect(report.files.map { URL(fileURLWithPath: $0).lastPathComponent } == ["clip.txt", "interactions.jsonl", "accessibility.json"])
+  #expect(
+    report.files.map { URL(fileURLWithPath: $0).lastPathComponent } == [
+      "clip.txt", "interactions.jsonl", "accessibility.json",
+    ])
   let folder = docs.appendingPathComponent(report.folder)
   #expect(try Data(contentsOf: folder.appendingPathComponent("accessibility.json")) == diagnostics.accessibility)
   let index = try writer.store.readAll()
   #expect(index.reports.first?.files == report.files)
-  let json = try JSONDecoder().decode(BugReport.self, from: Data(contentsOf: folder.appendingPathComponent("report.json")))
+  let json = try JSONDecoder().decode(
+    BugReport.self, from: Data(contentsOf: folder.appendingPathComponent("report.json")))
   #expect(json.files == report.files)
 }
 
 @Test func oneDiagnosticWriteFailureDoesNotLoseTheReportOrOtherEvidence() async throws {
   let docs = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
   defer { try? FileManager.default.removeItem(at: docs) }
-  let writer = BugReportWriter(store: BugStore(documents: docs),
+  let writer = BugReportWriter(
+    store: BugStore(documents: docs),
     info: BugAppInfo(app: "test", bundle: "test", build: "1", commit: "c", device: "host"), logger: { _, _ in })
-  let report = await writer.save(note: "test", screen: "home", context: [:], screenshotPNG: nil, log: nil,
+  let report = await writer.save(
+    note: "test", screen: "home", context: [:], screenshotPNG: nil, log: nil,
     extraFiles: { folder in
-      try FileManager.default.createDirectory(at: folder.appendingPathComponent("accessibility.json"), withIntermediateDirectories: false)
+      try FileManager.default.createDirectory(
+        at: folder.appendingPathComponent("accessibility.json"), withIntermediateDirectories: false)
       return []
     }, diagnostics: BugDiagnosticsSnapshot(interactions: Data("{}\n".utf8), accessibility: Data("{}".utf8)))
   #expect(report.files == ["\(report.folder)/interactions.jsonl"])
@@ -85,7 +95,8 @@ import Testing
     #expect(record["truncated"] as? Bool == false)
     let nodes = record["nodes"] as! [[String: Any]]
     #expect(nodes.contains { $0["redacted"] as? Bool == true })
-    let bounded = try JSONSerialization.jsonObject(with: AccessibilitySnapshot.capture(root, maxNodes: 1)) as! [String: Any]
+    let bounded =
+      try JSONSerialization.jsonObject(with: AccessibilitySnapshot.capture(root, maxNodes: 1)) as! [String: Any]
     #expect(bounded["truncated"] as? Bool == true)
     #expect((bounded["nodes"] as! [Any]).count == 1)
   }

@@ -10,14 +10,14 @@ final class WhatsNewTests: XCTestCase {
   private func at(_ iso: String) -> Date { ISO8601DateFormatter().date(from: iso)! }
 
   #if canImport(SwiftUI)
-  /// MM's Mac app shows What's new with the same views: they build and construct on the host (macOS).
-  func testTheViewsBuildOnTheHost() {
-    let feed = WhatsNewFeed(generated: "2026-10-10", days: [])
-    _ = WhatsNewView(feed: feed, logger: { _, _ in })
-    _ = WhatsNewRow(feed: feed, logger: { _, _ in }, open: {})
-    _ = WhatsNewView(feed: feed, reports: [], logger: { _, _ in })
-    _ = WhatsNewRow(feed: feed, reports: [], logger: { _, _ in }, open: {})
-  }
+    /// MM's Mac app shows What's new with the same views: they build and construct on the host (macOS).
+    func testTheViewsBuildOnTheHost() {
+      let feed = WhatsNewFeed(generated: "2026-10-10", days: [])
+      _ = WhatsNewView(feed: feed, logger: { _, _ in })
+      _ = WhatsNewRow(feed: feed, logger: { _, _ in }, open: {})
+      _ = WhatsNewView(feed: feed, reports: [], logger: { _, _ in })
+      _ = WhatsNewRow(feed: feed, reports: [], logger: { _, _ in }, open: {})
+    }
   #endif
 
   // MARK: Fixed in this build (review V1): the person's own report, shown back under the change that fixed it.
@@ -26,8 +26,9 @@ final class WhatsNewTests: XCTestCase {
   private let otherID = UUID(uuidString: "6F1C2A3B-0000-4000-8000-00000000000B")!
 
   private func report(_ id: UUID, note: String, at iso: String) -> BugReport {
-    BugReport(id: id, reportedAt: at(iso), app: "fixture", bundle: "local.fixture", build: "1", commit: "c",
-              device: "synthetic", screen: "home", note: note, folder: "bugs/x")
+    BugReport(
+      id: id, reportedAt: at(iso), app: "fixture", bundle: "local.fixture", build: "1", commit: "c",
+      device: "synthetic", screen: "home", note: note, folder: "bugs/x")
   }
 
   func testClosingKeywordsNameTheIssuesACommitFixes() {
@@ -48,16 +49,19 @@ final class WhatsNewTests: XCTestCase {
 
   func testAChangeCarriesTheReportsEveryCommitOfItsDayFixed() {
     let commits = [
-      WhatsNew.Commit(sha: "d", date: at("2026-10-06T17:00:00Z"), subject: "Story 147: the timer keeps counting",
-                      body: "Fixes #12"),
-      WhatsNew.Commit(sha: "c", date: at("2026-10-06T16:00:00Z"), subject: "Story 147: and on resume", body: "Closes #13"),
+      WhatsNew.Commit(
+        sha: "d", date: at("2026-10-06T17:00:00Z"), subject: "Story 147: the timer keeps counting",
+        body: "Fixes #12"),
+      WhatsNew.Commit(
+        sha: "c", date: at("2026-10-06T16:00:00Z"), subject: "Story 147: and on resume", body: "Closes #13"),
       WhatsNew.Commit(sha: "b", date: at("2026-10-06T15:00:00Z"), subject: "Card opens the trainer (story 133)"),
     ]
     let a = fixedID.uuidString, b = otherID.uuidString
-    let items = WhatsNew.build(
-      commits: commits, stories: [:], reportsByIssue: [12: [a], 13: [b, a]], now: at("2026-10-06T20:00:00Z"),
-      timeZone: la
-    ).first?.items ?? []
+    let items =
+      WhatsNew.build(
+        commits: commits, stories: [:], reportsByIssue: [12: [a], 13: [b, a]], now: at("2026-10-06T20:00:00Z"),
+        timeZone: la
+      ).first?.items ?? []
     XCTAssertEqual(items.map(\.sha), ["d", "b"])
     XCTAssertEqual(items[0].fixedReports, [a, b])
     XCTAssertNil(items[1].fixedReports)
@@ -71,41 +75,64 @@ final class WhatsNewTests: XCTestCase {
     let other = report(otherID, note: "digits too small", at: "2026-10-11T18:00:00Z")
     let a = fixedID.uuidString
     // Build 1: "a" (story 147) fixes my report, then "b" (story 148) the same day.
-    let build1 = WhatsNewFeed(generated: "", days: [.init(day: "2026-10-12", items: [
-      .init(story: 148, text: "Bigger digits", sha: "b"),
-      .init(story: 147, text: "The timer keeps counting", sha: "a", fixedReports: [a]),
-    ])])
-    XCTAssertEqual(WhatsNewFix.homeLine(build1, reports: [mine], fixedEarlier: seen.fixedEarlier(build1)),
-                   "Fixed in this build: “the timer stopped”")
-    XCTAssertEqual(WhatsNewFix.homeLine(build1, reports: [mine], fixedEarlier: seen.fixedEarlier(build1)),
-                   "Fixed in this build: “the timer stopped”", "the whole build headlines it, not just its first look")
+    let build1 = WhatsNewFeed(
+      generated: "",
+      days: [
+        .init(
+          day: "2026-10-12",
+          items: [
+            .init(story: 148, text: "Bigger digits", sha: "b"),
+            .init(story: 147, text: "The timer keeps counting", sha: "a", fixedReports: [a]),
+          ])
+      ])
+    XCTAssertEqual(
+      WhatsNewFix.homeLine(build1, reports: [mine], fixedEarlier: seen.fixedEarlier(build1)),
+      "Fixed in this build: “the timer stopped”")
+    XCTAssertEqual(
+      WhatsNewFix.homeLine(build1, reports: [mine], fixedEarlier: seen.fixedEarlier(build1)),
+      "Fixed in this build: “the timer stopped”", "the whole build headlines it, not just its first look")
     // Build 2, never dismissed: "c" on story 147 the same day folds "a"'s fix into a line now ahead of "b".
-    let build2 = WhatsNewFeed(generated: "", days: [.init(day: "2026-10-12", items: [
-      .init(story: 147, text: "The timer keeps counting", sha: "c", fixedReports: [a]),
-      .init(story: 148, text: "Bigger digits", sha: "b"),
-    ])])
-    XCTAssertEqual(WhatsNewFix.homeLine(build2, reports: [mine], fixedEarlier: seen.fixedEarlier(build2)),
-                   "Oct 12 — The timer keeps counting")
+    let build2 = WhatsNewFeed(
+      generated: "",
+      days: [
+        .init(
+          day: "2026-10-12",
+          items: [
+            .init(story: 147, text: "The timer keeps counting", sha: "c", fixedReports: [a]),
+            .init(story: 148, text: "Bigger digits", sha: "b"),
+          ])
+      ])
+    XCTAssertEqual(
+      WhatsNewFix.homeLine(build2, reports: [mine], fixedEarlier: seen.fixedEarlier(build2)),
+      "Oct 12 — The timer keeps counting")
     XCTAssertEqual(build2.fixes(in: [mine]).count, 1, "the list still shows the fix under its change")
     // Build 3 fixes another of my reports: that one is headlined, the old one still is not.
-    let build3 = WhatsNewFeed(generated: "", days: [
-      .init(day: "2026-10-13", items: [.init(story: 149, text: "Larger type", sha: "d", fixedReports: [otherID.uuidString])]),
-      build2.days[0],
-    ])
-    XCTAssertEqual(WhatsNewFix.homeLine(build3, reports: [mine, other], fixedEarlier: seen.fixedEarlier(build3)),
-                   "Fixed in this build: “digits too small”")
+    let build3 = WhatsNewFeed(
+      generated: "",
+      days: [
+        .init(
+          day: "2026-10-13",
+          items: [.init(story: 149, text: "Larger type", sha: "d", fixedReports: [otherID.uuidString])]),
+        build2.days[0],
+      ])
+    XCTAssertEqual(
+      WhatsNewFix.homeLine(build3, reports: [mine, other], fixedEarlier: seen.fixedEarlier(build3)),
+      "Fixed in this build: “digits too small”")
   }
 
   func testTheDeviceShowsOnlyItsOwnFixedReports() {
     let item = WhatsNewItem(
       story: 147, text: "The timer keeps counting", sha: "d", fixedReports: [fixedID.uuidString, UUID().uuidString])
     let feed = WhatsNewFeed(generated: "", days: [.init(day: "2026-10-12", items: [item])])
-    let mine = report(fixedID, note: "  \nthe timer stopped when I opened settings\nand more", at: "2026-10-10T18:00:00Z")
+    let mine = report(
+      fixedID, note: "  \nthe timer stopped when I opened settings\nand more", at: "2026-10-10T18:00:00Z")
     let unrelated = report(otherID, note: "something else", at: "2026-10-11T18:00:00Z")
     let fixes = feed.fixes(in: [unrelated, mine])
     XCTAssertEqual(fixes.map(\.note), ["the timer stopped when I opened settings"])
-    XCTAssertEqual(fixes.first?.line(timeZone: la), "Fixed in this build: “the timer stopped when I opened settings” (Oct 10)")
-    XCTAssertEqual(WhatsNewFix.homeLine(feed, reports: [mine]), "Fixed in this build: “the timer stopped when I opened settings”")
+    XCTAssertEqual(
+      fixes.first?.line(timeZone: la), "Fixed in this build: “the timer stopped when I opened settings” (Oct 10)")
+    XCTAssertEqual(
+      WhatsNewFix.homeLine(feed, reports: [mine]), "Fixed in this build: “the timer stopped when I opened settings”")
     XCTAssertEqual(WhatsNewFix.homeLine(feed, reports: [unrelated]), "Oct 12 — The timer keeps counting")
     XCTAssertEqual(item.fixes(in: [report(fixedID, note: " ", at: "2026-10-10T18:00:00Z")]), [], "no note, no line")
     let long = report(fixedID, note: String(repeating: "x", count: 120), at: "2026-10-10T18:00:00Z")
@@ -114,7 +141,8 @@ final class WhatsNewTests: XCTestCase {
 
   func testFixedReportsRoundTripAndAnOlderFeedStillDecodes() throws {
     let feed = WhatsNewFeed(
-      generated: "", days: [.init(day: "2026-10-05", items: [.init(story: 1, text: "A", sha: "a", fixedReports: ["X"])])])
+      generated: "",
+      days: [.init(day: "2026-10-05", items: [.init(story: 1, text: "A", sha: "a", fixedReports: ["X"])])])
     XCTAssertEqual(WhatsNewFeed.decode(try JSONEncoder().encode(feed)), feed)
     let older = #"{"generated": "", "days": [{"day": "2026-10-05", "items": [{"story": 1, "text": "A", "sha": "a"}]}]}"#
     XCTAssertNil(WhatsNewFeed.decode(Data(older.utf8))?.days.first?.items.first?.fixedReports)
@@ -123,10 +151,12 @@ final class WhatsNewTests: XCTestCase {
   func testSubjectsThatStartWithTheirStory() {
     XCTAssertEqual(
       WhatsNew.parse(subject: "Story 203: the Cockpit's usage left, as a strip on the native home screen"),
-      .init(story: 203, text: "The Cockpit's usage left, as a strip on the native home screen", issue: nil, leading: true))
+      .init(
+        story: 203, text: "The Cockpit's usage left, as a strip on the native home screen", issue: nil, leading: true))
     XCTAssertEqual(
       WhatsNew.parse(subject: "Story 146 (#164): a gentle shake opens the report, read from the motion itself"),
-      .init(story: 146, text: "A gentle shake opens the report, read from the motion itself", issue: 164, leading: true))
+      .init(story: 146, text: "A gentle shake opens the report, read from the motion itself", issue: 164, leading: true)
+    )
     XCTAssertEqual(
       WhatsNew.parse(subject: "Story 147: the home screen holds only the launchers (#166)"),
       .init(story: 147, text: "The home screen holds only the launchers", issue: 166, leading: true))
@@ -141,29 +171,35 @@ final class WhatsNewTests: XCTestCase {
         leading: false))
     XCTAssertEqual(
       WhatsNew.parse(subject: "Gym Timer: RESET on the turned face when paused or finished (story 181, #132)"),
-      .init(story: 181, text: "Gym Timer: RESET on the turned face when paused or finished", issue: 132, leading: false))
+      .init(story: 181, text: "Gym Timer: RESET on the turned face when paused or finished", issue: 132, leading: false)
+    )
     XCTAssertEqual(WhatsNew.parse(subject: "Native app: Box breathing (stories 160-165)")?.story, 160)
-    XCTAssertEqual(WhatsNew.parse(subject: "Native app: Box breathing (stories 160-165)")?.text, "Native app: Box breathing")
+    XCTAssertEqual(
+      WhatsNew.parse(subject: "Native app: Box breathing (stories 160-165)")?.text, "Native app: Box breathing")
     XCTAssertEqual(WhatsNew.parse(subject: "Home: an Exercise Analyzer row (#142, story 134)")?.story, 134)
   }
 
   func testIssueFirstBracketSubjectsReachTheFeed() {
-    XCTAssertEqual(WhatsNew.parse(subject: "Add the panel (#12; story 007)"),
-                   .init(story: 7, text: "Add the panel", issue: 12, leading: false))
-    XCTAssertEqual(WhatsNew.parse(subject: "Fix two things (#12, #13; stories 007, 004)"),
-                   .init(story: 7, text: "Fix two things", issue: 12, leading: false))
+    XCTAssertEqual(
+      WhatsNew.parse(subject: "Add the panel (#12; story 007)"),
+      .init(story: 7, text: "Add the panel", issue: 12, leading: false))
+    XCTAssertEqual(
+      WhatsNew.parse(subject: "Fix two things (#12, #13; stories 007, 004)"),
+      .init(story: 7, text: "Fix two things", issue: 12, leading: false))
     let markdown = """
       ### User Story 007:
       - **Summary:** The panel
       ### User Story 004:
       - **Summary:** Another thing
       """
-    let stories = WhatsNew.stories(fromMarkdown: markdown, file: "stories.md",
-                                  baseURL: "https://github.com/example/app/blob/main/docs/")
-    let days = WhatsNew.build(commits: [
-      .init(sha: "new", date: at("2026-10-06T17:00:00Z"), subject: "Fix two things (#12, #13; stories 007, 004)"),
-      .init(sha: "older", date: at("2026-10-05T17:00:00Z"), subject: "Add the panel (#12; story 007)")
-    ], stories: stories, now: at("2026-10-06T20:00:00Z"), timeZone: la)
+    let stories = WhatsNew.stories(
+      fromMarkdown: markdown, file: "stories.md",
+      baseURL: "https://github.com/example/app/blob/main/docs/")
+    let days = WhatsNew.build(
+      commits: [
+        .init(sha: "new", date: at("2026-10-06T17:00:00Z"), subject: "Fix two things (#12, #13; stories 007, 004)"),
+        .init(sha: "older", date: at("2026-10-05T17:00:00Z"), subject: "Add the panel (#12; story 007)"),
+      ], stories: stories, now: at("2026-10-06T20:00:00Z"), timeZone: la)
     XCTAssertEqual(days.flatMap(\.items).map(\.story), [7, 7])
     XCTAssertEqual(days.flatMap(\.items).map(\.issue), [12, 12])
     XCTAssertEqual(days[0].items[0].text, "Fix two things")
@@ -175,7 +211,8 @@ final class WhatsNewTests: XCTestCase {
       "Story 147 Status names 80b7186", "Story 133: Status names 0152b68", "Story 203 Status names its commit 3da9e54",
       "Story 080 Status: d9c1fd1 verified on the phone (#146)", "Merge native/mirror into native/ports",
       "Merge pull request #134 from owner/native/05-live-activity (story 106)", "WIP story 12",
-      "no-mistakes(review): Story 120 Status names its commit 7ba6357", "Native Call: send the Cockpit's origin (#136)", "",
+      "no-mistakes(review): Story 120 Status names its commit 7ba6357", "Native Call: send the Cockpit's origin (#136)",
+      "",
     ] {
       XCTAssertNil(WhatsNew.parse(subject: subject), subject)
     }
@@ -198,7 +235,8 @@ final class WhatsNewTests: XCTestCase {
       """
     let stories = WhatsNew.stories(fromMarkdown: markdown)
     XCTAssertEqual(stories[141], .init(summary: "Every launch keeps a log"))
-    XCTAssertEqual(stories[147], .init(summary: "The home screen holds only what I open, and a cog holds the rest", issue: 166))
+    XCTAssertEqual(
+      stories[147], .init(summary: "The home screen holds only what I open, and a cog holds the rest", issue: 166))
     XCTAssertNil(stories[199])
   }
 
@@ -227,7 +265,8 @@ final class WhatsNewTests: XCTestCase {
     let stories: [Int: WhatsNew.Story] = [147: .init(summary: "A cog for the rest", issue: 166)]
     let commits = [
       WhatsNew.Commit(sha: "e", date: at("2026-10-06T16:00:00Z"), subject: "Story 147 Status names d"),
-      WhatsNew.Commit(sha: "d", date: at("2026-10-06T15:00:00Z"), subject: "Story 147: the home screen, launchers only"),
+      WhatsNew.Commit(
+        sha: "d", date: at("2026-10-06T15:00:00Z"), subject: "Story 147: the home screen, launchers only"),
       WhatsNew.Commit(sha: "c", date: at("2026-10-06T14:00:00Z"), subject: "Story 147: a follow-up the same day"),
       // 01:00 UTC on the 6th is still the 5th in Los Angeles.
       WhatsNew.Commit(sha: "b", date: at("2026-10-06T01:00:00Z"), subject: "Story 147: the first cut"),
@@ -256,13 +295,16 @@ final class WhatsNewTests: XCTestCase {
       WhatsNew.Commit(
         sha: "c", date: at("2026-10-06T17:00:00Z"), subject: "Native Cockpit: Back in the footer",
         body: "Opening Lavish left no way back. Story 200.\n\nCloses #234"),
-      WhatsNew.Commit(sha: "b", date: at("2026-10-06T16:00:00Z"), subject: "Native: a stale retry no longer ends a call (#198)"),
-      WhatsNew.Commit(sha: "a", date: at("2026-10-06T15:00:00Z"), subject: "Native: tidy the timer", body: "No story here."),
+      WhatsNew.Commit(
+        sha: "b", date: at("2026-10-06T16:00:00Z"), subject: "Native: a stale retry no longer ends a call (#198)"),
+      WhatsNew.Commit(
+        sha: "a", date: at("2026-10-06T15:00:00Z"), subject: "Native: tidy the timer", body: "No story here."),
       WhatsNew.Commit(sha: "m", date: at("2026-10-06T14:00:00Z"), subject: "Merge pull request #9", body: "Story 200"),
     ]
-    let items = WhatsNew.build(
-      commits: commits, stories: [:], issueStories: issueStories, now: at("2026-10-06T20:00:00Z"), timeZone: la
-    ).first?.items ?? []
+    let items =
+      WhatsNew.build(
+        commits: commits, stories: [:], issueStories: issueStories, now: at("2026-10-06T20:00:00Z"), timeZone: la
+      ).first?.items ?? []
     XCTAssertEqual(items.map(\.sha), ["c", "b"], "no story by any route, or a merge, does not show")
     XCTAssertEqual(items[0].story, 200)
     XCTAssertEqual(items[0].text, "Native Cockpit: Back in the footer")
@@ -283,7 +325,8 @@ final class WhatsNewTests: XCTestCase {
     XCTAssertEqual(WhatsNew.homeLine(nil), "nothing new")
     XCTAssertEqual(WhatsNew.homeLine(WhatsNewFeed(generated: "", days: [])), "nothing new")
     let feed = WhatsNewFeed(
-      generated: "", days: [.init(day: "2026-10-05", items: [.init(story: 240, text: "Box breathing ring styles", sha: "a")])])
+      generated: "",
+      days: [.init(day: "2026-10-05", items: [.init(story: 240, text: "Box breathing ring styles", sha: "a")])])
     XCTAssertEqual(WhatsNew.homeLine(feed), "Oct 5 — Box breathing ring styles")
     XCTAssertEqual(WhatsNew.label(day: "2026-10-05", style: .long), "Monday, Oct 5")
     XCTAssertEqual(WhatsNew.label(day: "garbage", style: .long), "garbage")
@@ -301,7 +344,8 @@ final class WhatsNewTests: XCTestCase {
   /// The `git log` text the build script writes: unit separators between fields, a record separator per commit,
   /// and a body that can hold newlines and anything else.
   func testCommitsFromTheLogText() {
-    let log = "a1\u{1f}2026-10-06T15:00:00Z\u{1f}Story 148: what's new\u{1f}Body line one\nStory 200.\u{1e}\n"
+    let log =
+      "a1\u{1f}2026-10-06T15:00:00Z\u{1f}Story 148: what's new\u{1f}Body line one\nStory 200.\u{1e}\n"
       + "b2\u{1f}not a date\u{1f}dropped\u{1f}\u{1e}\n"
       + "c3\u{1f}2026-10-05T15:00:00-07:00\u{1f}Merge pull request #1\u{1f}\u{1e}\n"
     let commits = WhatsNew.commits(fromLog: log)
@@ -316,10 +360,13 @@ final class WhatsNewTests: XCTestCase {
     let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
       .deletingLastPathComponent().appendingPathComponent("docs/stories")
     var all: [Int: WhatsNew.Story] = [:]
-    for file in try FileManager.default.contentsOfDirectory(atPath: dir.path) where file.hasSuffix(".md") && file != "README.md" {
-      all.merge(WhatsNew.stories(
-        fromMarkdown: try String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8), file: file,
-        baseURL: "https://example.com/")) { a, _ in a }
+    for file in try FileManager.default.contentsOfDirectory(atPath: dir.path)
+    where file.hasSuffix(".md") && file != "README.md" {
+      all.merge(
+        WhatsNew.stories(
+          fromMarkdown: try String(contentsOf: dir.appendingPathComponent(file), encoding: .utf8), file: file,
+          baseURL: "https://example.com/")
+      ) { a, _ in a }
     }
     XCTAssertGreaterThan(all.count, 10)
     XCTAssertTrue(all.values.allSatisfy { $0.link?.hasPrefix("https://example.com/") == true })
@@ -328,14 +375,20 @@ final class WhatsNewTests: XCTestCase {
   func testTheSeenStoreHidesTheRowUntilSomethingNewer() throws {
     let defaults = try XCTUnwrap(UserDefaults(suiteName: "bugkit-test-\(UUID().uuidString)"))
     let seen = WhatsNewSeen(defaults: defaults)
-    let feed = WhatsNewFeed(generated: "", days: [WhatsNewDay(day: "2026-10-06", items: [WhatsNewItem(story: 1, text: "A", sha: "aaa")])])
+    let feed = WhatsNewFeed(
+      generated: "", days: [WhatsNewDay(day: "2026-10-06", items: [WhatsNewItem(story: 1, text: "A", sha: "aaa")])])
     XCTAssertTrue(seen.showsRow(feed))
     var logged: [String] = []
     let lock = NSLock()
-    seen.dismiss(feed, logger: { e, f in lock.lock(); logged.append("\(e) \(f["action"]?.display ?? "")"); lock.unlock() })
+    seen.dismiss(
+      feed,
+      logger: { e, f in
+        lock.lock(); logged.append("\(e) \(f["action"]?.display ?? "")"); lock.unlock()
+      })
     XCTAssertFalse(seen.showsRow(feed))
     XCTAssertEqual(logged, ["ui dismiss_whats_new"])
-    let newer = WhatsNewFeed(generated: "", days: [WhatsNewDay(day: "2026-10-07", items: [WhatsNewItem(story: 2, text: "B", sha: "bbb")])])
+    let newer = WhatsNewFeed(
+      generated: "", days: [WhatsNewDay(day: "2026-10-07", items: [WhatsNewItem(story: 2, text: "B", sha: "bbb")])])
     XCTAssertTrue(seen.showsRow(newer))
     XCTAssertNil(WhatsNewSeen.bundledFeed(Bundle(for: Self.self)))
   }

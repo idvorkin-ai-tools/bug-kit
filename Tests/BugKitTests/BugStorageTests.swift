@@ -4,12 +4,21 @@ import Testing
 
 @Test func macStorageUsesBundleIdentityAndExecutableFallback() {
   let support = URL(fileURLWithPath: "/synthetic/Library/Application Support", isDirectory: true)
-  #expect(BugStorage.macDirectory(applicationSupport: support, bundleIdentifier: "com.example.timer",
-                                 processName: "timer").path == support.appendingPathComponent("com.example.timer").path)
-  #expect(BugStorage.macDirectory(applicationSupport: support, bundleIdentifier: nil,
-                                 processName: "lcd-timer").path == support.appendingPathComponent("lcd-timer").path)
-  #expect(BugStorage.macDirectory(applicationSupport: support, bundleIdentifier: "",
-                                 processName: "lcd-timer").lastPathComponent == "lcd-timer")
+  #expect(
+    BugStorage.macDirectory(
+      applicationSupport: support, bundleIdentifier: "com.example.timer",
+      processName: "timer"
+    ).path == support.appendingPathComponent("com.example.timer").path)
+  #expect(
+    BugStorage.macDirectory(
+      applicationSupport: support, bundleIdentifier: nil,
+      processName: "lcd-timer"
+    ).path == support.appendingPathComponent("lcd-timer").path)
+  #expect(
+    BugStorage.macDirectory(
+      applicationSupport: support, bundleIdentifier: "",
+      processName: "lcd-timer"
+    ).lastPathComponent == "lcd-timer")
 }
 
 @Test func macStorageCannotEscapeItsApplicationSupportRoot() {

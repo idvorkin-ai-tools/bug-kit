@@ -13,7 +13,8 @@ private func sine(amplitude: Double, count: Int = 320) -> Data {
 }
 
 @Test func silenceReadsAsAnEmptyMeter() {
-  #expect(DictationLevel.normalized(decibels: DictationLevel.decibels(pcm16: pcm16(Array(repeating: 0, count: 320)))) == 0)
+  #expect(
+    DictationLevel.normalized(decibels: DictationLevel.decibels(pcm16: pcm16(Array(repeating: 0, count: 320)))) == 0)
   #expect(DictationLevel.normalized(decibels: DictationLevel.decibels(pcm16: Data())) == 0)
   // A whisper of noise below the -60 dB floor is still empty.
   #expect(DictationLevel.normalized(decibels: DictationLevel.decibels(pcm16: pcm16([1, -1, 1, -1]))) == 0)

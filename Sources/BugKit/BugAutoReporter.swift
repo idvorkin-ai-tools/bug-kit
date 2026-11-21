@@ -80,8 +80,10 @@ public actor BugAutoReporter {
     if let previous = last[reason], date.timeIntervalSince(previous) < options.window, date >= previous {
       writer.logger(
         "bug_report_auto_skipped",
-        ["reason": .string(reason), "last": .string(BugReport.formatDate(previous)),
-         "window_s": .int(Int(options.window))])
+        [
+          "reason": .string(reason), "last": .string(BugReport.formatDate(previous)),
+          "window_s": .int(Int(options.window)),
+        ])
       return nil
     }
     last[reason] = date
@@ -96,7 +98,8 @@ public actor BugAutoReporter {
     var snapshot = BugDiagnosticsSnapshot()
     if let diagnostics { snapshot = await MainActor.run(body: diagnostics) }
     let maxBytes = options.maxBytes, logger = writer.logger
-    let copy: BugExtraFiles = { [sources] folder in Self.copy(sources, into: folder, maxBytes: maxBytes, logger: logger) }
+    let copy: BugExtraFiles = { [sources] folder in Self.copy(sources, into: folder, maxBytes: maxBytes, logger: logger)
+    }
     return await writer.save(
       note: note, screen: screen, context: context, screenshotPNG: nil, log: log,
       extraFiles: sources.isEmpty ? nil : copy, date: date, diagnostics: snapshot, source: "auto", reason: reason,
@@ -148,8 +151,10 @@ public actor BugAutoReporter {
         if take < size {
           logger(
             "bug_report_auto_cut",
-            ["file": .string(name), "size": .int(size), "kept_bytes": .int(kept.count),
-             "dropped_bytes": .int(size - kept.count)])
+            [
+              "file": .string(name), "size": .int(size), "kept_bytes": .int(kept.count),
+              "dropped_bytes": .int(size - kept.count),
+            ])
         }
         if take == size || !kept.isEmpty {
           try kept.write(to: folder.appendingPathComponent(name), options: .withoutOverwriting)

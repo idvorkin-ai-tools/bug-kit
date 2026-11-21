@@ -18,11 +18,13 @@ import Testing
   defaults.set("old", forKey: WhatsNewSeen.defaultKey)
   defaults.set("keep", forKey: "unrelated")
   let events = IncomingEvents()
-  let unchanged = WhatsNewSeen(defaults: defaults, launchHookPrefix: "APP",
+  let unchanged = WhatsNewSeen(
+    defaults: defaults, launchHookPrefix: "APP",
     environment: ["OTHER_WHATS_NEW_RESET": "1"], logger: events.logger)
   #expect(unchanged.newestSeen == "old")
   #expect(events.all.isEmpty)
-  let reset = WhatsNewSeen(defaults: defaults, launchHookPrefix: "APP", environment: ["APP_WHATS_NEW_RESET": "1"],
+  let reset = WhatsNewSeen(
+    defaults: defaults, launchHookPrefix: "APP", environment: ["APP_WHATS_NEW_RESET": "1"],
     logger: events.logger)
   #expect(reset.newestSeen == nil)
   #expect(events.all.count == 1)
@@ -58,9 +60,11 @@ import Testing
   defer { try? FileManager.default.removeItem(at: docs) }
   let events = IncomingEvents()
   let store = BugStore(documents: docs)
-  let writer = BugReportWriter(store: store,
+  let writer = BugReportWriter(
+    store: store,
     info: BugAppInfo(app: "T", bundle: "b", build: "1", commit: "c", device: "d"), logger: events.logger)
-  let report = await writer.save(note: "private screen", screen: "home", context: ["mode": "test"],
+  let report = await writer.save(
+    note: "private screen", screen: "home", context: ["mode": "test"],
     screenshotPNG: Data([1, 2, 3]), log: nil, extraFiles: nil, screenshotDropped: true)
   #expect(report.screenshot == nil)
   #expect(report.context["mode"] == "test")
@@ -72,6 +76,10 @@ import Testing
 private final class IncomingEvents: @unchecked Sendable {
   private let lock = NSLock()
   private var items: [(String, [String: JSONValue])] = []
-  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var logger: BugLogger {
+    { [self] e, f in
+      lock.lock(); items.append((e, f)); lock.unlock()
+    }
+  }
   var all: [(String, [String: JSONValue])] { lock.lock(); defer { lock.unlock() }; return items }
 }
