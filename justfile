@@ -16,6 +16,6 @@ test-linux:
 fmt:
     swift format format --in-place --recursive Sources Tests Tools
 
-# The Swift style check CI and no-mistakes run.
+# The Swift style check the no-mistakes lint step runs.
 lint:
     swift format lint --strict --recursive Sources Tests Tools
