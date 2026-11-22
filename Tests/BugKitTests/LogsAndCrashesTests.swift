@@ -128,6 +128,11 @@ private final class Events: @unchecked Sendable {
 
 // MARK: - The session log (CG story 141)
 
+// A host build is a Mac build: its crashes still go on to the system's report. Only the simulator ends at the file (#131).
+@Test func aHostCrashStillReachesTheSystemReport() {
+  #expect(CrashReports.systemReportsCrashes)
+}
+
 @Test func sessionLogWritesOneLinePerEventWithTypeAndT() throws {
   let docs = try tempDir()
   defer { try? FileManager.default.removeItem(at: docs) }

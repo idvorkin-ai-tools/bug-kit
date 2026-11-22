@@ -26,6 +26,17 @@ public final class CrashReports: NSObject, @unchecked Sendable {
     BugStorage.defaultDirectory.appendingPathComponent("crashes")
   private var logger: BugLogger = { _, _ in }
 
+  /// Whether a crash, once its file is written, goes on to the system's own crash report. On a device or a Mac it
+  /// does. On the simulator it does not: the app is a Mac process there, so the system's report is the Mac's, which
+  /// puts up a "quit unexpectedly" dialog for every simulator crash, and MetricKit never delivers there anyway (#131).
+  public static var systemReportsCrashes: Bool {
+    #if targetEnvironment(simulator)
+      false
+    #else
+      true
+    #endif
+  }
+
   /// Installs the handlers and the MetricKit subscriber, then announces the files earlier runs left.
   public func install(folder: URL? = nil, logger: @escaping BugLogger) {
     if let folder { self.folder = folder }
@@ -36,7 +47,7 @@ public final class CrashReports: NSObject, @unchecked Sendable {
       logger("error", ["where": "crash_folder", "message": .string("\(error)")])
     }
     #if canImport(Darwin)  // the handlers are Darwin calls; the announcing below is plain files
-      installSignalHandlers(folder: self.folder)
+      installSignalHandlers(folder: self.folder, systemReport: Self.systemReportsCrashes)
     #endif
     #if canImport(MetricKit) && os(iOS)
       MXMetricManager.shared.add(self)
@@ -125,10 +136,13 @@ public final class CrashReports: NSObject, @unchecked Sendable {
   private nonisolated(unsafe) var crashFolderPath = [CChar](repeating: 0, count: 1024)
   /// Set once the exception file is on disk: the abort that follows is the same crash and writes no second file.
   private nonisolated(unsafe) var exceptionFileWritten: sig_atomic_t = 0
+  /// 0 on the simulator: the crash ends once its file is written, with no system report (#131).
+  private nonisolated(unsafe) var crashSystemReport: sig_atomic_t = 1
   /// The same path as a String, for the exception handler (which, unlike the signal handler, may allocate).
   private nonisolated(unsafe) var crashFolderString = ""
 
-  private func installSignalHandlers(folder: URL) {
+  private func installSignalHandlers(folder: URL, systemReport: Bool) {
+    crashSystemReport = systemReport ? 1 : 0
     crashFolderString = folder.path
     folder.path.utf8CString.withUnsafeBufferPointer { src in
       for i in 0..<min(src.count, crashFolderPath.count - 64) { crashFolderPath[i] = src[i] }
@@ -148,6 +162,10 @@ public final class CrashReports: NSObject, @unchecked Sendable {
 
   private func crashSignalHandler(_ sig: Int32) {
     if exceptionFileWritten == 0 { writeSignalFile(sig) }
+    // On the simulator the file is the report: end here, with the shell's status for a signal, so the Mac never
+    // writes its own report or puts up its dialog (#131). That report blamed the wrong thread anyway: the process
+    // kills itself, so it names whichever thread it likes, and only the file above has the one that crashed.
+    if crashSystemReport == 0 { _exit(128 + sig) }
     // Back to the default action, so the crash still reaches the system's own report (CG 509da33).
     signal(sig, SIG_DFL)
     raise(sig)
