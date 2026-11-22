@@ -72,6 +72,30 @@
   }
 
   @MainActor
+  @Test func dictationEngineChangeFailureCarriesWhatChanged() async throws {
+    // #128 (CG #1090): "The microphone stopped" on AirPods said where: audio_route and nothing about what changed.
+    let fixture = try DictationFixture()
+    defer { fixture.cleanup() }
+    fixture.dictation.toggle(note: "typed") { fixture.note.value = $0 }
+    try await fixture.until { fixture.dictation.listening }
+    await fixture.provider.emit("spoken")
+    try await fixture.until { fixture.note.value == "typed spoken" }
+    fixture.capture.onFailure?(
+      "The microphone stopped. Your note is still here.",
+      ["where": .string("engine_config"), "ms_since_start": .int(144), "sample_rate_after": .double(24_000)])
+    try await fixture.until { !fixture.dictation.busy }
+    #expect(fixture.dictation.problem == "The microphone stopped. Your note is still here.")
+    let state = fixture.dictation.problemState
+    #expect(state["where"] == .string("engine_config"))
+    #expect(state["ms_since_start"] == .int(144))
+    #expect(state["sample_rate_after"] == .double(24_000))
+    #expect(fixture.events.last("dictation_error")?["where"] == .string("engine_config"))
+    #expect(fixture.events.last("dictation_stop")?["why"] == .string("input_lost"))
+    // input_lost still drains the final words; what was typed and heard stays.
+    #expect(fixture.note.value.hasPrefix("typed spoken"))
+  }
+
+  @MainActor
   @Test func dictationRemovedMicrophoneReturnsPickerToAutomatic() async throws {
     let fixture = try DictationFixture()
     defer { fixture.cleanup() }
@@ -296,6 +320,7 @@
     let provider = TestNoteProvider()
     let note = NoteValue()
     let permissions = PermissionCounts()
+    let events = LoggedEvents()
     let defaults: UserDefaults
     let suite: String
     let dictation: NoteDictation
@@ -306,8 +331,10 @@
       suite = "BugKit-dictation-\(UUID())"
       defaults = try #require(UserDefaults(suiteName: suite))
       let counts = permissions
+      let events = events
       dictation = NoteDictation(
-        logger: { _, _ in }, providerFactory: { [provider] in provider }, capture: capture,
+        logger: { name, fields in MainActor.assumeIsolated { events.all.append((name, fields)) } },
+        providerFactory: { [provider] in provider }, capture: capture,
         permissions: DictationPermissions(
           speech: {
             counts.speech += 1; return true
@@ -329,6 +356,10 @@
   }
 
   @MainActor private final class NoteValue { var value = "" }
+  @MainActor private final class LoggedEvents {
+    var all: [(String, [String: JSONValue])] = []
+    func last(_ name: String) -> [String: JSONValue]? { all.last { $0.0 == name }?.1 }
+  }
   @MainActor private final class HostRecording { var busy = false }
   @MainActor private final class PermissionCounts { var speech = 0; var microphone = 0 }
   @MainActor private final class MicrophonePermissionGate {
@@ -339,7 +370,7 @@
   }
 
   @MainActor private final class TestDictationCapture: DictationCapture {
-    var onFailure: (@MainActor (String) -> Void)?
+    var onFailure: (@MainActor (String, [String: JSONValue]) -> Void)?
     var currentInputID: String? { preferred ?? "built-in" }
     var inputs = [
       BugMicrophone(id: "built-in", name: "iPhone Microphone", kind: "builtInMic"),
