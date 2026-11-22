@@ -3,7 +3,8 @@ import Foundation
 /// The microphone as `NoteDictation` sees it: the system's (`AVDictationCapture`, iOS) or a test's.
 @MainActor
 protocol DictationCapture: AnyObject {
-  var onFailure: (@MainActor (String) -> Void)? { get set }
+  /// The microphone stopped while capturing: the message to show, and the state to copy with it, `where` included.
+  var onFailure: (@MainActor (String, [String: JSONValue]) -> Void)? { get set }
   var currentInputID: String? { get }
   func availableMicrophones() throws -> [BugMicrophone]
   func start(preferredInputID: String?) throws -> AsyncStream<Data>
@@ -16,7 +17,7 @@ protocol DictationCapture: AnyObject {
 
   @MainActor
   final class AVDictationCapture: DictationCapture {
-    var onFailure: (@MainActor (String) -> Void)?
+    var onFailure: (@MainActor (String, [String: JSONValue]) -> Void)?
     var currentInputID: String? { AVAudioSession.sharedInstance().currentRoute.inputs.first?.uid }
     private let logger: BugLogger
     private var engine = AVAudioEngine()
@@ -26,6 +27,10 @@ protocol DictationCapture: AnyObject {
     private var saved: SessionState?
     private var inputAtStart: String?
     private var startedAt = 0.0
+    /// The microphone as it was when the tap was installed, the format the tap reads, and whether this dictation has
+    /// already rebuilt its input after an engine change (#128).
+    private var shapeAtStart: DictationAudioShape?
+    private var rebuilt = false
     private let observations = DictationObservations()
 
     private struct SessionState {
@@ -86,16 +91,18 @@ protocol DictationCapture: AnyObject {
               ProcessInfo.processInfo.systemUptime - self.startedAt > 0.5,
               self.currentInputID != self.inputAtStart
             else { return }
-            self.onFailure?("The microphone changed. Dictation stopped; your note is still here.")
+            self.onFailure?(
+              "The microphone changed. Dictation stopped; your note is still here.", ["where": "audio_route"])
           }
         })
       observations.add(
         NotificationCenter.default.addObserver(
           forName: .AVAudioEngineConfigurationChange, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+          let source = (notification.object as AnyObject?).map(ObjectIdentifier.init)
           Task { @MainActor in
-            guard let self, self.tapInstalled, !self.engine.isRunning else { return }
-            self.onFailure?("The microphone stopped. Your note is still here.")
+            guard let self, self.tapInstalled else { return }
+            self.engineChanged(thisEngine: source == ObjectIdentifier(self.engine))
           }
         })
       observations.add(
@@ -108,7 +115,7 @@ protocol DictationCapture: AnyObject {
           else { return }
           Task { @MainActor in
             guard let self, self.tapInstalled else { return }
-            self.onFailure?("The microphone was interrupted. Your note is still here.")
+            self.onFailure?("The microphone was interrupted. Your note is still here.", ["where": "interruption"])
           }
         })
     }
@@ -148,31 +155,89 @@ protocol DictationCapture: AnyObject {
         let preferred = session.availableInputs?.first { $0.uid == preferredInputID }
         if preferredInputID != nil, preferred == nil { throw CaptureError.microphoneUnavailable }
         try session.setPreferredInput(preferred)
-        engine = AVAudioEngine()
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { throw CaptureError.noAudioFormat }
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingOldest(32))
-        let encoder = try DictationPCMEncoder(input: format)
         audio = continuation
-        let owner = UUID(); generation = owner
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-          guard let data = encoder.encode(buffer) else { return }
-          if case .dropped = continuation.yield(data) {
-            continuation.finish()
-            Task { @MainActor in
-              guard let self, self.generation == owner else { return }
-              self.onFailure?(DictationProviderError.audioOverflow.localizedDescription)
-            }
-          }
-        }
-        tapInstalled = true
-        engine.prepare()
-        try engine.start()
-        inputAtStart = currentInputID
+        rebuilt = false
         startedAt = ProcessInfo.processInfo.systemUptime
+        try startEngine(continuation)
         return stream
       } catch { stop(); restore(); throw error }
+    }
+
+    /// A fresh engine whose tap reads the input's current format into the dictation's one audio stream. Starting
+    /// dictation runs it once; an early engine change runs it again, and the provider hears no gap but the change.
+    private func startEngine(_ continuation: AsyncStream<Data>.Continuation) throws {
+      engine = AVAudioEngine()
+      let input = engine.inputNode
+      let format = input.outputFormat(forBus: 0)
+      guard format.sampleRate > 0, format.channelCount > 0 else { throw CaptureError.noAudioFormat }
+      let encoder = try DictationPCMEncoder(input: format)
+      shapeAtStart = Self.shape(AVAudioSession.sharedInstance())
+      let owner = UUID(); generation = owner
+      input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+        guard let data = encoder.encode(buffer) else { return }
+        if case .dropped = continuation.yield(data) {
+          continuation.finish()
+          Task { @MainActor in
+            guard let self, self.generation == owner else { return }
+            self.onFailure?(DictationProviderError.audioOverflow.localizedDescription, ["where": "audio_overflow"])
+          }
+        }
+      }
+      tapInstalled = true
+      engine.prepare()
+      try engine.start()
+      inputAtStart = currentInputID
+    }
+
+    /// #128: every engine reconfiguration while capturing is logged with what changed. A stopped engine is rebuilt
+    /// once early on (an AirPods HFP link coming up as dictation starts); otherwise dictation stops, the copied
+    /// error carrying the same fields.
+    private func engineChanged(thisEngine: Bool) {
+      let since = ProcessInfo.processInfo.systemUptime - startedAt
+      let running = engine.isRunning
+      let after = Self.shape(AVAudioSession.sharedInstance())
+      let action = DictationRules.engineChange(sinceStart: since, running: running, rebuilt: rebuilt, after: after)
+      let fields = DictationRules.engineChangeFields(
+        sinceStart: since, thisEngine: thisEngine, running: running, before: shapeAtStart, after: after,
+        action: action)
+      logger("dictation_engine_config", fields)
+      let message = "The microphone stopped. Your note is still here."
+      switch action {
+      case .ignore: return
+      case .fail: onFailure?(message, fields)
+      case .rebuild:
+        rebuilt = true
+        guard let audio else { onFailure?(message, fields); return }
+        if engine.isRunning { engine.stop() }
+        if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
+        do {
+          try startEngine(audio)
+          logger(
+            "dictation_engine_rebuilt",
+            [
+              "sample_rate": .double(engine.inputNode.outputFormat(forBus: 0).sampleRate),
+              "input": shapeAtStart.map { .string($0.inputPorts.joined(separator: ",")) } ?? .null,
+            ])
+        } catch {
+          let ns = error as NSError
+          onFailure?(
+            message,
+            fields.merging(
+              [
+                "rebuild_error": .string(error.localizedDescription), "domain": .string(ns.domain),
+                "code": .int(ns.code),
+              ]) { first, _ in first })
+        }
+      }
+    }
+
+    private static func shape(_ session: AVAudioSession) -> DictationAudioShape {
+      let route = session.currentRoute
+      return DictationAudioShape(
+        sampleRate: session.sampleRate, channels: session.inputNumberOfChannels,
+        inputPorts: route.inputs.map(\.portType.rawValue), outputPorts: route.outputs.map(\.portType.rawValue),
+        ioBufferDuration: session.ioBufferDuration)
     }
 
     func stop() {
