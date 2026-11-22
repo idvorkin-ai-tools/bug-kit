@@ -128,6 +128,31 @@ private final class Events: @unchecked Sendable {
 
 // MARK: - The session log (CG story 141)
 
+#if os(macOS)
+  // A host build is a Mac build: its crashes still go on to the system's report. Only the simulator ends at the file (#131).
+  // A child process installs the handlers and aborts: it must leave the file and still die by SIGABRT, not exit.
+  // Swift 6.2's exit tests cannot capture values, so parent and child each derive the same folder.
+  private func hostCrashFolder() -> URL {
+    FileManager.default.temporaryDirectory.appendingPathComponent("bugkit2-host-crash-\(getuid())")
+  }
+
+  @Test func aHostCrashStillReachesTheSystemReport() async throws {
+    let dir = hostCrashFolder()
+    try? FileManager.default.removeItem(at: dir)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    await #expect(processExitsWith: .signal(SIGABRT)) {
+      _ = task_set_exception_ports(
+        mach_task_self_, exception_mask_t(EXC_MASK_CRASH), mach_port_t(MACH_PORT_NULL), EXCEPTION_DEFAULT,
+        THREAD_STATE_NONE)
+      CrashReports.shared.install(folder: hostCrashFolder(), logger: { _, _ in })
+      abort()
+    }
+    let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+    #expect(names.contains { $0.hasPrefix("signal-") && $0.hasSuffix(".txt") })
+  }
+#endif
+
 @Test func sessionLogWritesOneLinePerEventWithTypeAndT() throws {
   let docs = try tempDir()
   defer { try? FileManager.default.removeItem(at: docs) }
