@@ -207,7 +207,7 @@ Part of the [BugKit stories](README.md).
     `dictationATranscriptThatIsItsPhraseTwiceIsKeptOnce`; speech that really repeats stays, by
     `dictationSpeechThatRepeatsIsKeptAsSpoken`.
   - The permission prompts and music carrying on are device checks, still to do.
-  - An engine configuration change while dictating (#128): every one is logged as `dictation_engine_config`, and the
+  - An engine configuration change while dictating (#128, PR #135, c6906ac, v0.3.17): every one is logged as `dictation_engine_config`, and the
     one-time rebuild in the first second (two on a Bluetooth HFP input) and the `engine_config` failure after it are
     decided by `DictationRules.engineChange`, verified on the host by `DictationRulesTests`; an input moving onto the
     headset in that window is left to the engine rebuild rather than stopped as a route change, decided by
