@@ -167,12 +167,16 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** A crash comes back with the logs (technical)
 - **From:** EA story 036, #87; CG story 144, 509da33
+- **Issues:** #131
 - **Status:**
   - `CrashReports`. The announce-once is verified on the host by `crashFilesAreAnnouncedOnceThenRenamed`.
   - The MetricKit subscriber and the signal and exception handlers are verified by typecheck and build.
   - `scripts/symbolicate.sh` (EA's, generalized). It is verified on the host by `scripts/tests/test_symbolicate.py`
     against a real arm64 binary and its dSYM. That test found that the older `atos -l 0x0` recipe never resolved.
   - A real crash in a BugKit app is still to come.
+  - On the simulator a crash ends at its file, with no system report and so no Mac "quit unexpectedly" dialog (#131).
+    The host keeps the system report, verified by `aHostCrashStillReachesTheSystemReport`; the simulator side is
+    verified by typecheck, and the first simulator crash after an app's bump will verify it live.
 
 #### Use Case:
 - **As a** developer reading a session log that stops mid-work
@@ -192,7 +196,15 @@ Part of the [BugKit stories](README.md).
 - **Given:** an Objective-C exception aborts the app
 - **Then:**
   - `crashes/` holds one `exception-<epoch>.txt` and no second `signal-` file;
-  - the crash still reaches the system's own report.
+  - on a device or a Mac, the crash still reaches the system's own report.
+
+- **Scenario:** A crash on the simulator
+- **Given:** the app runs on the iOS simulator on a Mac, for example under an agent's UI test
+- **When:** it crashes
+- **Then:**
+  - `crashes/` holds its `signal-` or `exception-` file as on a device, and the next launch announces it;
+  - the process ends there, with no system crash report, so the Mac puts up no "quit unexpectedly" dialog;
+  - a debugger attached from Xcode still stops at the crash.
 
 ---
 

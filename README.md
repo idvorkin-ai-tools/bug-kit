@@ -121,6 +121,8 @@ listener/bug-listener --once --backfill  # first poll: include existing reports 
 listener/bug-listener                   # keep polling for new evidence
 ```
 
+On the iOS simulator a crash ends once its file is written, without the system's crash report: there the system is the Mac, whose report puts up a "quit unexpectedly" dialog and blames whichever thread it likes (#131). Read the simulator app's `Documents/crashes` instead.
+
 No separate listener flag is needed for crash discovery. It polls `Documents/crashes` even when no manual bug report exists; set `crash_dir` in the app's `apps.json` entry if your app uses another directory. Use `--backfill` before the first successful crash poll to include historical crashes, including after upgrading the listener.
 
 ### Setup checks and agent-readable status
