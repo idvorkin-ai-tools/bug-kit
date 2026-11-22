@@ -246,6 +246,12 @@ A bug in the app's own hooks (its context, screen names, extra files, logger bri
 
 ## Developing BugKit
 
+### Swift style
+
+Swift sources follow `.swift-format` (two-space indent, 120 columns; one-line `a = x; b = y` assignments stay allowed).
+`just fmt` rewrites them in place and `just lint` checks them; the no-mistakes lint step runs the same check.
+It uses the `swift format` built into the Xcode toolchain, so there is nothing to install and no package dependency.
+
 ### Beads work tracking
 
 Use Beads (`bd`) for agent task tracking. GitHub remains the intake for reports and the review surface for PRs; link related issues with `--external-ref <issue-url>`.
@@ -304,7 +310,7 @@ On Linux, `just test-linux` (`scripts/test-linux.sh` says what it needs) runs th
 
 Swift tests cover storage, concurrent writes, report flow, dictation merging and the dictation controller, logs, crashes and What's new. Python tests cover listener parsing, deduplication, independent crash discovery, evidence retries, doctor/status JSON and deployment commands with fake tools.
 
-With XcodeGen and a selected iOS simulator, run `scripts/test-ios-diagnostics.sh <simulator-udid>` to check accessibility redaction, traversal limits and control capture.
+With XcodeGen and a selected iOS simulator, run `scripts/test-ios-diagnostics.sh <simulator-udid>` to check accessibility redaction, traversal limits and control capture. With `xcbeautify` installed (`brew install xcbeautify`) the console shows its summary; without it, the raw output. The whole xcodebuild output is kept in `DerivedData/BugKitDiagnostics/test.log` (or `$BUG_KIT_TEST_LOG`), and the exit status is xcodebuild's.
 
 Host tests do not exercise the iOS UI. Typecheck it with an installed iOS SDK:
 

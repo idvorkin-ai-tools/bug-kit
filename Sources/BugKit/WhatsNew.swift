@@ -18,7 +18,9 @@ public struct WhatsNewItem: Codable, Equatable, Sendable {
   /// it fixed none, or the build did not look (`whats-new.sh` without `--fixed-reports`, or no `gh`).
   public var fixedReports: [String]?
 
-  public init(story: Int, text: String, issue: Int? = nil, sha: String, link: String? = nil, fixedReports: [String]? = nil) {
+  public init(
+    story: Int, text: String, issue: Int? = nil, sha: String, link: String? = nil, fixedReports: [String]? = nil
+  ) {
     self.story = story
     self.text = text
     self.issue = issue
@@ -185,8 +187,10 @@ public enum WhatsNew {
     }
     if let m = matches(bracketStories, subject), let story = Int(group(m, 1, subject) ?? "") {
       var text = remove(m, from: subject)
-      var issue = group(m, 0, subject).flatMap { bracket in matches(hashNumber, bracket).flatMap { group($0, 1, bracket) } }
-        .flatMap(Int.init)
+      var issue = group(m, 0, subject).flatMap { bracket in
+        matches(hashNumber, bracket).flatMap { group($0, 1, bracket) }
+      }
+      .flatMap(Int.init)
       if let i = matches(bracketIssue, text) {
         issue = issue ?? group(i, 1, text).flatMap(Int.init)
         text = remove(i, from: text)
@@ -201,7 +205,8 @@ public enum WhatsNew {
   /// Every "### User Story NNN:" in the markdown with its "**Summary:**" and the first issue its "**Issues:**" names.
   /// `file` and `baseURL`: the markdown's name under the stories folder and where that folder is on the web, so each
   /// story gets its link; no link without both.
-  public static func stories(fromMarkdown markdown: String, file: String? = nil, baseURL: String? = nil) -> [Int: Story] {
+  public static func stories(fromMarkdown markdown: String, file: String? = nil, baseURL: String? = nil) -> [Int: Story]
+  {
     var out: [Int: Story] = [:]
     var current: Int?
     var link: String?
@@ -316,7 +321,8 @@ public enum WhatsNew {
     let parts = day.split(separator: "-").compactMap { Int($0) }
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(identifier: "UTC")!
-    guard parts.count == 3, let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    guard parts.count == 3,
+      let date = calendar.date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
     else { return day }
     let format = DateFormatter()
     format.calendar = calendar

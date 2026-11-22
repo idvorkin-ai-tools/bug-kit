@@ -9,7 +9,9 @@ private func tempDocuments() throws -> URL {
   return dir
 }
 
-private func sample(note: String = "counted 1 rep, there were 13", date: Date = Date(timeIntervalSince1970: 1_791_642_600))
+private func sample(
+  note: String = "counted 1 rep, there were 13", date: Date = Date(timeIntervalSince1970: 1_791_642_600)
+)
   -> BugReport
 {
   BugReport(
@@ -33,9 +35,10 @@ private func sample(note: String = "counted 1 rep, there were 13", date: Date = 
 // The keys on disk are the ones the listener and the older apps' file-bugs read.
 @Test func lineUsesTheFixedSnakeCaseKeys() throws {
   let obj = try JSONSerialization.jsonObject(with: sample().jsonLine()) as! [String: Any]
-  for key in ["id", "reported_at", "app", "bundle", "build", "commit", "device", "screen", "note", "log",
-    "screenshot", "context", "session_t_ms", "folder"]
-  {
+  for key in [
+    "id", "reported_at", "app", "bundle", "build", "commit", "device", "screen", "note", "log",
+    "screenshot", "context", "session_t_ms", "folder",
+  ] {
     #expect(obj[key] != nil, "missing \(key)")
   }
   #expect(obj["reported_at"] as? String == "2026-10-10T14:30:00.000Z")

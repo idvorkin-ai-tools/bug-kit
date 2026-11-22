@@ -1,5 +1,5 @@
 #if canImport(CloudKit)
-import CloudKit
+  import CloudKit
 #endif
 import Foundation
 import Testing
@@ -35,9 +35,10 @@ private struct CloudFixture {
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     try Data("synthetic screen".utf8).write(to: folder.appendingPathComponent("screen.png"))
     try Data("synthetic interactions".utf8).write(to: folder.appendingPathComponent("interactions.jsonl"))
-    return BugReport(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic",
-                     screen: "home", note: "fixture note", screenshot: "bugs/sample/screen.png",
-                     folder: "bugs/sample", files: ["bugs/sample/interactions.jsonl"])
+    return BugReport(
+      app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic",
+      screen: "home", note: "fixture note", screenshot: "bugs/sample/screen.png",
+      folder: "bugs/sample", files: ["bugs/sample/interactions.jsonl"])
   }
   func clean() { try? FileManager.default.removeItem(at: root) }
 }
@@ -89,36 +90,39 @@ private struct CloudFixture {
 }
 
 #if canImport(CloudKit)
-@Test func aBuildNotSignedForTheContainerNeverCreatesOne() async throws {
-  // The test runner has no iCloud entitlement: creating the CKContainer here would trap the whole run (#87).
-  let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
-  await #expect(throws: CloudDeliveryError.notEntitled) { try await transport.accountID() }
-  #expect(transport.retryDelay(for: CloudDeliveryError.notEntitled, attempt: 0) == nil)
-}
+  @Test func aBuildNotSignedForTheContainerNeverCreatesOne() async throws {
+    // The test runner has no iCloud entitlement: creating the CKContainer here would trap the whole run (#87).
+    let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
+    await #expect(throws: CloudDeliveryError.notEntitled) { try await transport.accountID() }
+    #expect(transport.retryDelay(for: CloudDeliveryError.notEntitled, attempt: 0) == nil)
+  }
 
-@Test func signedContainersAreReadFromTheEntitlementsPlistInTheExecutable() throws {
-  let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-  try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-  defer { try? FileManager.default.removeItem(at: dir) }
-  let key = "<key>com.apple.developer.icloud-container-identifiers</key>"
-  let containers = "\(key)\n\t<array>\n\t\t<string>iCloud.com.example.A</string>\n\t\t<string>iCloud.com.example.B</string>\n\t</array>"
-  let services = { (names: String) in "<key>com.apple.developer.icloud-services</key>\n\t<array>\(names)</array>\n" }
-  let plist = services("<string>CloudDocuments</string><string>CloudKit</string>") + containers
-  let signed = dir.appendingPathComponent("signed")
-  // The key also sits in a binary's string table, followed by other strings rather than an array.
-  try (Data([0xCF, 0xFA, 0xED, 0xFE, 0x00]) + Data("\(key)\0iCloud.com.example.C\0</array>".utf8) + Data([0x00, 0xFF])
-    + Data(plist.utf8) + Data([0x00])).write(to: signed)
-  #expect(NativeCloudReportTransport.containers(inExecutable: signed) == ["iCloud.com.example.A", "iCloud.com.example.B"])
-  // iCloud Documents alone also lists the container, but CKContainer(identifier:) still traps without CloudKit.
-  let documentsOnly = dir.appendingPathComponent("documents-only")
-  try Data((services("<string>CloudDocuments</string>") + containers).utf8).write(to: documentsOnly)
-  #expect(NativeCloudReportTransport.containers(inExecutable: documentsOnly).isEmpty)
-  let unsigned = dir.appendingPathComponent("unsigned")
-  try Data("\(key)\0iCloud.com.example.C\0".utf8).write(to: unsigned)
-  #expect(NativeCloudReportTransport.containers(inExecutable: unsigned).isEmpty)
-  #expect(NativeCloudReportTransport.containers(inExecutable: dir.appendingPathComponent("missing")).isEmpty)
-  #expect(NativeCloudReportTransport.containers(inExecutable: nil).isEmpty)
-}
+  @Test func signedContainersAreReadFromTheEntitlementsPlistInTheExecutable() throws {
+    let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: dir) }
+    let key = "<key>com.apple.developer.icloud-container-identifiers</key>"
+    let containers =
+      "\(key)\n\t<array>\n\t\t<string>iCloud.com.example.A</string>\n\t\t<string>iCloud.com.example.B</string>\n\t</array>"
+    let services = { (names: String) in "<key>com.apple.developer.icloud-services</key>\n\t<array>\(names)</array>\n" }
+    let plist = services("<string>CloudDocuments</string><string>CloudKit</string>") + containers
+    let signed = dir.appendingPathComponent("signed")
+    // The key also sits in a binary's string table, followed by other strings rather than an array.
+    try
+      (Data([0xCF, 0xFA, 0xED, 0xFE, 0x00]) + Data("\(key)\0iCloud.com.example.C\0</array>".utf8) + Data([0x00, 0xFF])
+      + Data(plist.utf8) + Data([0x00])).write(to: signed)
+    #expect(
+      NativeCloudReportTransport.containers(inExecutable: signed) == ["iCloud.com.example.A", "iCloud.com.example.B"])
+    // iCloud Documents alone also lists the container, but CKContainer(identifier:) still traps without CloudKit.
+    let documentsOnly = dir.appendingPathComponent("documents-only")
+    try Data((services("<string>CloudDocuments</string>") + containers).utf8).write(to: documentsOnly)
+    #expect(NativeCloudReportTransport.containers(inExecutable: documentsOnly).isEmpty)
+    let unsigned = dir.appendingPathComponent("unsigned")
+    try Data("\(key)\0iCloud.com.example.C\0".utf8).write(to: unsigned)
+    #expect(NativeCloudReportTransport.containers(inExecutable: unsigned).isEmpty)
+    #expect(NativeCloudReportTransport.containers(inExecutable: dir.appendingPathComponent("missing")).isEmpty)
+    #expect(NativeCloudReportTransport.containers(inExecutable: nil).isEmpty)
+  }
 #endif
 
 @Test func cloudPayloadInstallsCompleteEvidenceAndRepairsMissingFiles() throws {
@@ -167,7 +171,9 @@ private struct CloudFixture {
 
 private actor RejectingDelivery: BugReportDelivery {
   var called = false
-  func enqueue(_ report: BugReport, documents: URL) throws { called = true; throw CloudDeliveryError.accountUnavailable }
+  func enqueue(_ report: BugReport, documents: URL) throws {
+    called = true; throw CloudDeliveryError.accountUnavailable
+  }
   func wasCalled() -> Bool { called }
 }
 
@@ -184,12 +190,14 @@ private struct InterruptedCloudDelivery: BugReportDelivery {
   let f = CloudFixture(); defer { f.clean() }
   let transport = FakeCloudTransport()
   let history = try f.report(); try f.store.append(history)
-  let writer = BugReportWriter(store: f.store,
+  let writer = BugReportWriter(
+    store: f.store,
     info: BugAppInfo(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic"),
     logger: { _, _ in }, delivery: InterruptedCloudDelivery(queue: f.outbox(transport)))
   // No start/flush launch Task has run. The writer must establish the boundary before append.
-  let report = await writer.save(note: "first opted-in report", screen: "home", context: [:],
-                                 screenshotPNG: nil, log: nil, extraFiles: nil)
+  let report = await writer.save(
+    note: "first opted-in report", screen: "home", context: [:],
+    screenshotPNG: nil, log: nil, extraFiles: nil)
   #expect(await transport.count() == 0)
   let restarted = f.outbox(transport)
   #expect(try await restarted.flush() == 1)
@@ -219,11 +227,13 @@ private struct PreparationFailure: BugReportDelivery {
 @Test func failedDeliveryPreparationStillSavesLocalReport() async throws {
   let f = CloudFixture(); defer { f.clean() }
   let events = CloudEvents()
-  let writer = BugReportWriter(store: f.store,
+  let writer = BugReportWriter(
+    store: f.store,
     info: BugAppInfo(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic"),
     logger: events.logger, delivery: PreparationFailure())
-  let report = await writer.save(note: "local fallback", screen: "home", context: [:],
-                                 screenshotPNG: nil, log: nil, extraFiles: nil)
+  let report = await writer.save(
+    note: "local fallback", screen: "home", context: [:],
+    screenshotPNG: nil, log: nil, extraFiles: nil)
   #expect(try f.store.readAll().reports == [report])
   #expect(events.all.contains { $0.0 == "error" && $0.1["where"] == .string("bug_delivery_prepare") })
 }
@@ -231,11 +241,13 @@ private struct PreparationFailure: BugReportDelivery {
 @Test func cloudDeliveryFailureDoesNotLoseLocalWriterReport() async throws {
   let f = CloudFixture(); defer { f.clean() }
   let delivery = RejectingDelivery()
-  let writer = BugReportWriter(store: f.store,
+  let writer = BugReportWriter(
+    store: f.store,
     info: BugAppInfo(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic"),
     logger: { _, _ in }, delivery: delivery)
-  let report = await writer.save(note: "kept locally", screen: "home", context: [:], screenshotPNG: nil,
-                                 log: nil, extraFiles: nil)
+  let report = await writer.save(
+    note: "kept locally", screen: "home", context: [:], screenshotPNG: nil,
+    log: nil, extraFiles: nil)
   #expect(await delivery.wasCalled())
   #expect(try f.store.readAll().reports == [report])
 }
@@ -273,11 +285,13 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
   let f = CloudFixture(); defer { f.clean() }
   let cloud = LoopbackCloud(root: f.root.appendingPathComponent("server"))
   let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: cloud, logger: { _, _ in })
-  let writer = BugReportWriter(store: f.store,
+  let writer = BugReportWriter(
+    store: f.store,
     info: BugAppInfo(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic"),
     logger: { _, _ in }, delivery: queue)
-  let report = await writer.save(note: "cellular fixture", screen: "home", context: [:],
-                                 screenshotPNG: Data("evidence".utf8), log: nil, extraFiles: nil)
+  let report = await writer.save(
+    note: "cellular fixture", screen: "home", context: [:],
+    screenshotPNG: Data("evidence".utf8), log: nil, extraFiles: nil)
   for _ in 0..<100 where await cloud.attempts() == 0 { try await Task.sleep(for: .milliseconds(10)) }
   #expect(await cloud.attempts() > 0)
   #expect(await cloud.count() == 0)
@@ -289,7 +303,9 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
   #expect(try await receiver.download(to: mac) == 1)
   let destination = mac.appendingPathComponent(report.id.uuidString)
   #expect(CloudReportPayload.isComplete(destination))
-  #expect(try Data(contentsOf: destination.appendingPathComponent("Documents/" + report.screenshot!)) == Data("evidence".utf8))
+  #expect(
+    try Data(contentsOf: destination.appendingPathComponent("Documents/" + report.screenshot!)) == Data("evidence".utf8)
+  )
   #expect(try await receiver.download(to: mac) == 0)
   #expect(try f.store.readAll().reports == [report])
   await queue.stop()
@@ -317,8 +333,9 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
 @Test func unstageableEvidenceStopsRetryingUntilStartOrNewReport() async throws {
   let f = CloudFixture(); defer { f.clean() }
   let transport = FakeCloudTransport()
-  let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: { _, _ in },
-                                sleep: { _ in await Task.yield() })
+  let queue = CloudReportOutbox(
+    store: f.store, root: f.outboxRoot, transport: transport, logger: { _, _ in },
+    sleep: { _ in await Task.yield() })
   var bad = try f.report(); bad.files = ["bugs/sample/not-yet.txt"]
   try f.store.append(bad)
   await #expect(throws: (any Error).self) { try await queue.enqueue(bad, documents: f.documents) }
@@ -340,7 +357,11 @@ private actor LoopbackCloud: CloudReportTransport, CloudReportSource {
 private final class CloudEvents: @unchecked Sendable {
   private let lock = NSLock()
   private var items: [(String, [String: JSONValue])] = []
-  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var logger: BugLogger {
+    { [self] e, f in
+      lock.lock(); items.append((e, f)); lock.unlock()
+    }
+  }
   var all: [(String, [String: JSONValue])] { lock.lock(); defer { lock.unlock() }; return items }
 }
 
@@ -352,9 +373,11 @@ private final class CloudEvents: @unchecked Sendable {
   let report = try f.report(); try f.store.append(report)
   _ = try await queue.flush()
   let failed = UUID(), noBundle = UUID()
-  await cloud.list([CloudReportRecord(name: failed.uuidString, bundle: nil, error: CloudDeliveryError.accountUnavailable),
-                    CloudReportRecord(name: "console-test-record", bundle: "local.fixture"),
-                    CloudReportRecord(name: noBundle.uuidString, bundle: nil)])
+  await cloud.list([
+    CloudReportRecord(name: failed.uuidString, bundle: nil, error: CloudDeliveryError.accountUnavailable),
+    CloudReportRecord(name: "console-test-record", bundle: "local.fixture"),
+    CloudReportRecord(name: noBundle.uuidString, bundle: nil),
+  ])
   let events = CloudEvents()
   let mac = f.root.appendingPathComponent("mac")
   let receiver = CloudReportInbox(source: cloud, logger: events.logger)
@@ -442,22 +465,29 @@ private extension CloudFixture {
   let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: events.logger)
   try await queue.prepare(documents: f.documents)
   #expect(try await queue.flush() == 0)
-  let writer = BugReportWriter(store: f.store,
+  let writer = BugReportWriter(
+    store: f.store,
     info: BugAppInfo(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic"),
     logger: events.logger, delivery: queue)
-  let huge = await writer.save(note: "huge", screen: "home", context: [:], screenshotPNG: nil, log: nil,
+  let huge = await writer.save(
+    note: "huge", screen: "home", context: [:], screenshotPNG: nil, log: nil,
     extraFiles: { folder in
       try (0...100).map { i in
-        let name = "part-\(i).bin"; try Data("x".utf8).write(to: folder.appendingPathComponent(name)); return name }
+        let name = "part-\(i).bin"; try Data("x".utf8).write(to: folder.appendingPathComponent(name)); return name
+      }
     })
-  let missing = await writer.save(note: "missing", screen: "home", context: [:], screenshotPNG: nil, log: nil,
+  let missing = await writer.save(
+    note: "missing", screen: "home", context: [:], screenshotPNG: nil, log: nil,
     extraFiles: { _ in ["not-there.txt"] })
   await queue.stop()
   func message(_ id: UUID) -> JSONValue? {
-    events.all.first { $0.0 == "error" && $0.1["where"] == .string("bug_delivery_enqueue")
-      && $0.1["id"] == .string(id.uuidString) }?.1["message"]
+    events.all.first {
+      $0.0 == "error" && $0.1["where"] == .string("bug_delivery_enqueue")
+        && $0.1["id"] == .string(id.uuidString)
+    }?.1["message"]
   }
-  #expect(message(huge.id) == .string("Cloud delivery gave up on this report (bug_delivery_skipped); it remains local."))
+  #expect(
+    message(huge.id) == .string("Cloud delivery gave up on this report (bug_delivery_skipped); it remains local."))
   #expect(message(missing.id) == .string("Cloud delivery is pending; the report remains local."))
   #expect(try f.store.readAll().reports.map(\.id) == [huge.id, missing.id])
 }
@@ -499,206 +529,214 @@ private extension CloudFixture {
 }
 
 #if canImport(CloudKit)
-private actor SchemaCloudSource: CloudReportSource {
-  let report: BugReport
-  let payload: URL
-  var queryError: CKError? = CKError(.unknownItem)
-  var assetMissing = false
-  var assetRequests = 0
+  private actor SchemaCloudSource: CloudReportSource {
+    let report: BugReport
+    let payload: URL
+    var queryError: CKError? = CKError(.unknownItem)
+    var assetMissing = false
+    var assetRequests = 0
 
-  init(report: BugReport, payload: URL) { self.report = report; self.payload = payload }
-  func accountID() -> String { "fixture-owner" }
-  func setQueryError(_ error: CKError?) { queryError = error }
-  func setAssetMissing() { assetMissing = true }
-  func requests() -> Int { assetRequests }
+    init(report: BugReport, payload: URL) { self.report = report; self.payload = payload }
+    func accountID() -> String { "fixture-owner" }
+    func setQueryError(_ error: CKError?) { queryError = error }
+    func setAssetMissing() { assetMissing = true }
+    func requests() -> Int { assetRequests }
 
-  func reports() async throws -> [CloudReportRecord] {
-    let error = queryError
-    let records = [CloudReportRecord(name: report.id.uuidString, bundle: report.bundle)]
-    // Exercise the same first-query boundary as the native CloudKit source, without contacting a service.
-    return try await initialCloudReportPage {
-      if let error { throw error }
-      return records
-    } ?? []
+    func reports() async throws -> [CloudReportRecord] {
+      let error = queryError
+      let records = [CloudReportRecord(name: report.id.uuidString, bundle: report.bundle)]
+      // Exercise the same first-query boundary as the native CloudKit source, without contacting a service.
+      return try await initialCloudReportPage {
+        if let error { throw error }
+        return records
+      } ?? []
+    }
+
+    func asset(for id: UUID) throws -> CloudReportAsset {
+      assetRequests += 1
+      if assetMissing { throw CKError(.unknownItem) }
+      return CloudReportAsset(bundle: report.bundle, file: payload)
+    }
   }
 
-  func asset(for id: UUID) throws -> CloudReportAsset {
-    assetRequests += 1
-    if assetMissing { throw CKError(.unknownItem) }
-    return CloudReportAsset(bundle: report.bundle, file: payload)
+  @Test func cloudReceiverWithoutRecordTypeIsEmptyThenFindsTheFirstUpload() async throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let report = try f.report()
+    let payload = f.root.appendingPathComponent("asset.json")
+    try CloudReportPayload.capture(report, documents: f.documents).encoded().write(to: payload)
+    let source = SchemaCloudSource(report: report, payload: payload)
+    let events = CloudEvents()
+    let receiver = CloudReportInbox(source: source, logger: events.logger)
+    let mac = f.root.appendingPathComponent("mac")
+
+    #expect(try await receiver.download(to: mac) == 0)
+    #expect(await source.requests() == 0)
+    #expect(!FileManager.default.fileExists(atPath: mac.appendingPathComponent(report.id.uuidString).path))
+    #expect(events.all.isEmpty)
+
+    await source.setQueryError(nil)  // The first sender upload has created the schema/record.
+    #expect(try await receiver.download(to: mac) == 1)
+    #expect(CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+    #expect(try await receiver.download(to: mac) == 0)
+    #expect(await source.requests() == 1)
+    #expect(events.all.contains { $0.0 == "cloudkit_downloaded" && $0.1["id"] == .string(report.id.uuidString) })
   }
-}
 
-@Test func cloudReceiverWithoutRecordTypeIsEmptyThenFindsTheFirstUpload() async throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let report = try f.report()
-  let payload = f.root.appendingPathComponent("asset.json")
-  try CloudReportPayload.capture(report, documents: f.documents).encoded().write(to: payload)
-  let source = SchemaCloudSource(report: report, payload: payload)
-  let events = CloudEvents()
-  let receiver = CloudReportInbox(source: source, logger: events.logger)
-  let mac = f.root.appendingPathComponent("mac")
-
-  #expect(try await receiver.download(to: mac) == 0)
-  #expect(await source.requests() == 0)
-  #expect(!FileManager.default.fileExists(atPath: mac.appendingPathComponent(report.id.uuidString).path))
-  #expect(events.all.isEmpty)
-
-  await source.setQueryError(nil)  // The first sender upload has created the schema/record.
-  #expect(try await receiver.download(to: mac) == 1)
-  #expect(CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
-  #expect(try await receiver.download(to: mac) == 0)
-  #expect(await source.requests() == 1)
-  #expect(events.all.contains { $0.0 == "cloudkit_downloaded" && $0.1["id"] == .string(report.id.uuidString) })
-}
-
-@Test(arguments: [CKError.Code.notAuthenticated, .networkUnavailable, .invalidArguments, .zoneNotFound])
-func cloudReceiverOtherQueryFailuresRemainFailures(_ code: CKError.Code) async throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let report = try f.report()
-  let source = SchemaCloudSource(report: report, payload: f.root.appendingPathComponent("unused.json"))
-  await source.setQueryError(CKError(code))
-  let receiver = CloudReportInbox(source: source, logger: { _, _ in })
-  await #expect(throws: CKError.self) { try await receiver.download(to: f.root.appendingPathComponent("mac")) }
-  #expect(await source.requests() == 0)
-}
-
-@Test func cloudReceiverMissingAssetIsNotAnEmptySchemaSuccess() async throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let report = try f.report()
-  let source = SchemaCloudSource(report: report, payload: f.root.appendingPathComponent("unused.json"))
-  await source.setQueryError(nil)
-  await source.setAssetMissing()
-  let events = CloudEvents()
-  let receiver = CloudReportInbox(source: source, logger: events.logger)
-  let mac = f.root.appendingPathComponent("mac")
-  await #expect(throws: CKError.self) { try await receiver.download(to: mac) }
-  #expect(await source.requests() == 1)
-  #expect(!CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
-  #expect(events.all.contains { $0.0 == "cloudkit_report_pending" && $0.1["id"] == .string(report.id.uuidString) })
-}
-
-@Test func nativeUploadHasNoShortResourceDeadlineAndAccountRetriesBackOff() throws {
-  let report = BugReport(app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic",
-                         screen: "home", note: "fixture", folder: "bugs/sample")
-  let operation = NativeCloudReportTransport.uploadOperation(report, payload: URL(fileURLWithPath: "/dev/null"))
-  #expect(operation.configuration.timeoutIntervalForResource == CKOperation.Configuration().timeoutIntervalForResource)
-  #expect(operation.configuration.allowsCellularAccess && operation.configuration.isLongLived)
-  #expect(operation.recordsToSave?.first?.recordID.recordName == report.id.uuidString)
-  let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
-  let delays = (0..<8).map { transport.retryDelay(for: CloudDeliveryError.accountUnavailable, attempt: $0) }
-  #expect(delays == [5, 10, 20, 40, 80, 160, 300, 300])
-}
-
-private func acknowledgedRecord(_ report: BugReport) -> CKRecord {
-  let record = CKRecord(recordType: "BugKitReport", recordID: CKRecord.ID(recordName: report.id.uuidString))
-  record["bundle"] = report.bundle as CKRecordValue
-  return record
-}
-
-@Test func nativeAcknowledgmentRequiresTheSpecificSavedRecord() throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let report = try f.report()
-  let ack = CloudRecordSaveAcknowledgement(report: report)
-  let record = acknowledgedRecord(report)
-  ack.observe(record.recordID, result: .success(record))
-  try ack.finish(.success(()))
-}
-
-@Test func nativeOperationSuccessWithoutRecordAcknowledgmentIsNotUploadSuccess() throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let ack = CloudRecordSaveAcknowledgement(report: try f.report())
-  #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try ack.finish(.success(())) }
-}
-
-@Test func nativePerRecordFailureSurvivesOverallSuccess() throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let report = try f.report()
-  let ack = CloudRecordSaveAcknowledgement(report: report)
-  ack.observe(CKRecord.ID(recordName: report.id.uuidString), result: .failure(CKError(.serverResponseLost)))
-  #expect { try ack.finish(.success(())) } throws: { ($0 as? CKError)?.code == .serverResponseLost }
-}
-
-@Test func nativeOverallFailureSurvivesMatchingRecordSuccess() throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let report = try f.report()
-  let ack = CloudRecordSaveAcknowledgement(report: report)
-  let record = acknowledgedRecord(report)
-  ack.observe(record.recordID, result: .success(record))
-  #expect(throws: CKError.self) { try ack.finish(.failure(CKError(.networkFailure))) }
-}
-
-@Test(arguments: ["callbackID", "savedID", "zone", "bundle", "missingBundle", "type", "duplicate"])
-func nativeAcknowledgmentRejectsUnrelatedOrAmbiguousSave(_ mismatch: String) throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let report = try f.report()
-  let ack = CloudRecordSaveAcknowledgement(report: report)
-  let expected = CKRecord.ID(recordName: report.id.uuidString)
-  let other = CKRecord.ID(recordName: UUID().uuidString)
-  let savedID = mismatch == "savedID" ? other : mismatch == "zone"
-    ? CKRecord.ID(recordName: report.id.uuidString, zoneID: CKRecordZone.ID(zoneName: "other")) : expected
-  let record = CKRecord(recordType: mismatch == "type" ? "Other" : "BugKitReport", recordID: savedID)
-  if mismatch != "missingBundle" {
-    record["bundle"] = (mismatch == "bundle" ? "local.other" : report.bundle) as CKRecordValue
+  @Test(arguments: [CKError.Code.notAuthenticated, .networkUnavailable, .invalidArguments, .zoneNotFound])
+  func cloudReceiverOtherQueryFailuresRemainFailures(_ code: CKError.Code) async throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let report = try f.report()
+    let source = SchemaCloudSource(report: report, payload: f.root.appendingPathComponent("unused.json"))
+    await source.setQueryError(CKError(code))
+    let receiver = CloudReportInbox(source: source, logger: { _, _ in })
+    await #expect(throws: CKError.self) { try await receiver.download(to: f.root.appendingPathComponent("mac")) }
+    #expect(await source.requests() == 0)
   }
-  ack.observe(mismatch == "callbackID" ? other : expected, result: .success(record))
-  if mismatch == "duplicate" { ack.observe(expected, result: .success(record)) }
-  #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try ack.finish(.success(())) }
-}
 
-@Test func nativeInvalidAcknowledgementWaitsForLaterStartWithoutChangingRetryPolicy() {
-  let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
-  #expect(transport.retryDelay(for: CloudDeliveryError.invalidAcknowledgement, attempt: 0) == nil)
-  #expect(transport.retryDelay(for: CKError(.networkFailure), attempt: 0) != nil)
-  #expect(transport.retryDelay(for: CKError(.permissionFailure), attempt: 0) == nil)
-}
+  @Test func cloudReceiverMissingAssetIsNotAnEmptySchemaSuccess() async throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let report = try f.report()
+    let source = SchemaCloudSource(report: report, payload: f.root.appendingPathComponent("unused.json"))
+    await source.setQueryError(nil)
+    await source.setAssetMissing()
+    let events = CloudEvents()
+    let receiver = CloudReportInbox(source: source, logger: events.logger)
+    let mac = f.root.appendingPathComponent("mac")
+    await #expect(throws: CKError.self) { try await receiver.download(to: mac) }
+    #expect(await source.requests() == 1)
+    #expect(!CloudReportPayload.isComplete(mac.appendingPathComponent(report.id.uuidString)))
+    #expect(events.all.contains { $0.0 == "cloudkit_report_pending" && $0.1["id"] == .string(report.id.uuidString) })
+  }
 
-private actor AcknowledgingCloudTransport: CloudReportTransport {
-  enum Mode { case wrongBundle, nativeFailure, matching }
-  var mode = Mode.wrongBundle
-  func accountID() -> String { "fixture-owner" }
-  func set(_ next: Mode) { mode = next }
-  func upload(_ report: BugReport, payload: URL) throws {
+  @Test func nativeUploadHasNoShortResourceDeadlineAndAccountRetriesBackOff() throws {
+    let report = BugReport(
+      app: "fixture", bundle: "local.fixture", build: "1", commit: "fixture", device: "synthetic",
+      screen: "home", note: "fixture", folder: "bugs/sample")
+    let operation = NativeCloudReportTransport.uploadOperation(report, payload: URL(fileURLWithPath: "/dev/null"))
+    #expect(
+      operation.configuration.timeoutIntervalForResource == CKOperation.Configuration().timeoutIntervalForResource)
+    #expect(operation.configuration.allowsCellularAccess && operation.configuration.isLongLived)
+    #expect(operation.recordsToSave?.first?.recordID.recordName == report.id.uuidString)
+    let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
+    let delays = (0..<8).map { transport.retryDelay(for: CloudDeliveryError.accountUnavailable, attempt: $0) }
+    #expect(delays == [5, 10, 20, 40, 80, 160, 300, 300])
+  }
+
+  private func acknowledgedRecord(_ report: BugReport) -> CKRecord {
+    let record = CKRecord(recordType: "BugKitReport", recordID: CKRecord.ID(recordName: report.id.uuidString))
+    record["bundle"] = report.bundle as CKRecordValue
+    return record
+  }
+
+  @Test func nativeAcknowledgmentRequiresTheSpecificSavedRecord() throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let report = try f.report()
     let ack = CloudRecordSaveAcknowledgement(report: report)
     let record = acknowledgedRecord(report)
-    switch mode {
-    case .wrongBundle:
-      record["bundle"] = "local.other" as CKRecordValue
-      ack.observe(record.recordID, result: .success(record))
-    case .nativeFailure: ack.observe(record.recordID, result: .failure(CKError(.networkFailure)))
-    case .matching: ack.observe(record.recordID, result: .success(record))
-    }
+    ack.observe(record.recordID, result: .success(record))
     try ack.finish(.success(()))
   }
-}
 
-@Test func cloudOutboxKeepsUnacknowledgedSavePendingUntilMatchingSave() async throws {
-  let f = CloudFixture(); defer { f.clean() }
-  let transport = AcknowledgingCloudTransport()
-  let events = CloudEvents()
-  let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: events.logger)
-  try await queue.prepare(documents: f.documents)
-  let report = try f.report()
-  try f.store.append(report)
-  await #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try await queue.flush() }
-  let pending = f.outboxRoot.appendingPathComponent("pending/" + report.id.uuidString + ".json")
-  let sent = f.outboxRoot.appendingPathComponent("sent/" + report.id.uuidString + ".json")
-  #expect(FileManager.default.fileExists(atPath: pending.path))
-  #expect(!FileManager.default.fileExists(atPath: sent.path))
-  #expect(!events.all.contains { $0.0 == "bug_delivery_uploaded" })
-  #expect(events.all.contains { $0.0 == "bug_delivery_pending"
-    && $0.1["reason"] == .string("server acknowledgment missing or invalid") })
-  await transport.set(.nativeFailure)
-  await #expect { try await queue.flush() } throws: { ($0 as? CKError)?.code == .networkFailure }
-  #expect(events.all.last { $0.0 == "bug_delivery_pending" }?.1["reason"] == nil)
-  #expect(FileManager.default.fileExists(atPath: pending.path))
-  #expect(!FileManager.default.fileExists(atPath: sent.path))
-  await transport.set(.matching)
-  #expect(try await queue.flush() == 1)
-  #expect(!FileManager.default.fileExists(atPath: pending.path))
-  #expect(FileManager.default.fileExists(atPath: sent.path))
-  #expect(events.all.filter { $0.0 == "bug_delivery_uploaded" }.count == 1)
-  #expect(try f.store.readAll().reports == [report])
-}
+  @Test func nativeOperationSuccessWithoutRecordAcknowledgmentIsNotUploadSuccess() throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let ack = CloudRecordSaveAcknowledgement(report: try f.report())
+    #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try ack.finish(.success(())) }
+  }
+
+  @Test func nativePerRecordFailureSurvivesOverallSuccess() throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let report = try f.report()
+    let ack = CloudRecordSaveAcknowledgement(report: report)
+    ack.observe(CKRecord.ID(recordName: report.id.uuidString), result: .failure(CKError(.serverResponseLost)))
+    #expect { try ack.finish(.success(())) } throws: { ($0 as? CKError)?.code == .serverResponseLost }
+  }
+
+  @Test func nativeOverallFailureSurvivesMatchingRecordSuccess() throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let report = try f.report()
+    let ack = CloudRecordSaveAcknowledgement(report: report)
+    let record = acknowledgedRecord(report)
+    ack.observe(record.recordID, result: .success(record))
+    #expect(throws: CKError.self) { try ack.finish(.failure(CKError(.networkFailure))) }
+  }
+
+  @Test(arguments: ["callbackID", "savedID", "zone", "bundle", "missingBundle", "type", "duplicate"])
+  func nativeAcknowledgmentRejectsUnrelatedOrAmbiguousSave(_ mismatch: String) throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let report = try f.report()
+    let ack = CloudRecordSaveAcknowledgement(report: report)
+    let expected = CKRecord.ID(recordName: report.id.uuidString)
+    let other = CKRecord.ID(recordName: UUID().uuidString)
+    let savedID =
+      mismatch == "savedID"
+      ? other
+      : mismatch == "zone"
+        ? CKRecord.ID(recordName: report.id.uuidString, zoneID: CKRecordZone.ID(zoneName: "other")) : expected
+    let record = CKRecord(recordType: mismatch == "type" ? "Other" : "BugKitReport", recordID: savedID)
+    if mismatch != "missingBundle" {
+      record["bundle"] = (mismatch == "bundle" ? "local.other" : report.bundle) as CKRecordValue
+    }
+    ack.observe(mismatch == "callbackID" ? other : expected, result: .success(record))
+    if mismatch == "duplicate" { ack.observe(expected, result: .success(record)) }
+    #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try ack.finish(.success(())) }
+  }
+
+  @Test func nativeInvalidAcknowledgementWaitsForLaterStartWithoutChangingRetryPolicy() {
+    let transport = NativeCloudReportTransport(containerIdentifier: "iCloud.com.example.BugKitReports")
+    #expect(transport.retryDelay(for: CloudDeliveryError.invalidAcknowledgement, attempt: 0) == nil)
+    #expect(transport.retryDelay(for: CKError(.networkFailure), attempt: 0) != nil)
+    #expect(transport.retryDelay(for: CKError(.permissionFailure), attempt: 0) == nil)
+  }
+
+  private actor AcknowledgingCloudTransport: CloudReportTransport {
+    enum Mode { case wrongBundle, nativeFailure, matching }
+    var mode = Mode.wrongBundle
+    func accountID() -> String { "fixture-owner" }
+    func set(_ next: Mode) { mode = next }
+    func upload(_ report: BugReport, payload: URL) throws {
+      let ack = CloudRecordSaveAcknowledgement(report: report)
+      let record = acknowledgedRecord(report)
+      switch mode {
+      case .wrongBundle:
+        record["bundle"] = "local.other" as CKRecordValue
+        ack.observe(record.recordID, result: .success(record))
+      case .nativeFailure: ack.observe(record.recordID, result: .failure(CKError(.networkFailure)))
+      case .matching: ack.observe(record.recordID, result: .success(record))
+      }
+      try ack.finish(.success(()))
+    }
+  }
+
+  @Test func cloudOutboxKeepsUnacknowledgedSavePendingUntilMatchingSave() async throws {
+    let f = CloudFixture(); defer { f.clean() }
+    let transport = AcknowledgingCloudTransport()
+    let events = CloudEvents()
+    let queue = CloudReportOutbox(store: f.store, root: f.outboxRoot, transport: transport, logger: events.logger)
+    try await queue.prepare(documents: f.documents)
+    let report = try f.report()
+    try f.store.append(report)
+    await #expect(throws: CloudDeliveryError.invalidAcknowledgement) { try await queue.flush() }
+    let pending = f.outboxRoot.appendingPathComponent("pending/" + report.id.uuidString + ".json")
+    let sent = f.outboxRoot.appendingPathComponent("sent/" + report.id.uuidString + ".json")
+    #expect(FileManager.default.fileExists(atPath: pending.path))
+    #expect(!FileManager.default.fileExists(atPath: sent.path))
+    #expect(!events.all.contains { $0.0 == "bug_delivery_uploaded" })
+    #expect(
+      events.all.contains {
+        $0.0 == "bug_delivery_pending"
+          && $0.1["reason"] == .string("server acknowledgment missing or invalid")
+      })
+    await transport.set(.nativeFailure)
+    await #expect { try await queue.flush() } throws: { ($0 as? CKError)?.code == .networkFailure }
+    #expect(events.all.last { $0.0 == "bug_delivery_pending" }?.1["reason"] == nil)
+    #expect(FileManager.default.fileExists(atPath: pending.path))
+    #expect(!FileManager.default.fileExists(atPath: sent.path))
+    await transport.set(.matching)
+    #expect(try await queue.flush() == 1)
+    #expect(!FileManager.default.fileExists(atPath: pending.path))
+    #expect(FileManager.default.fileExists(atPath: sent.path))
+    #expect(events.all.filter { $0.0 == "bug_delivery_uploaded" }.count == 1)
+    #expect(try f.store.readAll().reports == [report])
+  }
 
 #endif

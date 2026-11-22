@@ -11,7 +11,8 @@ private struct Delivery: BugReportDelivery {
   func enqueue(_ report: BugReport, documents: URL) async throws { if fails { throw Refused() } }
 }
 
-private let info = BugAppInfo(app: "Demo", bundle: "com.example.demo", build: "1.0 (1)", commit: "abc1234", device: "iPhone18,1")
+private let info = BugAppInfo(
+  app: "Demo", bundle: "com.example.demo", build: "1.0 (1)", commit: "abc1234", device: "iPhone18,1")
 
 private func folder(_ name: String) throws -> URL {
   let url = FileManager.default.temporaryDirectory.appendingPathComponent("bugkit-outcome-\(name)-\(UUID().uuidString)")
@@ -19,7 +20,8 @@ private func folder(_ name: String) throws -> URL {
   return url
 }
 
-private func save(_ writer: BugReportWriter) async -> (report: BugReport, indexWritten: Bool, outcome: BugReportOutcome) {
+private func save(_ writer: BugReportWriter) async -> (report: BugReport, indexWritten: Bool, outcome: BugReportOutcome)
+{
   await writer.write(note: "It froze", screen: "home", context: [:], screenshotPNG: nil, log: nil, extraFiles: nil)
 }
 
@@ -34,13 +36,15 @@ private func save(_ writer: BugReportWriter) async -> (report: BugReport, indexW
 
   @Test func aReportTheDeliveryTookIsQueued() async throws {
     let store = BugStore(documents: try folder("queued"))
-    let saved = await save(BugReportWriter(store: store, info: info, logger: { _, _ in }, delivery: Delivery(fails: false)))
+    let saved = await save(
+      BugReportWriter(store: store, info: info, logger: { _, _ in }, delivery: Delivery(fails: false)))
     #expect(saved.outcome == .saved(id: saved.report.id, queued: true))
   }
 
   @Test func aReportTheDeliveryRefusedIsSavedLocallyOnly() async throws {
     let store = BugStore(documents: try folder("refused"))
-    let saved = await save(BugReportWriter(store: store, info: info, logger: { _, _ in }, delivery: Delivery(fails: true)))
+    let saved = await save(
+      BugReportWriter(store: store, info: info, logger: { _, _ in }, delivery: Delivery(fails: true)))
     #expect(saved.outcome == .saved(id: saved.report.id, queued: false))
   }
 
@@ -50,7 +54,8 @@ private func save(_ writer: BugReportWriter) async -> (report: BugReport, indexW
     // The index cannot be written: it links into a folder that is not there.
     try FileManager.default.createSymbolicLink(
       at: store.index, withDestinationURL: docs.appendingPathComponent("missing/bugs.jsonl"))
-    let saved = await save(BugReportWriter(store: store, info: info, logger: { _, _ in }, delivery: Delivery(fails: false)))
+    let saved = await save(
+      BugReportWriter(store: store, info: info, logger: { _, _ in }, delivery: Delivery(fails: false)))
     #expect(saved.outcome == .failed(id: saved.report.id))
     #expect(!saved.outcome.isSaved)
     #expect(!BugReportOutcome.cancelled.isSaved)

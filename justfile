@@ -11,3 +11,11 @@ test:
 # package and its tests cross-built for macOS, iOS and the simulator with a Darwin Swift SDK. On a Mac: swift test.
 test-linux:
     scripts/test-linux.sh
+
+# Rewrite Swift sources in the repository's style (.swift-format: two spaces, 120 columns).
+fmt:
+    swift format format --in-place --recursive Sources Tests Tools
+
+# The Swift style check the no-mistakes lint step runs.
+lint:
+    swift format lint --strict --recursive Sources Tests Tools

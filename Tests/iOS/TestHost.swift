@@ -3,8 +3,10 @@ import UIKit
 // UIApplication dispatches UIControl target actions; a hostless logic-test runner cannot exercise them.
 @main
 final class DiagnosticsAppDelegate: UIResponder, UIApplicationDelegate {
-  func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
-                   options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+  func application(
+    _ application: UIApplication, configurationForConnecting session: UISceneSession,
+    options: UIScene.ConnectionOptions
+  ) -> UISceneConfiguration {
     let configuration = UISceneConfiguration(name: "Diagnostics", sessionRole: session.role)
     configuration.delegateClass = DiagnosticsSceneDelegate.self
     return configuration

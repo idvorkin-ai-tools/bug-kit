@@ -12,7 +12,11 @@ private func tempDir() throws -> URL {
 private final class Events: @unchecked Sendable {
   private let lock = NSLock()
   private var items: [(String, [String: JSONValue])] = []
-  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var logger: BugLogger {
+    { [self] e, f in
+      lock.lock(); items.append((e, f)); lock.unlock()
+    }
+  }
   var all: [(String, [String: JSONValue])] { lock.lock(); defer { lock.unlock() }; return items }
   var names: [String] { all.map(\.0) }
 }
@@ -20,7 +24,8 @@ private final class Events: @unchecked Sendable {
 // MARK: - The gentle shake (CG story 146, #164)
 
 /// A sine on one axis at `hz`, `g` strong, sampled at 50 Hz for `seconds`; returns the first shake's peak.
-private func run(_ g: Double, hz: Double, seconds: Double, start: Double = 0, on gesture: inout ShakeGesture) -> Double? {
+private func run(_ g: Double, hz: Double, seconds: Double, start: Double = 0, on gesture: inout ShakeGesture) -> Double?
+{
   var t = start
   while t < start + seconds {
     if let p = gesture.feed(x: 0.05, y: g * sin(2 * .pi * hz * t), z: 0.1, t: t) { return p }
@@ -93,7 +98,8 @@ private func run(_ g: Double, hz: Double, seconds: Double, start: Double = 0, on
 // MARK: - Simulator hooks (EA SWING_BUG, CG GRABBER_BUG / GRABBER_SHAKE_AFTER)
 
 @Test func launchHooksParseNotesAndShakeAfter() {
-  let h = BugLaunchHooks.parse(["APP_BUG": "first | second||", "APP_SHAKE_AFTER": "3.5", "OTHER_BUG": "x"], prefix: "APP")
+  let h = BugLaunchHooks.parse(
+    ["APP_BUG": "first | second||", "APP_SHAKE_AFTER": "3.5", "OTHER_BUG": "x"], prefix: "APP")
   #expect(h == BugLaunchHooks(notes: ["first", "second"], shakeAfter: 3.5))
   #expect(BugLaunchHooks.parse(["APP_SHAKE_AFTER": "soon"], prefix: "APP").isEmpty)
   #expect(BugLaunchHooks.parse([:], prefix: "APP").isEmpty)
@@ -125,8 +131,10 @@ private func run(_ g: Double, hz: Double, seconds: Double, start: Double = 0, on
     note: "n", screen: "s", context: [:], screenshotPNG: nil, log: ("logs/app-1.jsonl", 5), extraFiles: nil)
   let folder = docs.appendingPathComponent(report.folder)
   #expect(report.files == ["\(report.folder)/session.jsonl"])
-  #expect(try String(contentsOf: folder.appendingPathComponent("session.jsonl"), encoding: .utf8).contains("session_start"))
-  let back = try JSONDecoder().decode(BugReport.self, from: Data(contentsOf: folder.appendingPathComponent("report.json")))
+  #expect(
+    try String(contentsOf: folder.appendingPathComponent("session.jsonl"), encoding: .utf8).contains("session_start"))
+  let back = try JSONDecoder().decode(
+    BugReport.self, from: Data(contentsOf: folder.appendingPathComponent("report.json")))
   #expect(back == report)
   #expect(events.names == ["bug_report"])
 }
@@ -304,7 +312,8 @@ func dictationZeroTimedPartialIsRevisedWithoutDuplicatingItsWords(_ final: Bool)
 @Test func dictatedNoteSavedAfterFinalContainsEachUtteranceOnce() async throws {
   let docs = try tempDir()
   defer { try? FileManager.default.removeItem(at: docs) }
-  let writer = BugReportWriter(store: BugStore(documents: docs),
+  let writer = BugReportWriter(
+    store: BugStore(documents: docs),
     info: BugAppInfo(app: "Fixture", bundle: "fixture.app", build: "1", commit: "c", device: "fixture"),
     logger: { _, _ in })
   var join = DictationJoin(typed: "Typed:")
@@ -313,7 +322,6 @@ func dictationZeroTimedPartialIsRevisedWithoutDuplicatingItsWords(_ final: Bool)
   _ = await writer.save(note: join.note, screen: "fixture", context: [:], screenshotPNG: nil, log: nil, extraFiles: nil)
   #expect(try BugStore(documents: docs).readAll().reports.first?.note == "Typed: settings can be a button")
 }
-
 
 @Test(arguments: [nil, 4.0] as [Double?])
 func dictationFirstWordChangingTimedPartialStillRevisesUntimedSpeech(_ observedEnd: Double?) {

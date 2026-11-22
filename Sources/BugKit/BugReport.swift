@@ -46,7 +46,8 @@ public struct BugReport: Codable, Equatable, Identifiable, Sendable {
     source: String? = nil, reason: String? = nil
   ) {
     // Kept at the millisecond the line stores, so a report equals itself read back.
-    self.id = id; self.reportedAt = Self.parseDate(Self.formatDate(reportedAt)) ?? reportedAt; self.app = app; self.bundle = bundle; self.build = build
+    self.id = id; self.reportedAt = Self.parseDate(Self.formatDate(reportedAt)) ?? reportedAt; self.app = app;
+    self.bundle = bundle; self.build = build
     self.commit = commit; self.device = device; self.screen = screen; self.note = note; self.log = log
     self.sessionTMs = sessionTMs; self.screenshot = screenshot; self.folder = folder; self.files = files
     self.context = context; self.source = source; self.reason = reason

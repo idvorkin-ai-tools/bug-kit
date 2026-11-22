@@ -12,7 +12,11 @@ private func tempDir() throws -> URL {
 private final class Events: @unchecked Sendable {
   private let lock = NSLock()
   private var items: [(String, [String: JSONValue])] = []
-  var logger: BugLogger { { [self] e, f in lock.lock(); items.append((e, f)); lock.unlock() } }
+  var logger: BugLogger {
+    { [self] e, f in
+      lock.lock(); items.append((e, f)); lock.unlock()
+    }
+  }
   var all: [(String, [String: JSONValue])] { lock.lock(); defer { lock.unlock() }; return items }
   var names: [String] { all.map(\.0) }
 }
@@ -26,15 +30,19 @@ private final class Events: @unchecked Sendable {
   try FileManager.default.createDirectory(at: logs, withIntermediateDirectories: true)
   let now = Date()
   let old = now.addingTimeInterval(-40 * 24 * 3600)
-  for (name, date) in [("a-old.jsonl", old), ("b-old-reported.jsonl", old), ("c-new.jsonl", now), ("d-old-bare.jsonl", old)] {
+  for (name, date) in [
+    ("a-old.jsonl", old), ("b-old-reported.jsonl", old), ("c-new.jsonl", now), ("d-old-bare.jsonl", old),
+  ] {
     let url = logs.appendingPathComponent(name)
     try Data("x\n".utf8).write(to: url)
     try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
   }
   let store = BugStore(documents: docs)
   // One BugKit report (logs/ path) and one older-format line (bare name).
-  try store.append(BugReport(app: "T", bundle: "b", build: "1", commit: "c", device: "d", screen: "s", note: "n",
-    log: "logs/b-old-reported.jsonl", folder: "bugs/x"))
+  try store.append(
+    BugReport(
+      app: "T", bundle: "b", build: "1", commit: "c", device: "d", screen: "s", note: "n",
+      log: "logs/b-old-reported.jsonl", folder: "bugs/x"))
   let handle = try FileHandle(forWritingTo: store.index)
   try handle.seekToEnd()
   try handle.write(contentsOf: Data("{\"note\":\"old\",\"log\":\"d-old-bare.jsonl\"}\n".utf8))
@@ -58,11 +66,14 @@ private final class Events: @unchecked Sendable {
   for i in 0..<5 {  // log-0 newest … log-4 oldest, all within the 30 days
     let url = logs.appendingPathComponent("log-\(i).jsonl")
     try Data("x\n".utf8).write(to: url)
-    try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-Double(i) * 60)], ofItemAtPath: url.path)
+    try FileManager.default.setAttributes(
+      [.modificationDate: now.addingTimeInterval(-Double(i) * 60)], ofItemAtPath: url.path)
   }
   let store = BugStore(documents: docs)
-  try store.append(BugReport(app: "T", bundle: "b", build: "1", commit: "c", device: "d", screen: "s", note: "n",
-    log: "logs/log-3.jsonl", folder: "bugs/x"))
+  try store.append(
+    BugReport(
+      app: "T", bundle: "b", build: "1", commit: "c", device: "d", screen: "s", note: "n",
+      log: "logs/log-3.jsonl", folder: "bugs/x"))
   let events = Events()
   #expect(store.pruneLogs(keepNewest: 2, now: now, logger: events.logger) == ["log-2.jsonl", "log-4.jsonl"])
   #expect(events.all[0].1["count"] == 2 && events.all[0].1["kept_for_reports"] == 1)
@@ -98,7 +109,8 @@ private final class Events: @unchecked Sendable {
 @Test func crashFilesAreAnnouncedOnceThenRenamed() throws {
   let dir = try tempDir()
   defer { try? FileManager.default.removeItem(at: dir) }
-  try "signal 6\nframe 0\nframe 1".write(to: dir.appendingPathComponent("signal-100.txt"), atomically: true, encoding: .utf8)
+  try "signal 6\nframe 0\nframe 1".write(
+    to: dir.appendingPathComponent("signal-100.txt"), atomically: true, encoding: .utf8)
   try "exception NSRangeException\nindex 3 beyond bounds".write(
     to: dir.appendingPathComponent("exception-101.txt"), atomically: true, encoding: .utf8)
   try "old".write(to: dir.appendingPathComponent("signal-50.reported.txt"), atomically: true, encoding: .utf8)
@@ -212,7 +224,8 @@ private final class Events: @unchecked Sendable {
   log.status(every: 0.05) { ["frames": 1] }
   let statuses = {
     log.flush()
-    return ((try? String(contentsOf: log.url, encoding: .utf8)) ?? "").components(separatedBy: "\"type\":\"status\"").count - 1
+    return ((try? String(contentsOf: log.url, encoding: .utf8)) ?? "").components(separatedBy: "\"type\":\"status\"")
+      .count - 1
   }
   // Wait for the lines, not a fixed time: a busy CI runner can hold a utility-QoS timer for longer (bug-ej9).
   let deadline = ContinuousClock.now + .seconds(10)

@@ -64,8 +64,7 @@ public struct PairedDevice: Codable, Equatable, Sendable, CustomStringConvertibl
   /// Each service's base URL by name, as `ledger`.
   public let services: [String: URL]
 
-  public init(deviceID: String, key: String, name: String, expiresAt: Date, services: [String: URL])
-  {
+  public init(deviceID: String, key: String, name: String, expiresAt: Date, services: [String: URL]) {
     self.deviceID = deviceID
     self.key = key
     self.name = name
@@ -155,7 +154,9 @@ public struct PairingClient: Sendable {
   /// `device` describes it for the box's list (model, os, app, build); `replacing` is the device this one was
   /// paired as before, whose key the box then revokes. A service anywhere but https on the link's host is malformed.
   /// Throws `PairingError`.
-  public func redeem(_ link: PairingLink, device: [String: String], replacing: String?) async throws
+  public func redeem(
+    _ link: PairingLink, device: [String: String], replacing: String?
+  ) async throws
     -> PairedDevice
   {
     var request = URLRequest(

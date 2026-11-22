@@ -8,8 +8,9 @@ func extensionEvidence(root: URL, info: BugAppInfo) async throws -> BugReport {
   log.event("extension_started", [:])
   log.flush()
   let writer = BugReportWriter(store: store, info: info, logger: log.logger)
-  return await writer.save(note: "Extension evidence", screen: "keyboard", context: [:],
-                           screenshotPNG: nil, log: log.position, extraFiles: nil)
+  return await writer.save(
+    note: "Extension evidence", screen: "keyboard", context: [:],
+    screenshotPNG: nil, log: log.position, extraFiles: nil)
 }
 
 /// Story 019: an extension's errors on screen file into a store in its app group, which the app adopts and uploads.

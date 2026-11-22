@@ -46,7 +46,10 @@
   ///     let reporter = BugReporter(hooks: BugReporterHooks(logger: log.logger))
   ///     ContentView().bugReporting(reporter)
   @MainActor
-  @available(iOSApplicationExtension, unavailable, message: "Link BugKit only into the host app; extensions cannot present the app reporter.")
+  @available(
+    iOSApplicationExtension, unavailable,
+    message: "Link BugKit only into the host app; extensions cannot present the app reporter."
+  )
   public final class BugReporter: ObservableObject {
     @Published public var flow = BugReportFlow()
     /// The moment the dialog opened: the screen as it was, and the context then.
@@ -278,8 +281,10 @@
       guard !hooks.isEmpty else { return }
       self.hooks.logger(
         "bug_hook",
-        ["notes": .int(hooks.notes.count), "bug_after": .double(hooks.bugAfter),
-         "shake_after": hooks.shakeAfter.map(JSONValue.double) ?? .null])
+        [
+          "notes": .int(hooks.notes.count), "bug_after": .double(hooks.bugAfter),
+          "shake_after": hooks.shakeAfter.map(JSONValue.double) ?? .null,
+        ])
       if let after = hooks.shakeAfter {
         Task { @MainActor in
           try? await Task.sleep(for: .seconds(after))
@@ -304,8 +309,7 @@
     func sceneActive(_ active: Bool) {
       recordInteraction("ui_scene", fields: ["active": .bool(active)])
       if options.richDiagnostics {
-        if active, let window = Self.keyWindow() { interactions.start(in: window) }
-        else { interactions.stop() }
+        if active, let window = Self.keyWindow() { interactions.start(in: window) } else { interactions.stop() }
       }
       if options.gentleShake {
         if active { motion.start() } else { motion.stop() }
@@ -523,7 +527,9 @@
       .buttonStyle(.borderless)
       .disabled((busy && !dictation.listening) || dictation.starting || dictation.processing)
       .accessibilityLabel(
-        dictation.listening ? "Stop dictating" : busy ? "Dictation is off while the microphone is in use" : "Speak the note")
+        dictation.listening
+          ? "Stop dictating" : busy ? "Dictation is off while the microphone is in use" : "Speak the note"
+      )
       .accessibilityIdentifier("report-dictate")
     }
 
@@ -537,7 +543,8 @@
       let dictating = dictation.listening
       Task { @MainActor in
         guard await dictation.finish(why: "log_it"), reporter.flow.isPresented,
-              reporter.flow.draft == draft else { return }
+          reporter.flow.draft == draft
+        else { return }
         reporter.log(another: another, dictating: dictating)
         if another { noteFocused = true }
         dictateIfCarried()  // `.keepMoment`: this dialog is the fresh report
@@ -563,7 +570,11 @@
     }
 
     public var body: some View {
-      Button { reporter.open(from: .button) } label: { Label(title, systemImage: "ladybug") }
+      Button {
+        reporter.open(from: .button)
+      } label: {
+        Label(title, systemImage: "ladybug")
+      }
     }
   }
 
@@ -608,7 +619,8 @@
         .onReceive(NotificationCenter.default.publisher(for: .bugKitShake)) { note in
           // Every scene's modifier hears every window's shake; answer only one from this scene.
           guard reporter.options.systemShake, let scene = probe.window?.windowScene,
-                (note.object as? UIWindow)?.windowScene === scene else { return }
+            (note.object as? UIWindow)?.windowScene === scene
+          else { return }
           reporter.hooks.logger("shake", ["source": "system"])
           reporter.open(from: .shake, in: note.object as? UIWindow)
         }

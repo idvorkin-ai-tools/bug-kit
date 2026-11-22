@@ -15,8 +15,10 @@
         guard nodes.count < limit, depth <= min(max(maxDepth, 0), 50) else { truncated = true; return }
         visited.insert(ObjectIdentifier(object))
         let index = nodes.count
-        var node: [String: JSONValue] = ["id": .int(index), "class": .string(String(describing: type(of: object))),
-                                         "relation": .string(relation), "is_accessibility_element": .bool(object.isAccessibilityElement)]
+        var node: [String: JSONValue] = [
+          "id": .int(index), "class": .string(String(describing: type(of: object))),
+          "relation": .string(relation), "is_accessibility_element": .bool(object.isAccessibilityElement),
+        ]
         if let parent { node["parent"] = .int(parent) }
         if let view = object as? UIView {
           let frame = view.convert(view.bounds, to: nil)
@@ -24,7 +26,9 @@
           node["hidden"] = .bool(view.isHidden)
           node["alpha"] = .double(Double(view.alpha))
           node["interaction_enabled"] = .bool(view.isUserInteractionEnabled)
-          if let identifier = view.accessibilityIdentifier { node["identifier"] = .string(String(identifier.prefix(256))) }
+          if let identifier = view.accessibilityIdentifier {
+            node["identifier"] = .string(String(identifier.prefix(256)))
+          }
           if view is UITextField || view is UITextView {
             node["redacted"] = .bool(true)
             nodes.append(node)
@@ -33,7 +37,9 @@
         } else if let element = object as? UIAccessibilityElement {
           let frame = element.accessibilityFrame
           node["frame"] = .array([frame.minX, frame.minY, frame.width, frame.height].map { .double(Double($0)) })
-          if let identifier = element.accessibilityIdentifier { node["identifier"] = .string(String(identifier.prefix(256))) }
+          if let identifier = element.accessibilityIdentifier {
+            node["identifier"] = .string(String(identifier.prefix(256)))
+          }
         }
         if let label = object.accessibilityLabel { node["label"] = .string(String(label.prefix(512))) }
         if let hint = object.accessibilityHint { node["hint"] = .string(String(hint.prefix(512))) }
@@ -109,7 +115,8 @@
       if let observer { window?.removeGestureRecognizer(observer) }
       observer = nil; window = nil
       for control in controls.allObjects {
-        control.removeTarget(self, action: #selector(controlActivated(_:)), for: [.primaryActionTriggered, .valueChanged])
+        control.removeTarget(
+          self, action: #selector(controlActivated(_:)), for: [.primaryActionTriggered, .valueChanged])
       }
       controls.removeAllObjects()
     }
@@ -134,7 +141,9 @@
       var fields = Self.describe(control)
       if let toggle = control as? UISwitch { fields["on"] = .bool(toggle.isOn) }
       if let slider = control as? UISlider { fields["value"] = .double(Double(slider.value)) }
-      if let segmented = control as? UISegmentedControl { fields["selected_index"] = .int(segmented.selectedSegmentIndex) }
+      if let segmented = control as? UISegmentedControl {
+        fields["selected_index"] = .int(segmented.selectedSegmentIndex)
+      }
       record("ui_control", fields)
     }
 
@@ -191,7 +200,9 @@
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
       for touch in touches {
-        if let (_, _, fields) = starts.removeValue(forKey: ObjectIdentifier(touch)) { record?("ui_touch_cancel", fields) }
+        if let (_, _, fields) = starts.removeValue(forKey: ObjectIdentifier(touch)) {
+          record?("ui_touch_cancel", fields)
+        }
       }
       if starts.isEmpty { state = .failed }
     }

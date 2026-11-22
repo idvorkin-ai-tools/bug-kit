@@ -25,7 +25,9 @@ public enum DeepgramDictationCredential: Sendable {
   case apiKey(String)
   case accessToken(String)
   var value: String {
-    switch self { case .apiKey(let value), .accessToken(let value): value }
+    switch self {
+    case .apiKey(let value), .accessToken(let value): value
+    }
   }
 }
 
@@ -133,8 +135,10 @@ public actor DeepgramDictationProvider: BugDictationProvider {
     self.socketFactory = { URLSessionDictationSocket(url: $0, credential: $1) }
   }
 
-  init(credential: @escaping @Sendable () async throws -> DeepgramDictationCredential,
-       socketFactory: @escaping @Sendable (URL, DeepgramDictationCredential) -> any DictationSocket) {
+  init(
+    credential: @escaping @Sendable () async throws -> DeepgramDictationCredential,
+    socketFactory: @escaping @Sendable (URL, DeepgramDictationCredential) -> any DictationSocket
+  ) {
     self.credential = credential; self.endpoint = URL(string: "wss://api.deepgram.com/v1/listen")!
     self.model = "nova-3"; self.language = "en"; self.socketFactory = socketFactory
   }
@@ -144,19 +148,23 @@ public actor DeepgramDictationProvider: BugDictationProvider {
     let owner = UUID()
     generation = owner
     guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false),
-          components.scheme == "wss", components.host != nil,
-          components.user == nil, components.password == nil else { throw DictationProviderError.invalidEndpoint }
-    components.queryItems = (components.queryItems ?? []) + [
-      URLQueryItem(name: "model", value: model), URLQueryItem(name: "language", value: language),
-      URLQueryItem(name: "encoding", value: "linear16"), URLQueryItem(name: "sample_rate", value: "16000"),
-      URLQueryItem(name: "channels", value: "1"), URLQueryItem(name: "interim_results", value: "true"),
-      URLQueryItem(name: "smart_format", value: "true"),
-    ]
+      components.scheme == "wss", components.host != nil,
+      components.user == nil, components.password == nil
+    else { throw DictationProviderError.invalidEndpoint }
+    components.queryItems =
+      (components.queryItems ?? []) + [
+        URLQueryItem(name: "model", value: model), URLQueryItem(name: "language", value: language),
+        URLQueryItem(name: "encoding", value: "linear16"), URLQueryItem(name: "sample_rate", value: "16000"),
+        URLQueryItem(name: "channels", value: "1"), URLQueryItem(name: "interim_results", value: "true"),
+        URLQueryItem(name: "smart_format", value: "true"),
+      ]
     guard let url = components.url else { throw DictationProviderError.invalidEndpoint }
     let credential = try await credential()
     try Task.checkCancellation()
     guard generation == owner else { throw CancellationError() }
-    guard !credential.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw DictationProviderError.missingCredential }
+    guard !credential.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      throw DictationProviderError.missingCredential
+    }
     let socket = socketFactory(url, credential)
     self.socket = socket
     do { try await socket.open() } catch {
@@ -180,8 +188,9 @@ public actor DeepgramDictationProvider: BugDictationProvider {
     guard let socket else { return }
     let owner = generation
     finishing = true
-    do { try await socket.send(.string(#"{"type":"CloseStream"}"#)) }
-    catch { if generation == owner { await cancel() }; throw error }
+    do { try await socket.send(.string(#"{"type":"CloseStream"}"#)) } catch {
+      if generation == owner { await cancel() }; throw error
+    }
     // CloseStream produces final Results, then Metadata. Bound a service that never closes its stream.
     let deadline = ProcessInfo.processInfo.systemUptime + 5
     while generation == owner, continuation != nil, ProcessInfo.processInfo.systemUptime < deadline {
@@ -214,7 +223,8 @@ public actor DeepgramDictationProvider: BugDictationProvider {
         }
         let result = try JSONDecoder().decode(DeepgramResult.self, from: data)
         if result.type == "Results", let alternative = result.channel?.alternatives.first {
-          let text = segments.update(start: result.start ?? 0, text: alternative.transcript, final: result.is_final ?? false)
+          let text = segments.update(
+            start: result.start ?? 0, text: alternative.transcript, final: result.is_final ?? false)
           continuation?.yield(text)
         } else if result.type == "Error" {
           // Do not surface a server-supplied body that might echo credentials or spoken content.
