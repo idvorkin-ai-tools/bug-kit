@@ -246,6 +246,12 @@ A bug in the app's own hooks (its context, screen names, extra files, logger bri
 
 ## Developing BugKit
 
+### Swift style
+
+Swift sources follow `.swift-format` (two-space indent, 120 columns; one-line `a = x; b = y` assignments stay allowed).
+`just fmt` rewrites them in place and `just lint` checks them; the no-mistakes lint step runs the same check.
+It uses the `swift format` built into the Xcode toolchain, so there is nothing to install and no package dependency.
+
 ### Beads work tracking
 
 Use Beads (`bd`) for agent task tracking. GitHub remains the intake for reports and the review surface for PRs; link related issues with `--external-ref <issue-url>`.
