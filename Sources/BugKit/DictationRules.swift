@@ -24,8 +24,17 @@ enum DictationRules {
     sinceStart: Double, running: Bool, rebuilt: Bool, after: DictationAudioShape
   ) -> DictationEngineChange {
     if running { return .ignore }
-    let settling = after.inputPorts.contains("BluetoothHFP") ? 2.0 : 1.0
-    return !rebuilt && sinceStart < settling ? .rebuild : .fail
+    return !rebuilt && sinceStart < settling(after) ? .rebuild : .fail
+  }
+
+  /// Whether the input moving to another microphone stops dictation: only once the engine change's settling time has
+  /// passed, so an input moving onto the headset as dictation starts is left to the engine rebuild.
+  static func routeChangeStops(sinceStart: Double, inputChanged: Bool, after: DictationAudioShape) -> Bool {
+    inputChanged && sinceStart >= settling(after)
+  }
+
+  private static func settling(_ shape: DictationAudioShape) -> Double {
+    shape.inputPorts.contains("BluetoothHFP") ? 2.0 : 1.0
   }
 
   /// The `dictation_engine_config` log line, and the state a failure copies: what the microphone was when the tap was

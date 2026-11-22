@@ -88,8 +88,10 @@ protocol DictationCapture: AnyObject {
         ) { [weak self] _ in
           Task { @MainActor in
             guard let self, self.tapInstalled,
-              ProcessInfo.processInfo.systemUptime - self.startedAt > 0.5,
-              self.currentInputID != self.inputAtStart
+              DictationRules.routeChangeStops(
+                sinceStart: ProcessInfo.processInfo.systemUptime - self.startedAt,
+                inputChanged: self.currentInputID != self.inputAtStart,
+                after: Self.shape(AVAudioSession.sharedInstance()))
             else { return }
             self.onFailure?(
               "The microphone changed. Dictation stopped; your note is still here.", ["where": "audio_route"])

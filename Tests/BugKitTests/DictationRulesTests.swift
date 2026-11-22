@@ -60,6 +60,22 @@ import Testing
   #expect(DictationRules.engineChange(sinceStart: 2.5, running: false, rebuilt: false, after: airPods) == .fail)
 }
 
+// #128: the input moving onto AirPods as dictation starts is left to the engine rebuild, not stopped as a route change.
+@Test func anInputMovingOntoTheHeadsetAtStartIsLeftToTheEngineRebuild() {
+  let airPods = DictationAudioShape(
+    sampleRate: 24_000, channels: 1, inputPorts: ["BluetoothHFP"], outputPorts: ["BluetoothHFP"],
+    ioBufferDuration: 0.016)
+  let usb = DictationAudioShape(
+    sampleRate: 48_000, channels: 1, inputPorts: ["USBAudio"], outputPorts: ["Speaker"], ioBufferDuration: 0.01)
+  #expect(!DictationRules.routeChangeStops(sinceStart: 0.8, inputChanged: true, after: airPods))
+  #expect(!DictationRules.routeChangeStops(sinceStart: 1.5, inputChanged: true, after: airPods))
+  #expect(DictationRules.routeChangeStops(sinceStart: 2.5, inputChanged: true, after: airPods))
+  #expect(DictationRules.routeChangeStops(sinceStart: 1.2, inputChanged: true, after: usb))
+  #expect(!DictationRules.routeChangeStops(sinceStart: 0.4, inputChanged: true, after: usb))
+  #expect(!DictationRules.routeChangeStops(sinceStart: 5, inputChanged: false, after: usb))
+  #expect(!DictationRules.routeChangeStops(sinceStart: 0.1, inputChanged: false, after: airPods))
+}
+
 @Test func anEngineChangeCarriesWhatChanged() {
   let before = DictationAudioShape(
     sampleRate: 48_000, channels: 1, inputPorts: ["MicrophoneBuiltIn"], outputPorts: ["Speaker"], ioBufferDuration: 0.02

@@ -209,8 +209,10 @@ Part of the [BugKit stories](README.md).
   - The permission prompts and music carrying on are device checks, still to do.
   - An engine configuration change while dictating (#128): every one is logged as `dictation_engine_config`, and the
     one-time rebuild in the first second (two on a Bluetooth HFP input) and the `engine_config` failure after it are
-    decided by `DictationRules.engineChange`, verified on the host by `DictationRulesTests`; the copied state and its
-    own `where` by `dictationEngineChangeFailureCarriesWhatChanged` (Mac host). The capture itself is verified by
+    decided by `DictationRules.engineChange`, verified on the host by `DictationRulesTests`; an input moving onto the
+    headset in that window is left to the engine rebuild rather than stopped as a route change, decided by
+    `DictationRules.routeChangeStops` and verified by `anInputMovingOntoTheHeadsetAtStartIsLeftToTheEngineRebuild`;
+    the copied state and its own `where` by `dictationEngineChangeFailureCarriesWhatChanged` (Mac host). The capture itself is verified by
     typecheck. Dictation carrying on after AirPods take the input at start is an iPad/iPhone check with AirPods,
     still to do.
   - The error is a `BugProblemView` with Copy error, behind `options.copyableErrors` (on), from CG's ProblemView
@@ -243,7 +245,8 @@ Part of the [BugKit stories](README.md).
   first moments of listening
 - **Then:**
   - dictation keeps listening, on the headset, without my tapping again: the first such change in the first second
-    (the first two seconds when the input is a Bluetooth headset) rebuilds the microphone once;
+    (the first two seconds when the input is a Bluetooth headset) rebuilds the microphone once, and the input moving
+    onto the headset in that window is left to that rebuild rather than stopping dictation as a microphone change;
   - every change is in the log as `dictation_engine_config`: milliseconds since start, whether it was BugKit's own
     audio engine, whether the engine was still running, the sample rate and channel count before and after, the input
     and output port types, the I/O buffer duration, and what was done (`ignore`, `rebuild` or `fail`); a rebuild
