@@ -197,7 +197,9 @@ Part of the [BugKit stories](README.md).
 
 - **Summary:** Speak the note
 - **From:** CG #239 (story 142, "Speaking the note")
-- **Issues:** #7, #1 (voice-input clarification), #113 (a transcript doubled with no space); beads bug-9j5, bug-ig8
+- **Issues:** #7, #1 (voice-input clarification), #113 (a transcript doubled with no space), #128 (dictation on an
+  AirPods HFP input stopped about 150 ms after it started; CG #1090, CG beads ofed and uwn1); beads bug-9j5, bug-ig8,
+  bug-14f
 - **Status:**
   - `NoteDictation`, behind `options.dictation` (off by default: it needs the speech and microphone usage strings). Verified by typecheck.
   - `DictationText.merge` is verified on the host by `dictatedWordsGoAfterTheTypedNote`.
@@ -205,6 +207,12 @@ Part of the [BugKit stories](README.md).
     `dictationATranscriptThatIsItsPhraseTwiceIsKeptOnce`; speech that really repeats stays, by
     `dictationSpeechThatRepeatsIsKeptAsSpoken`.
   - The permission prompts and music carrying on are device checks, still to do.
+  - An engine configuration change while dictating (#128): every one is logged as `dictation_engine_config`, and the
+    one-time rebuild in the first second (two on a Bluetooth HFP input) and the `engine_config` failure after it are
+    decided by `DictationRules.engineChange`, verified on the host by `DictationRulesTests`; the copied state and its
+    own `where` by `dictationEngineChangeFailureCarriesWhatChanged` (Mac host). The capture itself is verified by
+    typecheck. Dictation carrying on after AirPods take the input at start is an iPad/iPhone check with AirPods,
+    still to do.
   - The error is a `BugProblemView` with Copy error, behind `options.copyableErrors` (on), from CG's ProblemView
     (bug-kit#7). The copied text is verified on the host by `BugProblemTests`; the view by typecheck. Pasting from a
     real refusal is a device check, still to do.
@@ -229,6 +237,20 @@ Part of the [BugKit stories](README.md).
   - the button is off, or the dialog says why in words;
   - the log has `dictation_error` with the reason.
 
+- **Scenario:** The microphone settles onto a headset as I start (#128)
+- **Given:** AirPods (or another Bluetooth headset) are connected, and the picker says Automatic or the AirPods
+- **When:** I tap the microphone and the audio system moves the input onto the headset, or changes its format, in the
+  first moments of listening
+- **Then:**
+  - dictation keeps listening, on the headset, without my tapping again: the first such change in the first second
+    (the first two seconds when the input is a Bluetooth headset) rebuilds the microphone once;
+  - every change is in the log as `dictation_engine_config`: milliseconds since start, whether it was BugKit's own
+    audio engine, whether the engine was still running, the sample rate and channel count before and after, the input
+    and output port types, the I/O buffer duration, and what was done (`ignore`, `rebuild` or `fail`); a rebuild
+    is followed by `dictation_engine_rebuilt` with the new rate and input;
+  - a second change, a change later on, or a rebuild that fails stops dictation with "The microphone stopped. Your
+    note is still here.", and what I typed or said so far stays.
+
 - **Scenario:** Copying the error
 - **Given:** the dialog says why dictation failed
 - **When:** I tap Copy error and paste into an issue
@@ -237,6 +259,9 @@ Part of the [BugKit stories](README.md).
     state (`auth`, `mic`, `recognizer` or `error`, and `mic_busy`), one per line;
   - when something failed underneath (the audio session, the recognizer, the engine), the state says what: `where`
     (`start`, `audio_send` or `recognizer`), the error's own words as `error`, and its `domain` and `code` (#117);
+  - when the microphone itself stopped, `where` says which: `audio_route` (the input changed), `engine_config` (the
+    audio engine was reconfigured, with the same fields as its `dictation_engine_config` log line), `interruption`
+    or `audio_overflow` (#128);
   - the log has `ui` with `action: copy_error` and `from: tap`.
 
 ---
