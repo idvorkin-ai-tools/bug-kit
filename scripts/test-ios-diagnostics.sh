@@ -21,7 +21,8 @@ if ! command -v "$beautify" >/dev/null 2>&1; then
   exit "${PIPESTATUS[0]}"
 fi
 set +e
-run 2>&1 | tee "$log" | "$beautify"
+# Drain what the beautifier leaves unread, so its early exit can't SIGPIPE tee and xcodebuild.
+run 2>&1 | tee "$log" | { "$beautify"; status=$?; cat >/dev/null; exit "$status"; }
 statuses=("${PIPESTATUS[@]}")
 set -e
 if [ "${statuses[2]}" != 0 ]; then

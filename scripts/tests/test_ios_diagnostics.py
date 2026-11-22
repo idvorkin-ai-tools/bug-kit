@@ -14,10 +14,12 @@ def fake_tools(tmp_path: Path, beautifier: bool) -> Path:
     tools = {
         "xcodegen": "exit 0",
         "xcrun": "exit 0",
-        "xcodebuild": 'echo "Test Case passed"; echo "** TEST $FAKE_RESULT **"; exit "${FAKE_XCODEBUILD_EXIT:-0}"',
+        "xcodebuild": 'echo "Test Case passed"; [ -n "$FAKE_NOISE" ] && seq 1 "$FAKE_NOISE"; echo "** TEST $FAKE_RESULT **"; '
+                      'exit "${FAKE_XCODEBUILD_EXIT:-0}"',
     }
     if beautifier:
-        tools["xcbeautify"] = 'while IFS= read -r line; do echo "pretty: $line"; done; exit "${FAKE_BEAUTIFY_EXIT:-0}"'
+        tools["xcbeautify"] = ('[ -n "$FAKE_BEAUTIFY_QUITS" ] && exit "$FAKE_BEAUTIFY_QUITS"; '
+                               'while IFS= read -r line; do echo "pretty: $line"; done; exit "${FAKE_BEAUTIFY_EXIT:-0}"')
     for name, body in tools.items():
         path = bin_dir / name
         path.write_text(f"#!/bin/bash\n{body}\n")
@@ -55,6 +57,14 @@ def test_a_failing_beautifier_keeps_xcodebuilds_status(tmp_path):
     assert result.returncode == 0
     assert f"xcbeautify failed (3); the raw log is {log}" in result.stderr
     assert "** TEST SUCCEEDED **" in log.read_text()
+
+
+def test_a_beautifier_that_quits_unread_keeps_the_whole_log_and_xcodebuilds_status(tmp_path):
+    # Far more output than a pipe buffer holds, so an unread pipe would SIGPIPE tee and xcodebuild.
+    result, log = run(tmp_path, beautifier=True, FAKE_BEAUTIFY_QUITS="3", FAKE_NOISE="200000")
+    assert result.returncode == 0
+    assert f"xcbeautify failed (3); the raw log is {log}" in result.stderr
+    assert log.read_text().splitlines()[-1] == "** TEST SUCCEEDED **"
 
 
 def test_without_xcbeautify_the_raw_output_shows(tmp_path):
