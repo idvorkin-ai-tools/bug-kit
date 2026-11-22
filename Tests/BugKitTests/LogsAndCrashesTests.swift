@@ -128,10 +128,23 @@ private final class Events: @unchecked Sendable {
 
 // MARK: - The session log (CG story 141)
 
+#if os(macOS)
 // A host build is a Mac build: its crashes still go on to the system's report. Only the simulator ends at the file (#131).
-@Test func aHostCrashStillReachesTheSystemReport() {
-  #expect(CrashReports.systemReportsCrashes)
+// A child process installs the handlers and aborts: it must leave the file and still die by SIGABRT, not exit.
+@Test func aHostCrashStillReachesTheSystemReport() async throws {
+  let dir = try tempDir()
+  defer { try? FileManager.default.removeItem(at: dir) }
+  await #expect(processExitsWith: .signal(SIGABRT)) { [dir = dir as URL] in
+    _ = task_set_exception_ports(
+      mach_task_self_, exception_mask_t(EXC_MASK_CRASH), mach_port_t(MACH_PORT_NULL), EXCEPTION_DEFAULT,
+      THREAD_STATE_NONE)
+    CrashReports.shared.install(folder: dir, logger: { _, _ in })
+    abort()
+  }
+  let names = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+  #expect(names.contains { $0.hasPrefix("signal-") && $0.hasSuffix(".txt") })
 }
+#endif
 
 @Test func sessionLogWritesOneLinePerEventWithTypeAndT() throws {
   let docs = try tempDir()

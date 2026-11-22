@@ -29,7 +29,7 @@ public final class CrashReports: NSObject, @unchecked Sendable {
   /// Whether a crash, once its file is written, goes on to the system's own crash report. On a device or a Mac it
   /// does. On the simulator it does not: the app is a Mac process there, so the system's report is the Mac's, which
   /// puts up a "quit unexpectedly" dialog for every simulator crash, and MetricKit never delivers there anyway (#131).
-  public static var systemReportsCrashes: Bool {
+  static var systemReportsCrashes: Bool {
     #if targetEnvironment(simulator)
       false
     #else
