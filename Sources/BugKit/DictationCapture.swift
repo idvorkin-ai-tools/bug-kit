@@ -148,7 +148,7 @@ protocol DictationCapture: AnyObject {
         fields.merging(["where": "audio_route"]) { _, new in new })
     }
 
-    private static func reasonName(_ notification: Notification) -> String {
+    nonisolated private static func reasonName(_ notification: Notification) -> String {
       guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
         let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
       else { return "unknown" }
