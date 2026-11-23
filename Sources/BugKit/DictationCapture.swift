@@ -26,6 +26,10 @@ protocol DictationCapture: AnyObject {
     private var audio: AsyncStream<Data>.Continuation?
     private var saved: SessionState?
     private var inputAtStart: String?
+    /// The microphone picked for this recording (nil for Automatic), and how many times the input coming back to it
+    /// has rebuilt the engine (#139).
+    private var pickedInputID: String?
+    private var pickRebuilds = 0
     private var startedAt = 0.0
     /// The microphone as it was when the tap was installed, the format the tap reads, and whether this dictation has
     /// already rebuilt its input after an engine change (#128).
@@ -85,16 +89,19 @@ protocol DictationCapture: AnyObject {
       observations.add(
         NotificationCenter.default.addObserver(
           forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+          // Read here, as the notification posts, not when the hop below runs (#139: main-thread stalls sit between).
+          let reason = Self.reasonName(notification)
+          let before =
+            (notification.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription)
+            .map { $0.inputs.map(\.portType.rawValue) } ?? []
+          let route = AVAudioSession.sharedInstance().currentRoute
+          let after = route.inputs.map(\.portType.rawValue)
+          let now = route.inputs.first?.uid
+          let posted = ProcessInfo.processInfo.systemUptime
           Task { @MainActor in
-            guard let self, self.tapInstalled,
-              DictationRules.routeChangeStops(
-                sinceStart: ProcessInfo.processInfo.systemUptime - self.startedAt,
-                inputChanged: self.currentInputID != self.inputAtStart,
-                after: Self.shape(AVAudioSession.sharedInstance()))
-            else { return }
-            self.onFailure?(
-              "The microphone changed. Dictation stopped; your note is still here.", ["where": "audio_route"])
+            guard let self, self.tapInstalled else { return }
+            self.routeChanged(reason: reason, before: before, after: after, now: now, posted: posted)
           }
         })
       observations.add(
@@ -120,6 +127,42 @@ protocol DictationCapture: AnyObject {
             self.onFailure?("The microphone was interrupted. Your note is still here.", ["where": "interruption"])
           }
         })
+    }
+
+    /// #133, #139: every route change while capturing is logged with why and what moved; the input coming back to the
+    /// picked microphone keeps dictating, and a move elsewhere after the settling time stops it with the same fields.
+    private func routeChanged(reason: String, before: [String], after: [String], now: String?, posted: Double) {
+      let since = posted - startedAt
+      let back = DictationRules.backOnPick(picked: pickedInputID, current: now, tapInput: inputAtStart)
+      let stops = DictationRules.routeChangeStops(
+        sinceStart: since, inputChanged: now != inputAtStart, after: Self.shape(AVAudioSession.sharedInstance()),
+        backOnPick: back)
+      let action: DictationRouteChange = stops ? .stop : back ? .backOnPick : .keep
+      let fields = DictationRules.routeChangeFields(
+        sinceStart: since, reason: reason, inputBefore: before, inputAfter: after, inputAtStart: inputAtStart,
+        inputNow: now, picked: pickedInputID, action: action)
+      logger("dictation_route_change", fields)
+      guard stops else { return }
+      onFailure?(
+        "The microphone changed. Dictation stopped; your note is still here.",
+        fields.merging(["where": "audio_route"]) { _, new in new })
+    }
+
+    nonisolated private static func reasonName(_ notification: Notification) -> String {
+      guard let raw = notification.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+        let reason = AVAudioSession.RouteChangeReason(rawValue: raw)
+      else { return "unknown" }
+      switch reason {
+      case .newDeviceAvailable: return "new_device_available"
+      case .oldDeviceUnavailable: return "old_device_unavailable"
+      case .categoryChange: return "category_change"
+      case .override: return "override"
+      case .wakeFromSleep: return "wake_from_sleep"
+      case .noSuitableRouteForCategory: return "no_suitable_route"
+      case .routeConfigurationChange: return "route_configuration_change"
+      case .unknown: return "unknown"
+      @unknown default: return "other_\(raw)"
+      }
     }
 
     private func configure(_ session: AVAudioSession) throws {
@@ -160,6 +203,8 @@ protocol DictationCapture: AnyObject {
         let (stream, continuation) = AsyncStream<Data>.makeStream(bufferingPolicy: .bufferingOldest(32))
         audio = continuation
         rebuilt = false
+        pickedInputID = preferredInputID
+        pickRebuilds = 0
         startedAt = ProcessInfo.processInfo.systemUptime
         try startEngine(continuation)
         return stream
@@ -199,7 +244,10 @@ protocol DictationCapture: AnyObject {
       let since = ProcessInfo.processInfo.systemUptime - startedAt
       let running = engine.isRunning
       let after = Self.shape(AVAudioSession.sharedInstance())
-      let action = DictationRules.engineChange(sinceStart: since, running: running, rebuilt: rebuilt, after: after)
+      let back = DictationRules.backOnPick(picked: pickedInputID, current: currentInputID, tapInput: inputAtStart)
+      let action = DictationRules.engineChange(
+        sinceStart: since, running: running, rebuilt: rebuilt, after: after, backOnPick: back,
+        pickRebuilds: pickRebuilds)
       let fields = DictationRules.engineChangeFields(
         sinceStart: since, thisEngine: thisEngine, running: running, before: shapeAtStart, after: after,
         action: action)
@@ -209,7 +257,7 @@ protocol DictationCapture: AnyObject {
       case .ignore: return
       case .fail: onFailure?(message, fields)
       case .rebuild:
-        rebuilt = true
+        if back { pickRebuilds += 1 } else { rebuilt = true }
         guard let audio else { onFailure?(message, fields); return }
         if engine.isRunning { engine.stop() }
         if tapInstalled { engine.inputNode.removeTap(onBus: 0); tapInstalled = false }
